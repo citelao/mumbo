@@ -9,9 +9,10 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-async fn connect_disconnect(server: String, port: u16) {
+async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
     log::info!("Attempting to connect to server {} on port {}", server, port);
-    let tcp = tokio::net::TcpStream::connect((server, port)).await;
+    let tcp = tokio::net::TcpStream::connect((server, port)).await.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

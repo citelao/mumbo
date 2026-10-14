@@ -36,6 +36,7 @@ function App() {
           await invoke("connect_disconnect", { server, port });
         } catch (error) {
           console.error(error);
+          alert("Failed to connect: " + error);
         }
       }}>
         Connect/Disconnect
