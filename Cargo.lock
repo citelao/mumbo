@@ -2064,6 +2064,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mumble-protocol"
+version = "0.1.0"
+
+[[package]]
 name = "mumbo"
 version = "0.1.0"
 dependencies = [
