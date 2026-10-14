@@ -1,3 +1,5 @@
+pub use prost::Message;
+
 pub mod mumble_proto {
     include!(concat!(env!("OUT_DIR"), "/mumble_proto.rs"));
 }

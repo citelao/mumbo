@@ -1,6 +1,7 @@
 use mumble_protocol::mumble_proto as proto;
+use mumble_protocol::Message;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
-use tokio;
+use tokio::{self, io::AsyncReadExt};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -11,7 +12,25 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
     log::info!("Attempting to connect to server {} on port {}", server, port);
-    let tcp = tokio::net::TcpStream::connect((server, port)).await.map_err(|e| e.to_string())?;
+    let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await.map_err(|e| e.to_string())?;
+    let (mut tcp_read, mut tcp_write) = tcp.into_split();
+    log::info!("Connected to server {} on port {}", server, port);
+
+    loop {
+        let msg_type = tcp_read.read_u16().await.map_err(|e| e.to_string())?;
+        let len = tcp_read.read_u32().await.map_err(|e| e.to_string())? as usize;
+        let mut payload = vec![0u8; len];
+        tcp_read.read_exact(&mut payload).await.map_err(|e| e.to_string())?;
+
+        let message = match msg_type {
+            0 => proto::Version::decode(&payload[..]).map_err(|e| e.to_string())?,
+            _ => return Err(format!("Unknown message type: {}", msg_type)),
+        };
+        log::info!("Received message: {:?}", message);
+
+        // Break after first message
+        break;
+    }
     Ok(())
 }
 
