@@ -13,7 +13,7 @@ mod AcceptAnyCert;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect_disconnect(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<String>) -> Result<(), String> {
+async fn connect_disconnect(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
     let raw = connect(server, port, password, name)
         .await
         .inspect_err(|e| log::error!("{e}"))
@@ -29,7 +29,7 @@ async fn connect_disconnect(app: AppHandle, server: String, port: u16, password:
             .inspect_err(|e| log::error!("{e}"))
             .map_err(|e| e.to_string())?;
         log::info!("Received message from server: {:?}", message);
-        channel.send(format!("{:?}", message)).map_err(|e| e.to_string())?;
+        channel.send(message).map_err(|e| e.to_string())?;
     }
     // Ok(())
 }

@@ -1,0 +1,167 @@
+[
+  {
+    "type": "Version",
+    "data": {
+      "version_v1": null,
+      "version_v2": null,
+      "release": null,
+      "os": null,
+      "os_version": null
+    }
+  },
+  {
+    "type": "UdpTunnel",
+    "data": {
+      "type": "Audio",
+      "data": {
+        "sender_session": 0,
+        "frame_number": 0,
+        "opus_data": [
+          1,
+          2
+        ],
+        "positional_data": [],
+        "volume_adjustment": 0.0,
+        "is_terminator": false,
+        "header": {
+          "Context": 2
+        }
+      }
+    }
+  },
+  {
+    "type": "UdpTunnel",
+    "data": {
+      "type": "Ping",
+      "data": {
+        "timestamp": 0,
+        "request_extended_information": false,
+        "server_version_v2": 0,
+        "user_count": 0,
+        "max_user_count": 0,
+        "max_bandwidth_per_user": 0
+      }
+    }
+  },
+  {
+    "type": "Reject",
+    "data": {
+      "type": null,
+      "reason": null
+    }
+  },
+  {
+    "type": "ServerSync",
+    "data": {
+      "session": null,
+      "max_bandwidth": null,
+      "welcome_text": null,
+      "permissions": null
+    }
+  },
+  {
+    "type": "ChannelRemove",
+    "data": {
+      "channel_id": 0
+    }
+  },
+  {
+    "type": "ChannelState",
+    "data": {
+      "channel_id": null,
+      "parent": null,
+      "name": null,
+      "links": [],
+      "description": null,
+      "links_add": [],
+      "links_remove": [],
+      "temporary": null,
+      "position": null,
+      "description_hash": null,
+      "max_users": null,
+      "is_enter_restricted": null,
+      "can_enter": null
+    }
+  },
+  {
+    "type": "UserRemove",
+    "data": {
+      "session": 0,
+      "actor": null,
+      "reason": null,
+      "ban": null
+    }
+  },
+  {
+    "type": "UserState",
+    "data": {
+      "session": null,
+      "actor": null,
+      "name": null,
+      "user_id": null,
+      "channel_id": null,
+      "mute": null,
+      "deaf": null,
+      "suppress": null,
+      "self_mute": null,
+      "self_deaf": null,
+      "texture": [
+        255
+      ],
+      "plugin_context": null,
+      "plugin_identity": null,
+      "comment": null,
+      "hash": null,
+      "comment_hash": null,
+      "texture_hash": null,
+      "priority_speaker": null,
+      "recording": null,
+      "temporary_access_tokens": [],
+      "listening_channel_add": [],
+      "listening_channel_remove": [],
+      "listening_volume_adjustment": [
+        {
+          "listening_channel": null,
+          "volume_adjustment": null
+        }
+      ]
+    }
+  },
+  {
+    "type": "CryptSetup",
+    "data": {
+      "key": null,
+      "client_nonce": null,
+      "server_nonce": null
+    }
+  },
+  {
+    "type": "PermissionQuery",
+    "data": {
+      "channel_id": null,
+      "permissions": null,
+      "flush": null
+    }
+  },
+  {
+    "type": "CodecVersion",
+    "data": {
+      "alpha": 0,
+      "beta": 0,
+      "prefer_alpha": true,
+      "opus": null
+    }
+  },
+  {
+    "type": "ServerConfig",
+    "data": {
+      "max_bandwidth": null,
+      "welcome_text": null,
+      "allow_html": null,
+      "message_length": null,
+      "image_message_length": null,
+      "max_users": null,
+      "recording_allowed": null
+    }
+  }
+]

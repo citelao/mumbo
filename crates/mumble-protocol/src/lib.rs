@@ -43,7 +43,8 @@ impl TcpMessageId for raw::ServerConfig { const TYPE_ID: u16 = 24; }
 impl TcpMessageId for raw::SuggestConfig { const TYPE_ID: u16 = 25; }
 impl TcpMessageId for raw::PluginDataTransmission { const TYPE_ID: u16 = 26; }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum ServerToClientUdpMessage {
     Audio(raw_udp::Audio),
     Ping(raw_udp::Ping),
@@ -56,7 +57,8 @@ pub trait UdpMessageId: prost::Message + Default {
 impl UdpMessageId for raw_udp::Audio { const TYPE_ID: u8 = 0; }
 impl UdpMessageId for raw_udp::Ping { const TYPE_ID: u8 = 1; }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum ServerToClientMessage {
     Version(raw::Version),
     UdpTunnel(ServerToClientUdpMessage),
@@ -102,7 +104,8 @@ impl ServerToClientMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum ClientToServerMessage {
     Version(raw::Version),
     Authenticate(raw::Authenticate),
@@ -131,6 +134,66 @@ mod tests {
     fn it_works() {
         let result = add(2, 2);
         assert_eq!(result, 4);
+    }
+
+    // One sample of every variant. src/protocol.test.ts parses the same fixture
+    // with the zod schema, so drift on either side fails a test.
+    #[test]
+    fn server_messages_match_shared_fixture() {
+        let samples = vec![
+            ServerToClientMessage::Version(Default::default()),
+            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(raw_udp::Audio {
+                header: Some(raw_udp::audio::Header::Context(2)),
+                opus_data: vec![1, 2],
+                ..Default::default()
+            })),
+            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(Default::default())),
+            ServerToClientMessage::Reject(Default::default()),
+            ServerToClientMessage::ServerSync(Default::default()),
+            ServerToClientMessage::ChannelRemove(Default::default()),
+            ServerToClientMessage::ChannelState(Default::default()),
+            ServerToClientMessage::UserRemove(Default::default()),
+            ServerToClientMessage::UserState(raw::UserState {
+                listening_volume_adjustment: vec![Default::default()],
+                texture: Some(vec![255]),
+                ..Default::default()
+            }),
+            ServerToClientMessage::CryptSetup(Default::default()),
+            ServerToClientMessage::PermissionQuery(Default::default()),
+            ServerToClientMessage::CodecVersion(Default::default()),
+            ServerToClientMessage::ServerConfig(Default::default()),
+        ];
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/server_to_client_messages.json")).unwrap();
+
+        assert_eq!(serde_json::to_value(&samples).unwrap(), fixture);
+    }
+
+    // The TS side (src/protocol.ts) parses this exact shape with zod.
+    #[test]
+    fn server_message_serializes_as_tagged_json() {
+        let message = ServerToClientMessage::Reject(raw::Reject {
+            r#type: Some(raw::reject::RejectType::WrongUserPw as i32),
+            reason: None,
+        });
+
+        assert_eq!(
+            serde_json::to_value(&message).unwrap(),
+            serde_json::json!({ "type": "Reject", "data": { "type": 3, "reason": null } }),
+        );
+    }
+
+    #[test]
+    fn udp_tunnel_message_serializes_nested_tag() {
+        let message = ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping {
+            timestamp: 1,
+            ..Default::default()
+        }));
+
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["type"], "UdpTunnel");
+        assert_eq!(json["data"]["type"], "Ping");
+        assert_eq!(json["data"]["data"]["timestamp"], 1);
     }
 
     #[test]
