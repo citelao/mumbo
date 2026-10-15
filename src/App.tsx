@@ -24,7 +24,16 @@ function App() {
       </section>
 
       {/* Form for connection */}
-      <form className="connection-form">
+      <form className="connection-form" 
+        onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            await invoke("connect_disconnect", { server, port, password, name });
+          } catch (error) {
+            console.error(error);
+            alert("Failed to connect: " + error);
+          }
+        }}>
         <label>
           Server
           <input placeholder="Server" value={server} onChange={(e) => setServer(e.target.value)} />
@@ -42,14 +51,7 @@ function App() {
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <br />
-        <button type="submit" onClick={async () => {
-          try {
-            await invoke("connect_disconnect", { server, port, password, name });
-          } catch (error) {
-            console.error(error);
-            alert("Failed to connect: " + error);
-          }
-        }}>
+        <button type="submit">
           Connect/Disconnect
         </button>
       </form>
