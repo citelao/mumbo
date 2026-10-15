@@ -11,11 +11,15 @@ pub mod mumble_proto {
     }
 
     impl TcpMessageId for raw::Version { const TYPE_ID: u16 = 0; }
+    impl TcpMessageId for raw::UdpTunnel { const TYPE_ID: u16 = 1; }
     impl TcpMessageId for raw::Authenticate { const TYPE_ID: u16 = 2; }
+    impl TcpMessageId for raw::Ping { const TYPE_ID: u16 = 3; }
+    impl TcpMessageId for raw::Reject { const TYPE_ID: u16 = 4; }
 
     #[derive(Debug)]
     pub enum ServerToClientMessage {
         Version(raw::Version),
+        Reject(raw::Reject),
     }
 
     #[derive(Debug)]

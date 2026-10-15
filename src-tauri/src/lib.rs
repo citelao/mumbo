@@ -111,6 +111,7 @@ async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<p
 
     let message = match msg_type {
         0 => proto::ServerToClientMessage::Version(proto::raw::Version::decode(&payload[..])?),
+        4 => proto::ServerToClientMessage::Reject(proto::raw::Reject::decode(&payload[..])?),
         _ => {
             log::warn!("Unknown message type: {} (size: {})", msg_type, len);
             return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len)));
