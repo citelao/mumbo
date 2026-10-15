@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import "./App.css";
 
 function App() {
@@ -8,6 +8,11 @@ function App() {
   const [server, setServer] = useState("warmitup.chat");
   const [port, setPort] = useState(64738);
   const [password, setPassword] = useState("");
+
+  const foo = new Channel<number>();
+  foo.onmessage = (event) => {
+    console.log("Received message:", event);
+  }
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -24,7 +29,7 @@ function App() {
       </section>
 
       {/* Form for connection */}
-      <form className="connection-form" 
+      <form className="connection-form"
         onSubmit={async (e) => {
           e.preventDefault();
           try {

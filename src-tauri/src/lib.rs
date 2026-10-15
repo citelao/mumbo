@@ -12,11 +12,6 @@ mod AcceptAnyCert;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-#[tauri::command]
 async fn connect_disconnect(server: String, port: u16, password: String, name: String) -> Result<(), String> {
     connect(server, port, password, name)
         .await
@@ -154,7 +149,7 @@ pub fn run() {
             .level_for("mumbo_lib", log::LevelFilter::Trace)
             .with_colors(ColoredLevelConfig::default())
             .build())
-        .invoke_handler(tauri::generate_handler![greet, connect_disconnect])
+        .invoke_handler(tauri::generate_handler![connect_disconnect])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
