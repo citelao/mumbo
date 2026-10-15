@@ -2,6 +2,7 @@ use std::io::Error;
 
 use mumble_protocol as proto;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
+use tauri::{AppHandle, ipc::Channel};
 use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
@@ -12,15 +13,33 @@ mod AcceptAnyCert;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect_disconnect(server: String, port: u16, password: String, name: String) -> Result<(), String> {
-    connect(server, port, password, name)
+async fn connect_disconnect(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<String>) -> Result<(), String> {
+    let raw = connect(server, port, password, name)
         .await
         .inspect_err(|e| log::error!("{e}"))
         .map_err(|e| e.to_string())?;
-    Ok(())
+
+    let mut tcp_read = raw.tcp_read;
+    let mut tcp_write = raw.tcp_write;
+
+    // TODO: extract read loop.
+    loop {
+        let message = read_message(&mut tcp_read)
+            .await
+            .inspect_err(|e| log::error!("{e}"))
+            .map_err(|e| e.to_string())?;
+        log::info!("Received message from server: {:?}", message);
+        channel.send(format!("{:?}", message)).map_err(|e| e.to_string())?;
+    }
+    // Ok(())
 }
 
-async fn connect(server: String, port: u16, password: String, name: String) -> Result<(), Error> {
+struct RawConnection {
+    tcp_read: ReadHalf<TlsStream<TcpStream>>,
+    tcp_write: WriteHalf<TlsStream<TcpStream>>,
+}
+
+async fn connect(server: String, port: u16, password: String, name: String) -> Result<RawConnection, Error> {
     // Connection process:
     //
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/establishing_connection.md
@@ -108,15 +127,10 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
     }
     log::info!("Handshake complete!");
 
-    // write_message(&mut tcp_write, proto::ClientToServerMessage::Ping(proto::raw::Ping {
-        
-    // }));
-
-    loop {
-        let message = read_message(&mut tcp_read).await?;
-        log::info!("Received message from server: {:?}", message);
-    }
-    // Ok(())
+    Ok(RawConnection {
+        tcp_read,
+        tcp_write,
+    })
 }
 
 async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: proto::ClientToServerMessage) -> Result<(), Error> {

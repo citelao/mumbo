@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import "./App.css";
 
 function App() {
@@ -8,10 +8,14 @@ function App() {
   const [port, setPort] = useState(64738);
   const [password, setPassword] = useState("");
 
-  // const foo = new Channel<number>();
-  // foo.onmessage = (event) => {
-  //   console.log("Received message:", event);
-  // }
+  const [channel, setChannel] = useState<Channel<string> | null>(new Channel<string>());
+  useEffect(() => {
+    if (channel) {
+      channel.onmessage = (event) => {
+        console.log("Received message:", event);
+      };
+    }
+  }, [channel]);
 
   return (
     <main className="container">
@@ -28,7 +32,7 @@ function App() {
           e.preventDefault();
           try {
             // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-            await invoke("connect_disconnect", { server, port, password, name });
+            await invoke("connect_disconnect", { server, port, password, name, channel });
           } catch (error) {
             console.error(error);
             alert("Failed to connect: " + error);
