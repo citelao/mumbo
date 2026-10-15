@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn create_authenticate_message() {
-        let foo = super::mumble_proto::raw::Authenticate {
+        let foo = super::raw::Authenticate {
             celt_versions: vec![],
             client_type: 0.into(),
             opus: false.into(),
