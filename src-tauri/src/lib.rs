@@ -1,14 +1,12 @@
 use std::io::Error;
 
-use mumble_protocol::mumble_proto as proto;
-use mumble_protocol::Message;
+use mumble_protocol as proto;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::io::ReadHalf;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
 use tokio_rustls::client::TlsStream;
-use mumble_protocol::mumble_proto::TcpMessageId;
 
 mod AcceptAnyCert;
 
