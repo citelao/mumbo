@@ -91,20 +91,20 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
 
     while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_none() {
         let message = read_message(&mut tcp_read).await?;
-        match message {
+        match &message {
             proto::ServerToClientMessage::Reject(m) => {
                 log::error!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason());
                 return Err(Error::other(format!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason())));
             }
-            proto::ServerToClientMessage::CryptSetup(m) => cryptSetup = Some(m),
-            proto::ServerToClientMessage::CodecVersion(m) => codecVersion = Some(m),
-            proto::ServerToClientMessage::ChannelState(m) => channelState = Some(m),
+            proto::ServerToClientMessage::CryptSetup(m) => cryptSetup = Some(m.clone()),
+            proto::ServerToClientMessage::CodecVersion(m) => codecVersion = Some(m.clone()),
+            proto::ServerToClientMessage::ChannelState(m) => channelState = Some(m.clone()),
             _ => {
                 log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
                 return Err(Error::other(format!("Unexpected message while waiting for setup messages: {:?}", message)));
             }
         }
-        log::info!("Handshake progress: cryptSetup={:?}, codecVersion={:?}, channelState={:?}", cryptSetup, codecVersion, channelState);
+        log::info!("Handshake message: {:?}", message);
     }
     log::info!("Handshake complete!");
 
