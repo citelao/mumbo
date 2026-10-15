@@ -83,19 +83,30 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
     write_message(&mut tcp_write, proto::ClientToServerMessage::Authenticate(authenticate)).await?;
     log::info!("Authenticate message sent to server");
 
-    let response = read_message(&mut tcp_read).await?;
-    match response {
-        proto::ServerToClientMessage::Reject(reject) => {
-            log::error!("Received reject message from server: {:?}", reject);
-            return Err(Error::other(format!("Server rejected authentication: {} - {}", reject.r#type().as_str_name(), reject.reason())));
+    // We need a bunch of setup messages, which should arrive in order, but no
+    // need to be precise:
+    let mut cryptSetup: Option<proto::raw::CryptSetup> = None;
+    let mut codecVersion: Option<proto::raw::CodecVersion> = None;
+    let mut channelState: Option<proto::raw::ChannelState> = None;
+
+    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_none() {
+        let message = read_message(&mut tcp_read).await?;
+        match message {
+            proto::ServerToClientMessage::Reject(m) => {
+                log::error!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason());
+                return Err(Error::other(format!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason())));
+            }
+            proto::ServerToClientMessage::CryptSetup(m) => cryptSetup = Some(m),
+            proto::ServerToClientMessage::CodecVersion(m) => codecVersion = Some(m),
+            proto::ServerToClientMessage::ChannelState(m) => channelState = Some(m),
+            _ => {
+                log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
+                return Err(Error::other(format!("Unexpected message while waiting for setup messages: {:?}", message)));
+            }
         }
-        proto::ServerToClientMessage::CryptSetup(crypt_setup) => {
-            log::info!("Received crypt setup message from server: {:?}", crypt_setup);
-        }
-        _ => {
-            log::warn!("Received unexpected message from server: {:?}", response);
-        }
+        log::info!("Handshake progress: cryptSetup={:?}, codecVersion={:?}, channelState={:?}", cryptSetup, codecVersion, channelState);
     }
+    log::info!("Handshake complete!");
 
     loop {
         let message = read_message(&mut tcp_read).await?;
