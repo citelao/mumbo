@@ -1,6 +1,5 @@
 use std::io::Error;
 
-use mumble_protocol::mumble_proto::context_action_modify::Context::Server;
 use mumble_protocol::mumble_proto as proto;
 use mumble_protocol::Message;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
@@ -9,6 +8,7 @@ use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
 use tokio_rustls::client::TlsStream;
+use mumble_protocol::mumble_proto::TcpMessageId;
 
 mod AcceptAnyCert;
 
@@ -22,17 +22,6 @@ fn greet(name: &str) -> String {
 async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
     connect(server, port).await.map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[derive(Debug)]
-pub enum ServerToClientMessage {
-    Version(proto::Version),
-}
-
-#[derive(Debug)]
-pub enum ClientToServerMessage {
-    Version(proto::Version),
-    Authenticate(proto::Authenticate),
 }
 
 async fn connect(server: String, port: u16) -> Result<(), Error> {
@@ -50,7 +39,7 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     let our_version: u32 = (major << 16) | (minor << 8) | patch;
     let our_version_v2: u64 = (u64::from(major) << 48) | (u64::from(minor) << 32) | (u64::from(patch) << 16);
 
-    let version = proto::Version {
+    let version = proto::raw::Version {
         // not necessary, but nice
         os: Some(std::env::consts::OS.into()),
         release: Some("mumbo 0.1.0".into()),
@@ -60,7 +49,7 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
         version_v1: Some(our_version),
         version_v2: Some(our_version_v2),
     };
-    let version_message = ClientToServerMessage::Version(version);
+    let version_message = proto::ClientToServerMessage::Version(version);
     let send_promise = write_message(&mut tcp_write, version_message);
 
     // Wait for the server's version message.
@@ -71,7 +60,7 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     // Some("1.5.901"), os: Some("Linux"), os_version: Some("Ubuntu 24.04.4 LTS
     // [arm64]") }
     // ```
-    let ServerToClientMessage::Version(version) = read_message(&mut tcp_read).await? else {
+    let proto::ServerToClientMessage::Version(version) = read_message(&mut tcp_read).await? else {
         return Err(Error::other("Expected version message from server"))
     };
     log::info!("Received version message: {:?}", version);
@@ -79,7 +68,7 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     send_promise.await?;
     log::info!("Version message sent to server");
 
-    let authenticate = proto::Authenticate {
+    let authenticate = proto::raw::Authenticate {
         username: Some("citelao_test".into()),
         password: Some("password123".into()),
 
@@ -91,7 +80,7 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
         opus: Some(true),
         client_type: Some(0),
     };
-    write_message(&mut tcp_write, ClientToServerMessage::Authenticate(authenticate)).await?;
+    write_message(&mut tcp_write, proto::ClientToServerMessage::Authenticate(authenticate)).await?;
     log::info!("Authenticate message sent to server");
 
     loop {
@@ -101,12 +90,12 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     // Ok(())
 }
 
-async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: ClientToServerMessage) -> Result<(), Error> {
+async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: proto::ClientToServerMessage) -> Result<(), Error> {
     // IDs:
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/protocol_stack_tcp.md
     let (msg_type, payload) = match message {
-        ClientToServerMessage::Version(version) => (0u16, proto::Version::encode_to_vec(&version)),
-        ClientToServerMessage::Authenticate(a) => (2u16, proto::Authenticate::encode_to_vec(&a)),
+        proto::ClientToServerMessage::Version(version) => (proto::raw::Version::TYPE_ID, proto::raw::Version::encode_to_vec(&version)),
+        proto::ClientToServerMessage::Authenticate(a) => (proto::raw::Authenticate::TYPE_ID, proto::raw::Authenticate::encode_to_vec(&a)),
     };
     tcp_write.write_u16(msg_type).await?;
     tcp_write.write_u32(payload.len() as u32).await?;
@@ -114,14 +103,14 @@ async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message:
     Ok(())
 }
 
-async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<ServerToClientMessage, Error> {
+async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<proto::ServerToClientMessage, Error> {
     let msg_type = tcp_read.read_u16().await?;
     let len = tcp_read.read_u32().await? as usize;
     let mut payload = vec![0u8; len];
     tcp_read.read_exact(&mut payload).await?;
 
     let message = match msg_type {
-        0 => ServerToClientMessage::Version(proto::Version::decode(&payload[..])?),
+        0 => proto::ServerToClientMessage::Version(proto::raw::Version::decode(&payload[..])?),
         _ => {
             log::warn!("Unknown message type: {} (size: {})", msg_type, len);
             return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len)));

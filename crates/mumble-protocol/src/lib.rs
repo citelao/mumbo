@@ -1,7 +1,28 @@
 pub use prost::Message;
 
 pub mod mumble_proto {
-    include!(concat!(env!("OUT_DIR"), "/mumble_proto.rs"));
+
+    pub mod raw {
+        include!(concat!(env!("OUT_DIR"), "/mumble_proto.rs"));
+    }
+
+    pub trait TcpMessageId: prost::Message + Default {
+        const TYPE_ID: u16;
+    }
+
+    impl TcpMessageId for raw::Version { const TYPE_ID: u16 = 0; }
+    impl TcpMessageId for raw::Authenticate { const TYPE_ID: u16 = 2; }
+
+    #[derive(Debug)]
+    pub enum ServerToClientMessage {
+        Version(raw::Version),
+    }
+
+    #[derive(Debug)]
+    pub enum ClientToServerMessage {
+        Version(raw::Version),
+        Authenticate(raw::Authenticate),
+    }
 }
 
 pub mod mumble_udp {
