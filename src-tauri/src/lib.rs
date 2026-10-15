@@ -1,7 +1,13 @@
+use std::io::Error;
+
+use mumble_protocol::mumble_proto::context_action_modify::Context::Server;
 use mumble_protocol::mumble_proto as proto;
 use mumble_protocol::Message;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
+use tokio::io::ReadHalf;
+use tokio::net::TcpStream;
 use tokio::{self, io::AsyncReadExt};
+use tokio_rustls::client::TlsStream;
 
 mod AcceptAnyCert;
 
@@ -13,31 +19,58 @@ fn greet(name: &str) -> String {
 
 #[tauri::command]
 async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
-    log::info!("Attempting to connect to server {} on port {}", server, port);
-    let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(|e| e.to_string())?;
-    let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await.map_err(|e| e.to_string())?;
-    let tls = AcceptAnyCert::make_connector().map_err(|e| e.to_string())?
-        .connect(server_name, tcp)
-        .await.map_err(|e| e.to_string())?;
-    let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
-    log::info!("Connected to server {} on port {}", server, port);
-
-    loop {
-        let msg_type = tcp_read.read_u16().await.map_err(|e| e.to_string())?;
-        let len = tcp_read.read_u32().await.map_err(|e| e.to_string())? as usize;
-        let mut payload = vec![0u8; len];
-        tcp_read.read_exact(&mut payload).await.map_err(|e| e.to_string())?;
-
-        let message = match msg_type {
-            0 => proto::Version::decode(&payload[..]).map_err(|e| e.to_string())?,
-            _ => return Err(format!("Unknown message type: {}", msg_type)),
-        };
-        log::info!("Received message: {:?}", message);
-
-        // Break after first message
-        break;
-    }
+    connect(server, port).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[derive(Debug)]
+pub enum ServerToClientMessage {
+    Version(proto::Version)
+}
+
+#[derive(Debug)]
+pub enum ClientToServerMessage {
+    Version(proto::Version)
+}
+
+async fn connect(server: String, port: u16) -> Result<(), Error> {
+    log::info!("Connecting to server {} on port {}", server, port);
+    let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(Error::other)?;
+    let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await?;
+    let tls = AcceptAnyCert::make_connector().map_err(Error::other)?
+        .connect(server_name, tcp)
+        .await?;
+    let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
+    log::trace!("TCP and TLS connection established with server {} on port {}", server, port);
+
+    // Wait for the version message.
+    // TODO: send version message.
+    //
+    // ```
+    // [2026-10-15][01:44:44][INFO][mumbo_lib] Received version message: Version
+    // { version_v1: Some(67071), version_v2: Some(281496510595072), release:
+    // Some("1.5.901"), os: Some("Linux"), os_version: Some("Ubuntu 24.04.4 LTS
+    // [arm64]") }
+    // ```
+    let ServerToClientMessage::Version(version) = read_message(&mut tcp_read).await? else {
+        return Err(Error::other("Expected version message from server"))
+    };
+    log::info!("Received version message: {:?}", version);
+
+    Ok(())
+}
+
+async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<ServerToClientMessage, Error> {
+    let msg_type = tcp_read.read_u16().await?;
+    let len = tcp_read.read_u32().await? as usize;
+    let mut payload = vec![0u8; len];
+    tcp_read.read_exact(&mut payload).await?;
+
+    let message = match msg_type {
+        0 => ServerToClientMessage::Version(proto::Version::decode(&payload[..])?),
+        _ => return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len))),
+    };
+    Ok(message)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
