@@ -137,6 +137,7 @@ async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message:
 }
 
 async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<proto::ServerToClientMessage, Error> {
+    // TODO: throw a nice error if our connection gets closed because we didn't ping every 30s.
     let msg_type = tcp_read.read_u16().await?;
     let len = tcp_read.read_u32().await? as usize;
     let mut payload = vec![0u8; len];
