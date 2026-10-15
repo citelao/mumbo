@@ -1,23 +1,17 @@
 import { useState } from "react";
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("besto_testo");
   const [server, setServer] = useState("warmitup.chat");
   const [port, setPort] = useState(64738);
   const [password, setPassword] = useState("");
 
-  const foo = new Channel<number>();
-  foo.onmessage = (event) => {
-    console.log("Received message:", event);
-  }
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  // const foo = new Channel<number>();
+  // foo.onmessage = (event) => {
+  //   console.log("Received message:", event);
+  // }
 
   return (
     <main className="container">
@@ -33,6 +27,7 @@ function App() {
         onSubmit={async (e) => {
           e.preventDefault();
           try {
+            // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
             await invoke("connect_disconnect", { server, port, password, name });
           } catch (error) {
             console.error(error);
