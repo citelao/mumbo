@@ -83,6 +83,17 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     write_message(&mut tcp_write, proto::ClientToServerMessage::Authenticate(authenticate)).await?;
     log::info!("Authenticate message sent to server");
 
+    let response = read_message(&mut tcp_read).await?;
+    match response {
+        proto::ServerToClientMessage::Reject(reject) => {
+            log::error!("Received reject message from server: {:?}", reject);
+            return Err(Error::other(format!("Server rejected authentication: {} - {}", reject.r#type().as_str_name(), reject.reason())));
+        }
+        _ => {
+            log::warn!("Received unexpected message from server: {:?}", response);
+        }
+    }
+
     loop {
         let message = read_message(&mut tcp_read).await?;
         log::info!("Received message from server: {:?}", message);
