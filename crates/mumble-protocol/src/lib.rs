@@ -20,9 +20,11 @@ impl TcpMessageId for raw::Authenticate { const TYPE_ID: u16 = 2; }
 impl TcpMessageId for raw::Ping { const TYPE_ID: u16 = 3; }
 impl TcpMessageId for raw::Reject { const TYPE_ID: u16 = 4; }
 impl TcpMessageId for raw::ServerSync { const TYPE_ID: u16 = 5; }
-
+impl TcpMessageId for raw::ChannelRemove { const TYPE_ID: u16 = 6; }
 impl TcpMessageId for raw::ChannelState { const TYPE_ID: u16 = 7; }
+impl TcpMessageId for raw::UserRemove { const TYPE_ID: u16 = 8; }
 impl TcpMessageId for raw::UserState { const TYPE_ID: u16 = 9; }
+
 impl TcpMessageId for raw::CryptSetup { const TYPE_ID: u16 = 15; }
 impl TcpMessageId for raw::PermissionQuery { const TYPE_ID: u16 = 20; }
 impl TcpMessageId for raw::CodecVersion { const TYPE_ID: u16 = 21; }
@@ -47,7 +49,9 @@ pub enum ServerToClientMessage {
     UdpTunnel(ServerToClientUdpMessage),
     Reject(raw::Reject),
     ServerSync(raw::ServerSync),
+    ChannelRemove(raw::ChannelRemove),
     ChannelState(raw::ChannelState),
+    UserRemove(raw::UserRemove),
     UserState(raw::UserState),
     CryptSetup(raw::CryptSetup),
     PermissionQuery(raw::PermissionQuery),
@@ -68,8 +72,10 @@ impl ServerToClientMessage {
                 }
             },
             raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(&payload[..])?),
+            raw::ChannelRemove::TYPE_ID => ServerToClientMessage::ChannelRemove(raw::ChannelRemove::decode(&payload[..])?),
             raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(&payload[..])?),
             raw::ServerSync::TYPE_ID => ServerToClientMessage::ServerSync(raw::ServerSync::decode(&payload[..])?),
+            raw::UserRemove::TYPE_ID => ServerToClientMessage::UserRemove(raw::UserRemove::decode(&payload[..])?),
             raw::UserState::TYPE_ID => ServerToClientMessage::UserState(raw::UserState::decode(&payload[..])?),
             raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(&payload[..])?),
             raw::PermissionQuery::TYPE_ID => ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(&payload[..])?),
