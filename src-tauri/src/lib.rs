@@ -20,11 +20,17 @@ fn greet(name: &str) -> String {
 
 #[tauri::command]
 async fn connect_disconnect(server: String, port: u16, password: String, name: String) -> Result<(), String> {
-    connect(server, port, password, name).await.map_err(|e| e.to_string())?;
+    connect(server, port, password, name)
+        .await
+        .inspect_err(|e| log::error!("{e}"))
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 async fn connect(server: String, port: u16, password: String, name: String) -> Result<(), Error> {
+    // Connection process:
+    //
+    // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/establishing_connection.md
     log::info!("Connecting to server {} on port {}", server, port);
     let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(Error::other)?;
     let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await?;
@@ -88,8 +94,9 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
     let mut cryptSetup: Option<proto::raw::CryptSetup> = None;
     let mut codecVersion: Option<proto::raw::CodecVersion> = None;
     let mut channelState: Option<proto::raw::ChannelState> = None;
+    let mut userState: Option<proto::raw::UserState> = None;
 
-    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_none() {
+    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_none() || userState.is_none() {
         let message = read_message(&mut tcp_read).await?;
         match &message {
             proto::ServerToClientMessage::Reject(m) => {
@@ -99,14 +106,18 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
             proto::ServerToClientMessage::CryptSetup(m) => cryptSetup = Some(m.clone()),
             proto::ServerToClientMessage::CodecVersion(m) => codecVersion = Some(m.clone()),
             proto::ServerToClientMessage::ChannelState(m) => channelState = Some(m.clone()),
+            proto::ServerToClientMessage::UserState(m) => userState = Some(m.clone()),
             _ => {
                 log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
-                return Err(Error::other(format!("Unexpected message while waiting for setup messages: {:?}", message)));
             }
         }
         log::info!("Handshake message: {:?}", message);
     }
     log::info!("Handshake complete!");
+
+    // write_message(&mut tcp_write, proto::ClientToServerMessage::Ping(proto::raw::Ping {
+        
+    // }));
 
     loop {
         let message = read_message(&mut tcp_read).await?;
@@ -118,10 +129,7 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
 async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: proto::ClientToServerMessage) -> Result<(), Error> {
     // IDs:
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/protocol_stack_tcp.md
-    let (msg_type, payload) = match message {
-        proto::ClientToServerMessage::Version(version) => (proto::raw::Version::TYPE_ID, proto::raw::Version::encode_to_vec(&version)),
-        proto::ClientToServerMessage::Authenticate(a) => (proto::raw::Authenticate::TYPE_ID, proto::raw::Authenticate::encode_to_vec(&a)),
-    };
+    let (msg_type, payload) = message.encode()?;
     tcp_write.write_u16(msg_type).await?;
     tcp_write.write_u32(payload.len() as u32).await?;
     tcp_write.write_all(&payload).await?;
