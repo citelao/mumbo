@@ -123,17 +123,7 @@ async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<p
     let mut payload = vec![0u8; len];
     tcp_read.read_exact(&mut payload).await?;
 
-    let message = match msg_type {
-        proto::raw::Version::TYPE_ID => proto::ServerToClientMessage::Version(proto::raw::Version::decode(&payload[..])?),
-        proto::raw::Reject::TYPE_ID => proto::ServerToClientMessage::Reject(proto::raw::Reject::decode(&payload[..])?),
-        proto::raw::CryptSetup::TYPE_ID => proto::ServerToClientMessage::CryptSetup(proto::raw::CryptSetup::decode(&payload[..])?),
-        proto::raw::CodecVersion::TYPE_ID => proto::ServerToClientMessage::CodecVersion(proto::raw::CodecVersion::decode(&payload[..])?),
-        proto::raw::ChannelState::TYPE_ID => proto::ServerToClientMessage::ChannelState(proto::raw::ChannelState::decode(&payload[..])?),
-        _ => {
-            log::warn!("Unknown message type: {} (size: {})", msg_type, len);
-            return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len)));
-        }
-    };
+    let message = proto::ServerToClientMessage::decode(msg_type, &payload[..])?;
     Ok(message)
 }
 

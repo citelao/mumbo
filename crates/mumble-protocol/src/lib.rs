@@ -1,6 +1,9 @@
 pub use prost::Message;
 
 pub mod mumble_proto {
+    use std::io::Error;
+    use prost::bytes::Buf;
+    use prost::Message;
 
     pub mod raw {
         include!(concat!(env!("OUT_DIR"), "/mumble_proto.rs"));
@@ -27,6 +30,22 @@ pub mod mumble_proto {
         CryptSetup(raw::CryptSetup),
         CodecVersion(raw::CodecVersion),
         ChannelState(raw::ChannelState),
+    }
+
+    impl ServerToClientMessage {
+        pub fn decode(msg_type: u16, mut payload: &[u8]) -> Result<ServerToClientMessage, Error> {
+            let message = match msg_type {
+                raw::Version::TYPE_ID => ServerToClientMessage::Version(raw::Version::decode(&payload[..])?),
+                raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(&payload[..])?),
+                raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(&payload[..])?),
+                raw::CodecVersion::TYPE_ID => ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(&payload[..])?),
+                raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(&payload[..])?),
+                _ => {
+                    return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, payload.len())));
+                }
+            };
+            Ok(message)
+        }
     }
 
     #[derive(Debug)]
