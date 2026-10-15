@@ -5,8 +5,9 @@ use mumble_protocol::mumble_proto as proto;
 use mumble_protocol::Message;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::io::ReadHalf;
+use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
-use tokio::{self, io::AsyncReadExt};
+use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
 use tokio_rustls::client::TlsStream;
 
 mod AcceptAnyCert;
@@ -43,8 +44,25 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
     log::trace!("TCP and TLS connection established with server {} on port {}", server, port);
 
-    // Wait for the version message.
-    // TODO: send version message.
+    // Send a version message!
+    let (major, minor, patch) = (1u32, 5u32, 0u32);
+    let our_version: u32 = (major << 16) | (minor << 8) | patch;
+    let our_version_v2: u64 = (u64::from(major) << 48) | (u64::from(minor) << 32) | (u64::from(patch) << 16);
+
+    let version = proto::Version {
+        // not necessary, but nice
+        os: Some(std::env::consts::OS.into()),
+        release: Some("mumbo 0.1.0".into()),
+        os_version: None,
+
+        // required
+        version_v1: Some(our_version),
+        version_v2: Some(our_version_v2),
+    };
+    let version_message = ClientToServerMessage::Version(version);
+    let send_promise = write_message(&mut tcp_write, version_message);
+
+    // Wait for the server's version message.
     //
     // ```
     // [2026-10-15][01:44:44][INFO][mumbo_lib] Received version message: Version
@@ -57,6 +75,19 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     };
     log::info!("Received version message: {:?}", version);
 
+    send_promise.await?;
+    log::info!("Version message sent to server");
+
+    Ok(())
+}
+
+async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: ClientToServerMessage) -> Result<(), Error> {
+    let (msg_type, payload) = match message {
+        ClientToServerMessage::Version(version) => (0u16, proto::Version::encode_to_vec(&version)),
+    };
+    tcp_write.write_u16(msg_type).await?;
+    tcp_write.write_u32(payload.len() as u32).await?;
+    tcp_write.write_all(&payload).await?;
     Ok(())
 }
 
