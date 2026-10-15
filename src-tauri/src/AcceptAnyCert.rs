@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use rustls::client::danger::ServerCertVerified;
+use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 
 #[derive(Debug)]
 struct AcceptAnyCert(Arc<rustls::crypto::CryptoProvider>);

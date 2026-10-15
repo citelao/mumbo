@@ -17,7 +17,8 @@ async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
     let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(|e| e.to_string())?;
     let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await.map_err(|e| e.to_string())?;
     let tls = AcceptAnyCert::make_connector().map_err(|e| e.to_string())?
-        .connect(server_name, tcp);
+        .connect(server_name, tcp)
+        .await.map_err(|e| e.to_string())?;
     let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
     log::info!("Connected to server {} on port {}", server, port);
 
