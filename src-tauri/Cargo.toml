@@ -26,6 +26,8 @@ mumble-protocol = { path = "../crates/mumble-protocol" }
 tokio = { version = "1.53.3", features = ["net"] }
 log = "0.4.34"
 tauri-plugin-log = { version = "2.10.1", features = ["colored"] }
+tokio-rustls = "0.26.6"
+rustls = "0.23.46"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

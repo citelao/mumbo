@@ -3,6 +3,8 @@ use mumble_protocol::Message;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::{self, io::AsyncReadExt};
 
+mod AcceptAnyCert;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -12,8 +14,11 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
     log::info!("Attempting to connect to server {} on port {}", server, port);
+    let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(|e| e.to_string())?;
     let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await.map_err(|e| e.to_string())?;
-    let (mut tcp_read, mut tcp_write) = tcp.into_split();
+    let tls = AcceptAnyCert::make_connector().map_err(|e| e.to_string())?
+        .connect(server_name, tcp);
+    let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
     log::info!("Connected to server {} on port {}", server, port);
 
     loop {
