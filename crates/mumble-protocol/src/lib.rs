@@ -16,10 +16,17 @@ pub mod mumble_proto {
     impl TcpMessageId for raw::Ping { const TYPE_ID: u16 = 3; }
     impl TcpMessageId for raw::Reject { const TYPE_ID: u16 = 4; }
 
+    impl TcpMessageId for raw::ChannelState { const TYPE_ID: u16 = 7; }
+    impl TcpMessageId for raw::CryptSetup { const TYPE_ID: u16 = 15; }
+    impl TcpMessageId for raw::CodecVersion { const TYPE_ID: u16 = 21; }
+
     #[derive(Debug)]
     pub enum ServerToClientMessage {
         Version(raw::Version),
         Reject(raw::Reject),
+        CryptSetup(raw::CryptSetup),
+        CodecVersion(raw::CodecVersion),
+        ChannelState(raw::ChannelState),
     }
 
     #[derive(Debug)]

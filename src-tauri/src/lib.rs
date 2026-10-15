@@ -19,12 +19,12 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
-    connect(server, port).await.map_err(|e| e.to_string())?;
+async fn connect_disconnect(server: String, port: u16, password: String, name: String) -> Result<(), String> {
+    connect(server, port, password, name).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
-async fn connect(server: String, port: u16) -> Result<(), Error> {
+async fn connect(server: String, port: u16, password: String, name: String) -> Result<(), Error> {
     log::info!("Connecting to server {} on port {}", server, port);
     let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(Error::other)?;
     let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await?;
@@ -69,8 +69,8 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     log::info!("Version message sent to server");
 
     let authenticate = proto::raw::Authenticate {
-        username: Some("citelao_test".into()),
-        password: Some("password123".into()),
+        username: Some(name.into()),
+        password: Some(password.into()),
 
         // We don't support authentication tokens for now
         tokens: vec![],
@@ -88,6 +88,9 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
         proto::ServerToClientMessage::Reject(reject) => {
             log::error!("Received reject message from server: {:?}", reject);
             return Err(Error::other(format!("Server rejected authentication: {} - {}", reject.r#type().as_str_name(), reject.reason())));
+        }
+        proto::ServerToClientMessage::CryptSetup(crypt_setup) => {
+            log::info!("Received crypt setup message from server: {:?}", crypt_setup);
         }
         _ => {
             log::warn!("Received unexpected message from server: {:?}", response);
@@ -121,8 +124,11 @@ async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<p
     tcp_read.read_exact(&mut payload).await?;
 
     let message = match msg_type {
-        0 => proto::ServerToClientMessage::Version(proto::raw::Version::decode(&payload[..])?),
-        4 => proto::ServerToClientMessage::Reject(proto::raw::Reject::decode(&payload[..])?),
+        proto::raw::Version::TYPE_ID => proto::ServerToClientMessage::Version(proto::raw::Version::decode(&payload[..])?),
+        proto::raw::Reject::TYPE_ID => proto::ServerToClientMessage::Reject(proto::raw::Reject::decode(&payload[..])?),
+        proto::raw::CryptSetup::TYPE_ID => proto::ServerToClientMessage::CryptSetup(proto::raw::CryptSetup::decode(&payload[..])?),
+        proto::raw::CodecVersion::TYPE_ID => proto::ServerToClientMessage::CodecVersion(proto::raw::CodecVersion::decode(&payload[..])?),
+        proto::raw::ChannelState::TYPE_ID => proto::ServerToClientMessage::ChannelState(proto::raw::ChannelState::decode(&payload[..])?),
         _ => {
             log::warn!("Unknown message type: {} (size: {})", msg_type, len);
             return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len)));
