@@ -29,9 +29,22 @@ impl TcpMessageId for raw::CodecVersion { const TYPE_ID: u16 = 21; }
 impl TcpMessageId for raw::ServerConfig { const TYPE_ID: u16 = 24; }
 
 #[derive(Debug)]
+pub enum ServerToClientUdpMessage {
+    Audio(raw_udp::Audio),
+    Ping(raw_udp::Ping),
+}
+
+pub trait UdpMessageId: prost::Message + Default {
+    const TYPE_ID: u8;
+}
+
+impl UdpMessageId for raw_udp::Audio { const TYPE_ID: u8 = 0; }
+impl UdpMessageId for raw_udp::Ping { const TYPE_ID: u8 = 1; }
+
+#[derive(Debug)]
 pub enum ServerToClientMessage {
     Version(raw::Version),
-    UdpTunnel(raw::UdpTunnel),
+    UdpTunnel(ServerToClientUdpMessage),
     Reject(raw::Reject),
     ServerSync(raw::ServerSync),
     ChannelState(raw::ChannelState),
@@ -46,7 +59,14 @@ impl ServerToClientMessage {
     pub fn decode(msg_type: u16, payload: &[u8]) -> Result<ServerToClientMessage, Error> {
         let message = match msg_type {
             raw::Version::TYPE_ID => ServerToClientMessage::Version(raw::Version::decode(&payload[..])?),
-            raw::UdpTunnel::TYPE_ID => ServerToClientMessage::UdpTunnel(raw::UdpTunnel::decode(&payload[..])?),
+            raw::UdpTunnel::TYPE_ID => {
+                let (&udp_type, rest) = payload.split_first().ok_or_else(|| Error::new(std::io::ErrorKind::InvalidData, "Empty UDP payload"))?;
+                match udp_type {
+                    raw_udp::Audio::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(raw_udp::Audio::decode(&rest[..])?)),
+                    raw_udp::Ping::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping::decode(&rest[..])?)),
+                    _ => return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown UDP message type: {}", udp_type))),
+                }
+            },
             raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(&payload[..])?),
             raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(&payload[..])?),
             raw::ServerSync::TYPE_ID => ServerToClientMessage::ServerSync(raw::ServerSync::decode(&payload[..])?),
