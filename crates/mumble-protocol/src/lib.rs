@@ -24,11 +24,24 @@ impl TcpMessageId for raw::ChannelRemove { const TYPE_ID: u16 = 6; }
 impl TcpMessageId for raw::ChannelState { const TYPE_ID: u16 = 7; }
 impl TcpMessageId for raw::UserRemove { const TYPE_ID: u16 = 8; }
 impl TcpMessageId for raw::UserState { const TYPE_ID: u16 = 9; }
-
+impl TcpMessageId for raw::BanList { const TYPE_ID: u16 = 10; }
+impl TcpMessageId for raw::TextMessage { const TYPE_ID: u16 = 11; }
+impl TcpMessageId for raw::PermissionDenied { const TYPE_ID: u16 = 12; }
+impl TcpMessageId for raw::Acl { const TYPE_ID: u16 = 13; }
+impl TcpMessageId for raw::QueryUsers { const TYPE_ID: u16 = 14; }
 impl TcpMessageId for raw::CryptSetup { const TYPE_ID: u16 = 15; }
+
+impl TcpMessageId for raw::ContextActionModify { const TYPE_ID: u16 = 16; }
+impl TcpMessageId for raw::ContextAction { const TYPE_ID: u16 = 17; }
+impl TcpMessageId for raw::UserList { const TYPE_ID: u16 = 18; }
+impl TcpMessageId for raw::VoiceTarget { const TYPE_ID: u16 = 19; }
 impl TcpMessageId for raw::PermissionQuery { const TYPE_ID: u16 = 20; }
 impl TcpMessageId for raw::CodecVersion { const TYPE_ID: u16 = 21; }
+impl TcpMessageId for raw::UserStats { const TYPE_ID: u16 = 22; }
+impl TcpMessageId for raw::RequestBlob { const TYPE_ID: u16 = 23; }
 impl TcpMessageId for raw::ServerConfig { const TYPE_ID: u16 = 24; }
+impl TcpMessageId for raw::SuggestConfig { const TYPE_ID: u16 = 25; }
+impl TcpMessageId for raw::PluginDataTransmission { const TYPE_ID: u16 = 26; }
 
 #[derive(Debug)]
 pub enum ServerToClientUdpMessage {
