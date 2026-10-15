@@ -27,6 +27,7 @@ pub mod mumble_proto {
     impl TcpMessageId for raw::CryptSetup { const TYPE_ID: u16 = 15; }
     impl TcpMessageId for raw::PermissionQuery { const TYPE_ID: u16 = 20; }
     impl TcpMessageId for raw::CodecVersion { const TYPE_ID: u16 = 21; }
+    impl TcpMessageId for raw::ServerConfig { const TYPE_ID: u16 = 24; }
 
     #[derive(Debug)]
     pub enum ServerToClientMessage {
@@ -38,6 +39,7 @@ pub mod mumble_proto {
         CryptSetup(raw::CryptSetup),
         PermissionQuery(raw::PermissionQuery),
         CodecVersion(raw::CodecVersion),
+        ServerConfig(raw::ServerConfig),
     }
 
     impl ServerToClientMessage {
@@ -51,6 +53,7 @@ pub mod mumble_proto {
                 raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(&payload[..])?),
                 raw::PermissionQuery::TYPE_ID => ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(&payload[..])?),
                 raw::CodecVersion::TYPE_ID => ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(&payload[..])?),
+                raw::ServerConfig::TYPE_ID => ServerToClientMessage::ServerConfig(raw::ServerConfig::decode(&payload[..])?),
                 _ => {
                     return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, payload.len())));
                 }
