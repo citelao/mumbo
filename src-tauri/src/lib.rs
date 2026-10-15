@@ -26,12 +26,13 @@ async fn connect_disconnect(server: String, port: u16) -> Result<(), String> {
 
 #[derive(Debug)]
 pub enum ServerToClientMessage {
-    Version(proto::Version)
+    Version(proto::Version),
 }
 
 #[derive(Debug)]
 pub enum ClientToServerMessage {
-    Version(proto::Version)
+    Version(proto::Version),
+    Authenticate(proto::Authenticate),
 }
 
 async fn connect(server: String, port: u16) -> Result<(), Error> {
@@ -78,12 +79,34 @@ async fn connect(server: String, port: u16) -> Result<(), Error> {
     send_promise.await?;
     log::info!("Version message sent to server");
 
-    Ok(())
+    let authenticate = proto::Authenticate {
+        username: Some("citelao_test".into()),
+        password: Some("password123".into()),
+
+        // We don't support authentication tokens for now
+        tokens: vec![],
+
+        // Outdated params
+        celt_versions: vec![],
+        opus: Some(true),
+        client_type: Some(0),
+    };
+    write_message(&mut tcp_write, ClientToServerMessage::Authenticate(authenticate)).await?;
+    log::info!("Authenticate message sent to server");
+
+    loop {
+        let message = read_message(&mut tcp_read).await?;
+        log::info!("Received message from server: {:?}", message);
+    }
+    // Ok(())
 }
 
 async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: ClientToServerMessage) -> Result<(), Error> {
+    // IDs:
+    // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/protocol_stack_tcp.md
     let (msg_type, payload) = match message {
         ClientToServerMessage::Version(version) => (0u16, proto::Version::encode_to_vec(&version)),
+        ClientToServerMessage::Authenticate(a) => (2u16, proto::Authenticate::encode_to_vec(&a)),
     };
     tcp_write.write_u16(msg_type).await?;
     tcp_write.write_u32(payload.len() as u32).await?;
@@ -99,7 +122,10 @@ async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<S
 
     let message = match msg_type {
         0 => ServerToClientMessage::Version(proto::Version::decode(&payload[..])?),
-        _ => return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len))),
+        _ => {
+            log::warn!("Unknown message type: {} (size: {})", msg_type, len);
+            return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, len)));
+        }
     };
     Ok(message)
 }
