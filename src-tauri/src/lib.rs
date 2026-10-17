@@ -73,8 +73,8 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
         version_v1: Some(our_version),
         version_v2: Some(our_version_v2),
     };
-    let version_message = proto::ClientToServerMessage::Version(version);
-    let send_promise = write_message(&mut tcp_write, version_message);
+    write_message(&mut tcp_write, proto::ClientToServerMessage::Version(version)).await?;
+    log::info!("Version message sent to server");
 
     // Wait for the server's version message.
     //
@@ -90,9 +90,6 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
         return Err(Error::other("Unexpected server close"));
     };
     log::info!("Received version message: {:?}", version);
-
-    send_promise.await?;
-    log::info!("Version message sent to server");
 
     let authenticate = proto::raw::Authenticate {
         username: Some(name.into()),
