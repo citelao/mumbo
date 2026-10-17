@@ -26,17 +26,16 @@ async fn connect_disconnect(app: AppHandle, server: String, port: u16, password:
     let mut tcp_write = raw.tcp_write;
 
     // TODO: extract read loop.
-    loop {
-        let message = reader
-            .next()
-            .await
-            .unwrap()
-            .inspect_err(|e| log::error!("{e}"))
-            .map_err(|e| e.to_string())?;
+    while let Some(message) = reader
+        .try_next()
+        .await
+        .inspect_err(|e| log::error!("{e}"))
+        .map_err(|e| e.to_string())? {
         log::info!("Received message from server: {:?}", message);
         channel.send(message).map_err(|e| e.to_string())?;
     }
-    // Ok(())
+    log::info!("Disconnected from server");
+    Ok(())
 }
 
 struct RawMumbleConnection {
