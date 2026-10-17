@@ -9,6 +9,8 @@ pub mod raw_udp {
     include!(concat!(env!("OUT_DIR"), "/mumble_udp.rs"));
 }
 
+pub mod codec;
+
 pub trait TcpMessageId: prost::Message + Default {
     const TYPE_ID: u16;
 }
