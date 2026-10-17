@@ -1,5 +1,6 @@
 use std::io::Error;
 
+use futures_util::StreamExt;
 use mumble_protocol as proto;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri::{AppHandle, ipc::Channel};
@@ -8,6 +9,8 @@ use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
 use tokio_rustls::client::TlsStream;
+use tokio_util::codec::FramedRead;
+use futures_util::TryStreamExt;
 
 mod AcceptAnyCert;
 
@@ -19,13 +22,15 @@ async fn connect_disconnect(app: AppHandle, server: String, port: u16, password:
         .inspect_err(|e| log::error!("{e}"))
         .map_err(|e| e.to_string())?;
 
-    let mut tcp_read = raw.tcp_read;
+    let mut reader = raw.reader;
     let mut tcp_write = raw.tcp_write;
 
     // TODO: extract read loop.
     loop {
-        let message = read_message(&mut tcp_read)
+        let message = reader
+            .next()
             .await
+            .unwrap()
             .inspect_err(|e| log::error!("{e}"))
             .map_err(|e| e.to_string())?;
         log::info!("Received message from server: {:?}", message);
@@ -34,12 +39,13 @@ async fn connect_disconnect(app: AppHandle, server: String, port: u16, password:
     // Ok(())
 }
 
-struct RawConnection {
-    tcp_read: ReadHalf<TlsStream<TcpStream>>,
+struct RawMumbleConnection {
+    // tcp_read: ReadHalf<TlsStream<TcpStream>>,
+    reader: FramedRead<ReadHalf<TlsStream<TcpStream>>, proto::codec::MumbleCodec>,
     tcp_write: WriteHalf<TlsStream<TcpStream>>,
 }
 
-async fn connect(server: String, port: u16, password: String, name: String) -> Result<RawConnection, Error> {
+async fn connect(server: String, port: u16, password: String, name: String) -> Result<RawMumbleConnection, Error> {
     // Connection process:
     //
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/establishing_connection.md
@@ -50,6 +56,7 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
         .connect(server_name, tcp)
         .await?;
     let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
+    let mut reader = FramedRead::new(tcp_read, proto::codec::MumbleCodec::default());
     log::trace!("TCP and TLS connection established with server {} on port {}", server, port);
 
     // Send a version message!
@@ -78,8 +85,10 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
     // Some("1.5.901"), os: Some("Linux"), os_version: Some("Ubuntu 24.04.4 LTS
     // [arm64]") }
     // ```
-    let proto::ServerToClientMessage::Version(version) = read_message(&mut tcp_read).await? else {
-        return Err(Error::other("Expected version message from server"))
+    let Some(proto::ServerToClientMessage::Version(version)) = reader
+        .try_next()
+        .await? else {
+        return Err(Error::other("Unexpected server close"));
     };
     log::info!("Received version message: {:?}", version);
 
@@ -109,26 +118,30 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
     let mut userState: Option<proto::raw::UserState> = None;
 
     while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_none() || userState.is_none() {
-        let message = read_message(&mut tcp_read).await?;
+        let message = reader.try_next().await?;
         match &message {
-            proto::ServerToClientMessage::Reject(m) => {
+            Some(proto::ServerToClientMessage::Reject(m)) => {
                 log::error!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason());
                 return Err(Error::other(format!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason())));
             }
-            proto::ServerToClientMessage::CryptSetup(m) => cryptSetup = Some(m.clone()),
-            proto::ServerToClientMessage::CodecVersion(m) => codecVersion = Some(m.clone()),
-            proto::ServerToClientMessage::ChannelState(m) => channelState = Some(m.clone()),
-            proto::ServerToClientMessage::UserState(m) => userState = Some(m.clone()),
-            _ => {
+            Some(proto::ServerToClientMessage::CryptSetup(m)) => cryptSetup = Some(m.clone()),
+            Some(proto::ServerToClientMessage::CodecVersion(m)) => codecVersion = Some(m.clone()),
+            Some(proto::ServerToClientMessage::ChannelState(m)) => channelState = Some(m.clone()),
+            Some(proto::ServerToClientMessage::UserState(m)) => userState = Some(m.clone()),
+            Some(_) => {
                 log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
+            }
+            None => {
+                log::error!("Stream ended unexpectedly while waiting for setup messages");
+                return Err(Error::other("Stream ended unexpectedly while waiting for setup messages"));
             }
         }
         log::info!("Handshake message: {:?}", message);
     }
     log::info!("Handshake complete!");
 
-    Ok(RawConnection {
-        tcp_read,
+    Ok(RawMumbleConnection {
+        reader,
         tcp_write,
     })
 }
@@ -143,16 +156,16 @@ async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message:
     Ok(())
 }
 
-async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<proto::ServerToClientMessage, Error> {
-    // TODO: throw a nice error if our connection gets closed because we didn't ping every 30s.
-    let msg_type = tcp_read.read_u16().await?;
-    let len = tcp_read.read_u32().await? as usize;
-    let mut payload = vec![0u8; len];
-    tcp_read.read_exact(&mut payload).await?;
+// async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<proto::ServerToClientMessage, Error> {
+//     // TODO: throw a nice error if our connection gets closed because we didn't ping every 30s.
+//     let msg_type = tcp_read.read_u16().await?;
+//     let len = tcp_read.read_u32().await? as usize;
+//     let mut payload = vec![0u8; len];
+//     tcp_read.read_exact(&mut payload).await?;
 
-    let message = proto::ServerToClientMessage::decode(msg_type, &payload[..])?;
-    Ok(message)
-}
+//     let message = proto::ServerToClientMessage::decode(msg_type, &payload[..])?;
+//     Ok(message)
+// }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

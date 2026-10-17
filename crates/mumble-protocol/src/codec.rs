@@ -6,6 +6,7 @@ pub struct MumbleFrame {
     pub payload: Bytes,
 }
 
+#[derive(Default)]
 pub struct MumbleFrameCodec;
 
 impl tokio_util::codec::Decoder for MumbleFrameCodec {
@@ -53,6 +54,7 @@ impl tokio_util::codec::Encoder<MumbleFrame> for MumbleFrameCodec {
     }
 }
 
+#[derive(Default)]
 pub struct MumbleCodec {
     inner: MumbleFrameCodec,
 }
