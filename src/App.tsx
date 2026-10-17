@@ -1,30 +1,25 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
 import "./App.css";
+
+function handleServerMessage(event: ServerToClientMessage) {
+  // The static type is only a promise; re-parse to catch drift between
+  // the Rust enum and this schema.
+  const result = ServerToClientMessage.safeParse(event);
+  if (!result.success) {
+    console.error("Message failed schema validation:", z.prettifyError(result.error), event);
+    return;
+  }
+  console.log("Received message:", result.data);
+}
 
 function App() {
   const [name, setName] = useState("besto_testo");
   const [server, setServer] = useState("warmitup.chat");
   const [port, setPort] = useState(64738);
   const [password, setPassword] = useState("");
-
-  const [channel, setChannel] = useState<Channel<ServerToClientMessage> | null>(new Channel<ServerToClientMessage>());
-  useEffect(() => {
-    if (channel) {
-      channel.onmessage = (event) => {
-        // The static type is only a promise; re-parse to catch drift between
-        // the Rust enum and this schema.
-        const result = ServerToClientMessage.safeParse(event);
-        if (!result.success) {
-          console.error("Message failed schema validation:", z.prettifyError(result.error), event);
-          return;
-        }
-        console.log("Received message:", result.data);
-      };
-    }
-  }, [channel]);
 
   return (
     <main className="container">
@@ -39,6 +34,10 @@ function App() {
       <form className="connection-form"
         onSubmit={async (e) => {
           e.preventDefault();
+          // A channel can't be reused: when the Rust side drops it (the
+          // command ends), Tauri unregisters its JS callback.
+          const channel = new Channel<ServerToClientMessage>();
+          channel.onmessage = handleServerMessage;
           try {
             // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
             await invoke("connect_disconnect", { server, port, password, name, channel });
