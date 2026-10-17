@@ -1,15 +1,15 @@
 use bytes::{Bytes, Buf};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Frame {
+pub struct MumbleFrame {
     pub type_id: u16,
     pub payload: Bytes,
 }
 
-pub struct MumbleCodec;
+pub struct MumbleFrameCodec;
 
-impl tokio_util::codec::Decoder for MumbleCodec {
-    type Item = Frame;
+impl tokio_util::codec::Decoder for MumbleFrameCodec {
+    type Item = MumbleFrame;
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -30,14 +30,14 @@ impl tokio_util::codec::Decoder for MumbleCodec {
 
         src.advance(HEADER_LEN);
         let payload = src.split_to(len).freeze();
-        Ok(Some(Frame { type_id, payload }))
+        Ok(Some(MumbleFrame { type_id, payload }))
     }
 }
 
-impl tokio_util::codec::Encoder<Frame> for MumbleCodec {
+impl tokio_util::codec::Encoder<MumbleFrame> for MumbleFrameCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: Frame, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: MumbleFrame, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
         todo!()
     }
 }
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_decode() {
-        let mut codec = MumbleCodec;
+        let mut codec = MumbleFrameCodec;
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&[0, 1, 0, 0, 0, 3, 1, 2, 3]);
         let frame = codec.decode(&mut buf).unwrap().unwrap();
@@ -62,7 +62,7 @@ mod tests {
     // Decode an insufficient header
     #[test]
     fn test_decode_insufficient_header() {
-        let mut codec = MumbleCodec;
+        let mut codec = MumbleFrameCodec;
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&[0, 1, 0, 0, 0]); // Only 5 bytes, less than HEADER_LEN
         let frame = codec.decode(&mut buf).unwrap();
@@ -72,7 +72,7 @@ mod tests {
     // Decode an insufficient payload
     #[test]
     fn test_decode_insufficient_payload() {
-        let mut codec = MumbleCodec;
+        let mut codec = MumbleFrameCodec;
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&[0, 1, 0, 0, 0, 3, 1]); // Only 1 byte of payload, less than the declared 3
         let frame = codec.decode(&mut buf).unwrap();
