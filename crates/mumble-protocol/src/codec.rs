@@ -34,6 +34,8 @@ impl tokio_util::codec::Decoder for MumbleFrameCodec {
 
         let total_len = HEADER_LEN + len;
         if src.len() < total_len {
+            let additional = total_len - src.len();
+            src.reserve(additional);
             return Ok(None);
         }
 
