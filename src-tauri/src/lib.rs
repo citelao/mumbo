@@ -1,6 +1,7 @@
 use std::io::Error;
 
 use futures_util::StreamExt;
+use mumble_protocol::codec::MumbleCodec;
 use mumble_protocol as proto;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri::{AppHandle, ipc::Channel};
@@ -17,24 +18,10 @@ mod AcceptAnyCert;
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 async fn connect_disconnect(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
-    let raw = connect(server, port, password, name)
+    let _ = connect(server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
         .map_err(|e| e.to_string())?;
-
-    let mut reader = raw.reader;
-    let mut tcp_write = raw.tcp_write;
-
-    // TODO: extract read loop.
-    while let Some(message) = reader
-        .try_next()
-        .await
-        .inspect_err(|e| log::error!("{e}"))
-        .map_err(|e| e.to_string())? {
-        log::info!("Received message from server: {:?}", message);
-        channel.send(message).map_err(|e| e.to_string())?;
-    }
-    log::info!("Disconnected from server");
     Ok(())
 }
 
@@ -44,7 +31,7 @@ struct RawMumbleConnection {
     tcp_write: WriteHalf<TlsStream<TcpStream>>,
 }
 
-async fn connect(server: String, port: u16, password: String, name: String) -> Result<RawMumbleConnection, Error> {
+async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
     // Connection process:
     //
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/establishing_connection.md
@@ -55,7 +42,13 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
         .connect(server_name, tcp)
         .await?;
     let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
-    let mut reader = FramedRead::new(tcp_read, proto::codec::MumbleCodec::default());
+    let mut reader = FramedRead::new(tcp_read, proto::codec::MumbleCodec::default())
+        .inspect(|result| {
+            if let Ok(message) = result {
+                log::info!("Received message from server: {:?}", message);
+                channel.send(message.clone()).unwrap();
+            }
+        });
     log::trace!("TCP and TLS connection established with server {} on port {}", server, port);
 
     // Send a version message!
@@ -136,10 +129,15 @@ async fn connect(server: String, port: u16, password: String, name: String) -> R
     }
     log::info!("Handshake complete!");
 
-    Ok(RawMumbleConnection {
-        reader,
-        tcp_write,
-    })
+    // TODO: extract read loop.
+    while let Some(message) = reader
+        .try_next()
+        .await? {
+        log::info!("Received message from server: {:?}", message);
+        // channel.send(message).map_err(|e| e.to_string())?;
+    }
+    log::info!("Disconnected from server");
+    Ok(())
 }
 
 async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: proto::ClientToServerMessage) -> Result<(), Error> {

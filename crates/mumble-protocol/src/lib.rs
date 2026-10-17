@@ -45,7 +45,7 @@ impl TcpMessageId for raw::ServerConfig { const TYPE_ID: u16 = 24; }
 impl TcpMessageId for raw::SuggestConfig { const TYPE_ID: u16 = 25; }
 impl TcpMessageId for raw::PluginDataTransmission { const TYPE_ID: u16 = 26; }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerToClientUdpMessage {
     Audio(raw_udp::Audio),
@@ -59,7 +59,7 @@ pub trait UdpMessageId: prost::Message + Default {
 impl UdpMessageId for raw_udp::Audio { const TYPE_ID: u8 = 0; }
 impl UdpMessageId for raw_udp::Ping { const TYPE_ID: u8 = 1; }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerToClientMessage {
     Version(raw::Version),
@@ -106,7 +106,7 @@ impl ServerToClientMessage {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientToServerMessage {
     Version(raw::Version),
