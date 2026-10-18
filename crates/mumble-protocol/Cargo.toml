@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bytes = "1.12.1"
+log = "0.4.34"
 prost = "0.14.4"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio-util = { version = "0.7.20", features = ["codec"] }
