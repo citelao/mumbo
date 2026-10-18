@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
 import { ProtocolViewer, type ProtocolLogEntry } from "./ProtocolViewer";
+import { fetchUsers, type User } from "./mumbleState";
 import "./App.css";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
@@ -29,12 +30,34 @@ function App() {
   const [port, setPort] = useState(64738);
   const [password, setPassword] = useState("");
   const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
 
   return (
     <>
       <main className="container">
         <section className="user-list">
           User list
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                setUsers(await fetchUsers());
+              } catch (error) {
+                console.error("Failed to fetch users:", error);
+              }
+            }}
+          >
+            Refresh users
+          </button>
+          <ul>
+            {users.map((user) => (
+              <li key={user.session}>
+                {user.name} (channel {user.channel_id})
+                {user.self_mute || user.mute ? " muted" : ""}
+                {user.self_deaf || user.deaf ? " deafened" : ""}
+              </li>
+            ))}
+          </ul>
         </section>
         <section className="chat">
           Chat
