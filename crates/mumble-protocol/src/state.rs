@@ -111,7 +111,58 @@ mod tests {
     #[test]
     fn test_apply() {
         let mut state = MumbleState::default();
-        // Example test, replace with actual message
-        // state.apply(crate::ServerToClientMessage::Version(...));
+
+        // Create a user
+        state.apply(crate::ServerToClientMessage::UserState({
+            crate::raw::UserState{
+                session: Some(1),
+                name: Some("Alice".to_string()),
+                channel_id: Some(1),
+                mute: Some(false),
+                deaf: Some(false),
+                suppress: Some(false),
+                self_mute: Some(false),
+                self_deaf: Some(false),
+                priority_speaker: Some(false),
+                recording: Some(false),
+                ..Default::default()
+            }
+        }));
+        
+        // Check that the user was added correctly
+        let user = state.users.get(&1).unwrap();
+        assert_eq!(user.name, "Alice");
+        assert_eq!(user.channel_id, 1);
+        assert_eq!(user.mute, false);
+        assert_eq!(user.deaf, false);
+        assert_eq!(user.suppress, false);
+        assert_eq!(user.self_mute, false);
+        assert_eq!(user.self_deaf, false);
+        assert_eq!(user.priority_speaker, false);
+        assert_eq!(user.recording, false);
+
+        // Change name & some state
+        state.apply(crate::ServerToClientMessage::UserState({
+            crate::raw::UserState {
+                session: Some(1),
+                name: Some("Alice Cooper".to_string()),
+                channel_id: Some(2),
+                mute: Some(true),
+                suppress: Some(true),
+                self_mute: Some(true),
+                ..Default::default()
+            }
+        }));
+
+        let user = state.users.get(&1).unwrap();
+        assert_eq!(user.name, "Alice Cooper");
+        assert_eq!(user.channel_id, 2);
+        assert_eq!(user.mute, true);
+        assert_eq!(user.deaf, false);
+        assert_eq!(user.suppress, true);
+        assert_eq!(user.self_mute, true);
+        assert_eq!(user.self_deaf, false);
+        assert_eq!(user.priority_speaker, false);
+        assert_eq!(user.recording, false);
     }
 }
