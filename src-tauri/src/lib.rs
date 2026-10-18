@@ -144,6 +144,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
             Some(proto::ServerToClientMessage::CryptSetup(m)) => cryptSetup = Some(m.clone()),
             Some(proto::ServerToClientMessage::CodecVersion(m)) => codecVersion = Some(m.clone()),
             Some(proto::ServerToClientMessage::ChannelState(m)) => channelState.push(m.clone()),
+
+            // UserState(UserState { session: Some(165), actor: None, name: Some("kelvinbot"), user_id: None, channel_id: None, mute: None, deaf: None, suppress: None, self_mute: None, self_deaf: None, texture: None, plugin_context: None, plugin_identity: None, comment: None, hash: None, comment_hash: None, texture_hash: None, priority_speaker: None, recording: None, temporary_access_tokens: [], listening_channel_add: [], listening_channel_remove: [], listening_volume_adjustment: [] })
+            // UserState(UserState { session: Some(160), actor: None, name: Some("besto_testo"), user_id: None, channel_id: Some(0), mute: None, deaf: None, suppress: None, self_mute: None, self_deaf: None, texture: None, plugin_context: None, plugin_identity: None, comment: None, hash: None, comment_hash: None, texture_hash: None, priority_speaker: None, recording: None, temporary_access_tokens: [], listening_channel_add: [], listening_channel_remove: [], listening_volume_adjustment: [] })
             Some(proto::ServerToClientMessage::UserState(m)) => userState.push(m.clone()),
             Some(proto::ServerToClientMessage::ServerSync(m)) => serverSync = Some(m.clone()),
             Some(_) => {
