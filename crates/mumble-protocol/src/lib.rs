@@ -64,6 +64,7 @@ impl UdpMessageId for raw_udp::Ping { const TYPE_ID: u8 = 1; }
 pub enum ServerToClientMessage {
     Version(raw::Version),
     UdpTunnel(ServerToClientUdpMessage),
+    Ping(raw::Ping),
     Reject(raw::Reject),
     ServerSync(raw::ServerSync),
     ChannelRemove(raw::ChannelRemove),
@@ -88,6 +89,7 @@ impl ServerToClientMessage {
                     _ => return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown UDP message type: {}", udp_type))),
                 }
             },
+            raw::Ping::TYPE_ID => ServerToClientMessage::Ping(raw::Ping::decode(&payload[..])?),
             raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(&payload[..])?),
             raw::ChannelRemove::TYPE_ID => ServerToClientMessage::ChannelRemove(raw::ChannelRemove::decode(&payload[..])?),
             raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(&payload[..])?),

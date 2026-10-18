@@ -137,11 +137,28 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     log::info!("Handshake complete!");
 
     // TODO: extract read loop.
-    while let Some(message) = reader
-        .try_next()
-        .await? {
-        log::info!("Received message from server: {:?}", message);
-        // channel.send(message).map_err(|e| e.to_string())?;
+    // Mumble requires pings every 30s by default; be eager.
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(15));
+    loop {
+        // Simultaneously read from the server & manage a ping loop.
+        tokio::select! {
+            message = reader.try_next() => {
+                match &message? {
+                    Some(message) => {
+                        // Handle the message here
+                        log::info!("Received message from server: {:?}", message);
+                    }
+                    None => {
+                        // Server disconnected.
+                        break;
+                    }
+                }
+            }
+            _ = ping_interval.tick() => {
+                log::trace!("Sending ping to server");
+                write_message(&mut tcp_write, proto::ClientToServerMessage::Ping(Default::default())).await?;
+            }
+        }
     }
     log::info!("Disconnected from server");
     Ok(())

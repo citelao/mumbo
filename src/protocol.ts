@@ -19,6 +19,20 @@ const Version = z.strictObject({
   os_version: z.string().nullable(),
 });
 
+const Ping = z.strictObject({
+  timestamp: u64,
+  good: u32,
+  late: u32,
+  lost: u32,
+  resync: u32,
+  udp_packets: u32.nullable(),
+  tcp_packets: u32.nullable(),
+  udp_ping_avg: u64.nullable(),
+  udp_ping_var: u64.nullable(),
+  tcp_ping_avg: u64.nullable(),
+  tcp_ping_var: u64.nullable(),
+});
+
 const Reject = z.strictObject({
   type: i32.nullable(),
   reason: z.string().nullable(),
@@ -151,6 +165,7 @@ const ServerToClientUdpMessage = z.discriminatedUnion("type", [
 export const ServerToClientMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("Version"), data: Version }),
   z.strictObject({ type: z.literal("UdpTunnel"), data: ServerToClientUdpMessage }),
+  z.strictObject({ type: z.literal("Ping"), data: Ping }),
   z.strictObject({ type: z.literal("Reject"), data: Reject }),
   z.strictObject({ type: z.literal("ServerSync"), data: ServerSync }),
   z.strictObject({ type: z.literal("ChannelRemove"), data: ChannelRemove }),
