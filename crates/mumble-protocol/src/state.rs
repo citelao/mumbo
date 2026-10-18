@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::collections::BTreeMap;
 use std::io::{self, Error};
 
 use serde::Serialize;
@@ -62,7 +62,8 @@ fn merge<T>(field: &mut T, update: Option<T>) {
 
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
-    users: HashMap<u32, User>,
+    // Sorted by session, so snapshots (UI, fixtures) have a stable order.
+    users: BTreeMap<u32, User>,
 }
 
 impl MumbleState {
@@ -117,6 +118,24 @@ mod tests {
 
     // src/mumbleState.test.ts parses the same fixture with the zod `User`
     // schema, so drift on either side fails a test.
+    // Snapshots go to the UI and fixtures, so their order must not depend on
+    // hashing.
+    #[test]
+    fn users_are_ordered_by_session() {
+        let mut state = MumbleState::default();
+        for session in (1..=20).rev() {
+            state
+                .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
+                    session: Some(session),
+                    ..Default::default()
+                }))
+                .unwrap();
+        }
+
+        let sessions: Vec<u32> = state.users().iter().map(|user| user.session).collect();
+        assert_eq!(sessions, (1..=20).collect::<Vec<_>>());
+    }
+
     #[test]
     fn users_match_shared_fixture() {
         let mut state = MumbleState::default();
