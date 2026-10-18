@@ -5,6 +5,7 @@ This template should help get you started developing with Tauri, React and Types
 ## Usage
 
 ```bash
+  brew install cmake # needed for opus
   npm install
   npm run tauri android init
   npm run tauri ios init
