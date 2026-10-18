@@ -1,4 +1,8 @@
-use bytes::{Bytes, Buf};
+use std::any::Any;
+
+use bytes::{Bytes, Buf, BufMut};
+
+use crate::TcpMessageId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MumbleFrame {
@@ -50,7 +54,10 @@ impl tokio_util::codec::Encoder<MumbleFrame> for MumbleFrameCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: MumbleFrame, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
-        todo!()
+        dst.put_u16(item.type_id);
+        dst.put_u32(item.payload.len() as u32);
+        dst.put(item.payload);
+        Ok(())
     }
 }
 
@@ -69,6 +76,19 @@ impl tokio_util::codec::Decoder for MumbleCodec {
         };
         let message = crate::ServerToClientMessage::decode(frame.type_id, &frame.payload)?;
         Ok(Some(message))
+    }
+}
+
+impl tokio_util::codec::Encoder<crate::ClientToServerMessage> for MumbleCodec {
+    type Error = std::io::Error;
+
+    fn encode(&mut self, item: crate::ClientToServerMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        let (msg_id, payload) = item.encode()?;
+        let frame = MumbleFrame {
+            type_id: msg_id,
+            payload: bytes::Bytes::from(payload),
+        };
+        self.inner.encode(frame, dst)
     }
 }
 

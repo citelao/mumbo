@@ -30,7 +30,7 @@ tokio-rustls = "0.26.6"
 rustls = "0.23.46"
 bytes = "1.12.1"
 tokio-util = { version = "0.7.20", features = ["codec"] }
-futures-util = "0.3.34"
+futures-util = { version = "0.3.34", features = ["sink"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

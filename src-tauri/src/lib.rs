@@ -1,5 +1,6 @@
 use std::io::Error;
 
+use futures_util::SinkExt;
 use futures_util::StreamExt;
 use mumble_protocol::codec::MumbleCodec;
 use mumble_protocol as proto;
@@ -12,6 +13,7 @@ use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::FramedRead;
 use futures_util::TryStreamExt;
+use tokio_util::codec::FramedWrite;
 
 mod AcceptAnyCert;
 
@@ -68,6 +70,7 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
                 channel.send(message.clone()).unwrap();
             }
         });
+    let mut writer = FramedWrite::new(tcp_write, proto::codec::MumbleCodec::default());
     log::trace!("TCP and TLS connection established with server {} on port {}", server, port);
 
     // Send a version message!
@@ -85,7 +88,7 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
         version_v1: Some(our_version),
         version_v2: Some(our_version_v2),
     };
-    write_message(&mut tcp_write, proto::ClientToServerMessage::Version(version)).await?;
+    writer.send(proto::ClientToServerMessage::Version(version)).await?;
     log::info!("Version message sent to server");
 
     // Wait for the server's version message.
@@ -115,7 +118,7 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
         opus: Some(true),
         client_type: Some(0),
     };
-    write_message(&mut tcp_write, proto::ClientToServerMessage::Authenticate(authenticate)).await?;
+    writer.send(proto::ClientToServerMessage::Authenticate(authenticate)).await?;
     log::info!("Authenticate message sent to server");
 
     // We need a bunch of setup messages, which should arrive in order, but no
@@ -179,21 +182,11 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
             }
             _ = ping_interval.tick() => {
                 log::trace!("Sending ping to server");
-                write_message(&mut tcp_write, proto::ClientToServerMessage::Ping(Default::default())).await?;
+                writer.send(proto::ClientToServerMessage::Ping(Default::default())).await?;
             }
         }
     }
     log::info!("Disconnected from server");
-    Ok(())
-}
-
-async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message: proto::ClientToServerMessage) -> Result<(), Error> {
-    // IDs:
-    // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/protocol_stack_tcp.md
-    let (msg_type, payload) = message.encode()?;
-    tcp_write.write_u16(msg_type).await?;
-    tcp_write.write_u32(payload.len() as u32).await?;
-    tcp_write.write_all(&payload).await?;
     Ok(())
 }
 
