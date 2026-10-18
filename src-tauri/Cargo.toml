@@ -31,6 +31,9 @@ rustls = "0.23.46"
 bytes = "1.12.1"
 tokio-util = { version = "0.7.20", features = ["codec"] }
 futures-util = { version = "0.3.34", features = ["sink"] }
+opus = "0.4.0"
+cpal = "0.18.2"
+ringbuf = "0.5.3"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

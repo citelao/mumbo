@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::io::Error;
 
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use mumble_protocol::codec::MumbleCodec;
 use mumble_protocol as proto;
+use ringbuf::HeapRb;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri::{AppHandle, ipc::Channel};
 use tokio::io::ReadHalf;
@@ -14,6 +16,8 @@ use tokio_rustls::client::TlsStream;
 use tokio_util::codec::FramedRead;
 use futures_util::TryStreamExt;
 use tokio_util::codec::FramedWrite;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use ringbuf::traits::{Consumer, Producer, Split};
 
 mod AcceptAnyCert;
 
@@ -176,6 +180,42 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     }
     log::info!("Handshake complete!");
 
+    let mut decoders: HashMap<u32, opus::Decoder> = HashMap::new();
+
+    // Match Opus sample rate for output.
+    const OUTPUT_SAMPLE_RATE: u32 = 48000;
+    const HEADROOM_MS: u32 = 200;
+    const HEADROOM_SAMPLES: u32 = (OUTPUT_SAMPLE_RATE * HEADROOM_MS) / 1000;
+
+    // TODO: we only have 1 ringbuffer for audio, which is fine... but we need to combine all speakers.
+    let (mut rbProducer, mut rbConsumer) = HeapRb::<i16>::new(HEADROOM_SAMPLES as usize).split();
+
+    // TODO: allow user to select output device and configure sample rate.
+    // TODO: handle errors, not unwrap.
+    let host = cpal::default_host();
+    let device = host.default_output_device().expect("No output device available");
+    let config = device
+        .supported_output_configs().unwrap()
+        .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
+        .find_map(|c| c.try_with_sample_rate(48_000))
+        .map(|c| c.config())
+        .unwrap_or(device.default_output_config().unwrap().config());
+
+    let channels = config.channels as usize;
+    let stream = device.build_output_stream(
+        config,
+        move |output: &mut [f32], _| {
+            // same value in left and right
+            for frame in output.chunks_mut(channels) {
+                let sample = rbConsumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                frame.fill(sample);
+            }
+        },
+        |err| log::error!("audio stream error: {err}"),
+        None,
+    ).unwrap();
+    stream.play().unwrap();
+
     // TODO: extract read loop.
     // Mumble requires pings every 30s by default; be eager.
     let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -191,6 +231,27 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
                     Some(message) => {
                         // Handle the message here
                         log::info!("Received message from server: {:?}", message);
+                        match message {
+                            proto::ServerToClientMessage::UdpTunnel(proto::ServerToClientUdpMessage::Audio(m)) => {
+                                // TODO: volume adjustment
+                                let sender = m.sender_session;
+
+                                let decoder = decoders
+                                    .entry(sender)
+                                    .or_insert_with(|| opus::Decoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono).unwrap());
+
+                                let mut pcm = [0i16; 5760]; // 120 ms at 48 kHz, Opus's largest frame
+                                let decoded_sample_count = decoder.decode(&m.opus_data, &mut pcm, false).unwrap();
+                                log::info!("Decoded {} samples from sender {}", decoded_sample_count, sender);
+                                rbProducer.push_slice(&pcm[..decoded_sample_count]);
+
+                                log::info!("Received UDP message from server");
+                            }
+                            _ => {
+                                // TODO: handle other messages.
+                                // log::warn!("Received unknown UDP message from server");
+                            }
+                        }
                     }
                     None => {
                         // Server disconnected.
