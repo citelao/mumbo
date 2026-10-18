@@ -2,17 +2,25 @@ import { useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
+import { ProtocolViewer, type ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.css";
 
-function handleServerMessage(event: ServerToClientMessage) {
+// Keeps the log (and React re-renders) bounded during long sessions.
+const MAX_LOG_ENTRIES = 500;
+
+let nextLogEntryId = 0;
+
+function toLogEntry(event: ServerToClientMessage): ProtocolLogEntry {
   // The static type is only a promise; re-parse to catch drift between
   // the Rust enum and this schema.
   const result = ServerToClientMessage.safeParse(event);
+  const base = { id: nextLogEntryId++, receivedAt: new Date() };
   if (!result.success) {
-    console.error("Message failed schema validation:", z.prettifyError(result.error), event);
-    return;
+    const error = z.prettifyError(result.error);
+    console.error("Message failed schema validation:", error, event);
+    return { ...base, ok: false, raw: event, error };
   }
-  console.log("Received message:", result.data);
+  return { ...base, ok: true, message: result.data };
 }
 
 function App() {
@@ -20,54 +28,61 @@ function App() {
   const [server, setServer] = useState("warmitup.chat");
   const [port, setPort] = useState(64738);
   const [password, setPassword] = useState("");
+  const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
 
   return (
-    <main className="container">
-      <section className="user-list">
-        User list
-      </section>
-      <section className="chat">
-        Chat
-      </section>
+    <>
+      <main className="container">
+        <section className="user-list">
+          User list
+        </section>
+        <section className="chat">
+          Chat
+        </section>
 
-      {/* Form for connection */}
-      <form className="connection-form"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          // A channel can't be reused: when the Rust side drops it (the
-          // command ends), Tauri unregisters its JS callback.
-          const channel = new Channel<ServerToClientMessage>();
-          channel.onmessage = handleServerMessage;
-          try {
-            // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-            await invoke("connect_disconnect", { server, port, password, name, channel });
-          } catch (error) {
-            console.error(error);
-            alert("Failed to connect: " + error);
-          }
-        }}>
-        <label>
-          Server
-          <input placeholder="Server" value={server} onChange={(e) => setServer(e.target.value)} />
-        </label>
-        <label>
-          Port
-          <input placeholder="Port" value={port} onChange={(e) => setPort(Number(e.target.value))} />
-        </label>
-        <label>
-          Password
-          <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        </label>
-        <label>
-          Name
-          <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <br />
-        <button type="submit">
-          Connect/Disconnect
-        </button>
-      </form>
-    </main>
+        {/* Form for connection */}
+        <form className="connection-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            // A channel can't be reused: when the Rust side drops it (the
+            // command ends), Tauri unregisters its JS callback.
+            const channel = new Channel<ServerToClientMessage>();
+            channel.onmessage = (event) => {
+              const entry = toLogEntry(event);
+              setProtocolLog((log) => [...log, entry].slice(-MAX_LOG_ENTRIES));
+            };
+            try {
+              // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+              await invoke("connect_disconnect", { server, port, password, name, channel });
+            } catch (error) {
+              console.error(error);
+              alert("Failed to connect: " + error);
+            }
+          }}>
+          <label>
+            Server
+            <input placeholder="Server" value={server} onChange={(e) => setServer(e.target.value)} />
+          </label>
+          <label>
+            Port
+            <input placeholder="Port" value={port} onChange={(e) => setPort(Number(e.target.value))} />
+          </label>
+          <label>
+            Password
+            <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          <label>
+            Name
+            <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <br />
+          <button type="submit">
+            Connect/Disconnect
+          </button>
+        </form>
+      </main>
+      <ProtocolViewer entries={protocolLog} onClear={() => setProtocolLog([])} />
+    </>
   );
 }
 

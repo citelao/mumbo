@@ -24,7 +24,20 @@
   user-select: none;
 } */
 
+/* Full-height column: page content scrolls, the protocol viewer docks below it. */
+body {
+  margin: 0;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 .container {
+  flex: 1;
+  overflow: auto;
   margin: 0;
   padding-top: 10vh;
   display: flex;
@@ -38,6 +51,47 @@
   flex-direction: column;
   gap: 1rem;
   align-items: flex-start;
+}
+
+.protocol-viewer {
+  flex: none;
+  padding: 0 0.5rem;
+  border-top: 1px solid #8884;
+  text-align: left;
+}
+
+.protocol-viewer > summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.protocol-viewer-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.protocol-viewer-entries {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: ui-monospace, monospace;
+}
+
+.protocol-viewer-entries summary {
+  cursor: pointer;
+}
+
+.protocol-viewer-entries pre {
+  margin: 0 0 0.5rem 1.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.protocol-viewer-invalid {
+  color: #d33;
 }
 
 a {
