@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
+use std::io::{self, Error};
 
 // See raw::UserState for the fields that correspond to this struct.
 #[derive(Default)]
@@ -50,16 +51,25 @@ pub struct User {
 
 }
 
+/// Applies a protobuf delta: `None` means the field didn't change.
+fn merge<T>(field: &mut T, update: Option<T>) {
+    if let Some(value) = update {
+        *field = value;
+    }
+}
+
 #[derive(Default)]
 pub struct MumbleState {
     users: HashMap<u32, User>
 }
 
 impl MumbleState {
-    pub fn apply(&mut self, message: crate::ServerToClientMessage) {
+    pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<(), Error> {
         match message {
             crate::ServerToClientMessage::UserState(m) => {
-                let session = m.session.unwrap();
+                let Some(session) = m.session else {
+                    return Err(Error::new(io::ErrorKind::InvalidData, "Missing session"));
+                };
 
                 let user = self.users
                     .entry(session)
@@ -69,38 +79,21 @@ impl MumbleState {
                     });
 
                 // Set any fields we know about!
-                if let Some(name) = m.name {
-                    user.name = name;
-                }
-                if let Some(channel_id) = m.channel_id {
-                    user.channel_id = channel_id;
-                }
-                if let Some(mute) = m.mute {
-                    user.mute = mute;
-                }
-                if let Some(deaf) = m.deaf {
-                    user.deaf = deaf;
-                }
-                if let Some(suppress) = m.suppress {
-                    user.suppress = suppress;
-                }
-                if let Some(self_mute) = m.self_mute {
-                    user.self_mute = self_mute;
-                }
-                if let Some(self_deaf) = m.self_deaf {
-                    user.self_deaf = self_deaf;
-                }
-                if let Some(priority_speaker) = m.priority_speaker {
-                    user.priority_speaker = priority_speaker;
-                }
-                if let Some(recording) = m.recording {
-                    user.recording = recording;
-                }
+                merge(&mut user.name, m.name);
+                merge(&mut user.channel_id, m.channel_id);
+                merge(&mut user.mute, m.mute);
+                merge(&mut user.deaf, m.deaf);
+                merge(&mut user.suppress, m.suppress);
+                merge(&mut user.self_mute, m.self_mute);
+                merge(&mut user.self_deaf, m.self_deaf);
+                merge(&mut user.priority_speaker, m.priority_speaker);
+                merge(&mut user.recording, m.recording);
             },
             _ => {
                 log::warn!("Unhandled message: {:?}", message);
             }
         }
+        Ok(())
     }
 }
 
@@ -127,10 +120,11 @@ mod tests {
                 recording: Some(false),
                 ..Default::default()
             }
-        }));
+        }))?;
         
         // Check that the user was added correctly
         let user = state.users.get(&1).unwrap();
+        assert_eq!(user.session, 1);
         assert_eq!(user.name, "Alice");
         assert_eq!(user.channel_id, 1);
         assert_eq!(user.mute, false);
@@ -152,9 +146,10 @@ mod tests {
                 self_mute: Some(true),
                 ..Default::default()
             }
-        }));
+        }))?;
 
         let user = state.users.get(&1).unwrap();
+        assert_eq!(user.session, 1);
         assert_eq!(user.name, "Alice Cooper");
         assert_eq!(user.channel_id, 2);
         assert_eq!(user.mute, true);
