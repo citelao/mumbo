@@ -96,12 +96,11 @@ impl tokio_util::codec::Encoder<crate::ClientToServerMessage> for MumbleCodec {
 mod tests {
     use super::*;
     use bytes::BytesMut;
+    use bytes::BufMut;
     use tokio_util::codec::Decoder;
 
     mod frame_codec_tests {
-        use bytes::BufMut;
-
-use super::*;
+        use super::*;
 
         #[test]
         fn test_decode() {
@@ -184,5 +183,55 @@ use super::*;
     }
 
     mod codec_tests {
+        use tokio_util::codec::Encoder;
+
+use crate::raw;
+
+use super::*;
+
+        #[test]
+        fn test_decode_empty_buffer() {
+            let mut codec = MumbleCodec::default();
+            let mut buf = BytesMut::new();
+            let frame = codec.decode(&mut buf).unwrap();
+            assert!(frame.is_none());
+            assert!(buf.is_empty());
+        }
+
+        #[test]
+        fn test_decode_full_frame() {
+            let mut codec = MumbleCodec::default();
+            let mut buf = BytesMut::new();
+
+            let raw_ping = raw::Ping {
+                good: Some(1),
+                late: Some(2),
+                lost: Some(3),
+                resync: Some(4),
+                tcp_packets: Some(5),
+                udp_packets: Some(6),
+                tcp_ping_avg: Some(7.0),
+                udp_ping_avg: Some(8.0),
+                tcp_ping_var: Some(9.0),
+                udp_ping_var: Some(10.0),
+                timestamp: Some(11),
+            };
+            codec.encode(crate::ClientToServerMessage::Ping(raw_ping), &mut buf).unwrap();
+            let frame = codec.decode(&mut buf).unwrap().unwrap();
+            let crate::ServerToClientMessage::Ping(m) = frame else {
+                panic!("Unexpected message type");
+            };
+            assert_eq!(m.good, Some(1));
+            assert_eq!(m.late, Some(2));
+            assert_eq!(m.lost, Some(3));
+            assert_eq!(m.resync, Some(4));
+            assert_eq!(m.tcp_packets, Some(5));
+            assert_eq!(m.udp_packets, Some(6));
+            assert_eq!(m.tcp_ping_avg, Some(7.0));
+            assert_eq!(m.udp_ping_avg, Some(8.0));
+            assert_eq!(m.tcp_ping_var, Some(9.0));
+            assert_eq!(m.udp_ping_var, Some(10.0));
+            assert_eq!(m.timestamp, Some(11));
+        }
     }
 }
