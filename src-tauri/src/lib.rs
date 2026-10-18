@@ -105,8 +105,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     let mut codecVersion: Option<proto::raw::CodecVersion> = None;
     let mut channelState: Vec<proto::raw::ChannelState> = vec![];
     let mut userState: Vec<proto::raw::UserState> = vec![];
+    let mut serverSync: Option<proto::raw::ServerSync> = None;
 
-    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_empty() || userState.is_empty() {
+    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_empty() || userState.is_empty() || serverSync.is_none() {
         let message = reader.try_next().await?;
         match &message {
             Some(proto::ServerToClientMessage::Reject(m)) => {
@@ -117,6 +118,7 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
             Some(proto::ServerToClientMessage::CodecVersion(m)) => codecVersion = Some(m.clone()),
             Some(proto::ServerToClientMessage::ChannelState(m)) => channelState.push(m.clone()),
             Some(proto::ServerToClientMessage::UserState(m)) => userState.push(m.clone()),
+            Some(proto::ServerToClientMessage::ServerSync(m)) => serverSync = Some(m.clone()),
             Some(_) => {
                 log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
             }
