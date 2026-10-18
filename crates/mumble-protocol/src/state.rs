@@ -115,6 +115,26 @@ impl MumbleState {
 mod tests {
     use super::*;
 
+    // src/mumbleState.test.ts parses the same fixture with the zod `User`
+    // schema, so drift on either side fails a test.
+    #[test]
+    fn users_match_shared_fixture() {
+        let mut state = MumbleState::default();
+        state
+            .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
+                session: Some(7),
+                name: Some("Alice".to_string()),
+                channel_id: Some(3),
+                self_mute: Some(true),
+                ..Default::default()
+            }))
+            .unwrap();
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/users.json")).unwrap();
+
+        assert_eq!(serde_json::to_value(state.users()).unwrap(), fixture);
+    }
+
     #[test]
     fn test_apply() {
         let mut state = MumbleState::default();

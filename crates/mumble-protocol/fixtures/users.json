@@ -1,0 +1,14 @@
+[
+  {
+    "session": 7,
+    "name": "Alice",
+    "channel_id": 3,
+    "mute": false,
+    "deaf": false,
+    "suppress": false,
+    "self_mute": true,
+    "self_deaf": false,
+    "priority_speaker": false,
+    "recording": false
+  }
+]
