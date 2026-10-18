@@ -89,6 +89,14 @@ impl MumbleState {
                 merge(&mut user.priority_speaker, m.priority_speaker);
                 merge(&mut user.recording, m.recording);
             },
+            crate::ServerToClientMessage::UserRemove(m) => {
+                let removed = self.users.remove(&m.session);
+                if let Some(removed) = removed {
+                    log::info!("Removed user: {} (session: {}) for reason: {:?} (ban: {:?})", removed.name, removed.session, m.reason, m.ban);
+                } else {
+                    return Err(Error::new(io::ErrorKind::InvalidData, "User not found"));
+                }
+            }
             _ => {
                 log::warn!("Unhandled message: {:?}", message);
             }
@@ -120,7 +128,7 @@ mod tests {
                 recording: Some(false),
                 ..Default::default()
             }
-        }))?;
+        })).unwrap();
         
         // Check that the user was added correctly
         let user = state.users.get(&1).unwrap();
@@ -146,7 +154,7 @@ mod tests {
                 self_mute: Some(true),
                 ..Default::default()
             }
-        }))?;
+        })).unwrap();
 
         let user = state.users.get(&1).unwrap();
         assert_eq!(user.session, 1);
@@ -159,5 +167,31 @@ mod tests {
         assert_eq!(user.self_deaf, false);
         assert_eq!(user.priority_speaker, false);
         assert_eq!(user.recording, false);
+    }
+
+    #[test]
+    fn test_add_remove_user() {
+        let mut state = MumbleState::default();
+
+        // Create a user
+        state.apply(crate::ServerToClientMessage::UserState({
+            crate::raw::UserState{
+                session: Some(1),
+                name: Some("Alice".to_string()),
+                ..Default::default()
+            }
+        })).unwrap();
+        let user = state.users.get(&1).unwrap();
+        assert_eq!(user.session, 1);
+        assert_eq!(user.name, "Alice");
+
+        // Remove the user
+        state.apply(crate::ServerToClientMessage::UserRemove({
+            crate::raw::UserRemove {
+                session: 1,
+                ..Default::default()
+            }
+        })).unwrap();
+        assert!(state.users.get(&1).is_none());
     }
 }
