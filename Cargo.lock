@@ -2350,8 +2350,9 @@ dependencies = [
  "futures-util",
  "log",
  "mumble-protocol",
+ "neteq",
  "opus",
- "ringbuf",
+ "ringbuf 0.5.3",
  "rustls",
  "serde",
  "serde_json",
@@ -2392,6 +2393,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys 0.3.1",
+]
+
+[[package]]
+name = "neteq"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7727112beb3a6198ab4d15d25ea696395e33dfb1c03de4cb147fac2b2803c6a7"
+dependencies = [
+ "log",
+ "ringbuf 0.3.3",
+ "serde",
+ "thiserror 1.0.69",
+ "web-time",
 ]
 
 [[package]]
@@ -3329,6 +3343,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "ringbuf"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79abed428d1fd2a128201cec72c5f6938e2da607c6f3745f769fabea399d950a"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]

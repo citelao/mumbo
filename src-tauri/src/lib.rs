@@ -17,7 +17,7 @@ use tokio_util::codec::FramedRead;
 use futures_util::TryStreamExt;
 use tokio_util::codec::FramedWrite;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::traits::{Consumer, Observer, Producer, Split};
 
 mod AcceptAnyCert;
 
@@ -180,10 +180,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     }
     log::info!("Handshake complete!");
 
-    let mut decoders: HashMap<u32, opus::Decoder> = HashMap::new();
+    let mut speakers: HashMap<u32, Speaker> = HashMap::new();
 
     // Match Opus sample rate for output.
-    const OUTPUT_SAMPLE_RATE: u32 = 48000;
     const HEADROOM_MS: u32 = 200;
     const HEADROOM_SAMPLES: u32 = (OUTPUT_SAMPLE_RATE * HEADROOM_MS) / 1000;
 
@@ -219,6 +218,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     // TODO: extract read loop.
     // Mumble requires pings every 30s by default; be eager.
     let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(15));
+    // NetEq absorbs network jitter; this only needs to cover timer slop.
+    const MIX_TARGET_SAMPLES: usize = (OUTPUT_SAMPLE_RATE as usize / 1000) * 40;
+    let mut mix_interval = tokio::time::interval(std::time::Duration::from_millis(5));
     loop {
         // Simultaneously read from the server & manage a ping loop.
         tokio::select! {
@@ -236,16 +238,13 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
                                 // TODO: volume adjustment
                                 let sender = m.sender_session;
 
-                                let decoder = decoders
-                                    .entry(sender)
-                                    .or_insert_with(|| opus::Decoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono).unwrap());
-
-                                let mut pcm = [0i16; 5760]; // 120 ms at 48 kHz, Opus's largest frame
-                                let decoded_sample_count = decoder.decode(&m.opus_data, &mut pcm, false).unwrap();
-                                log::info!("Decoded {} samples from sender {}", decoded_sample_count, sender);
-                                rbProducer.push_slice(&pcm[..decoded_sample_count]);
-
-                                log::info!("Received UDP message from server");
+                                let speaker = match speakers.entry(sender) {
+                                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                                    std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
+                                };
+                                if let Err(e) = speaker.insert_packet(sender, &m.opus_data) {
+                                    log::warn!("Dropping audio from session {sender}: {e}");
+                                }
                             }
                             _ => {
                                 // TODO: handle other messages.
@@ -259,6 +258,15 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
                     }
                 }
             }
+            _ = mix_interval.tick() => {
+                // Top the ring buffer up to a fixed level rather than mixing once per
+                // tick: the card drains it at its own rate, so this follows the card's
+                // clock instead of drifting against this timer.
+                while rbProducer.occupied_len() < MIX_TARGET_SAMPLES {
+                    let frame = mix_frame(&mut speakers)?;
+                    rbProducer.push_slice(&frame);
+                }
+            }
             _ = ping_interval.tick() => {
                 log::trace!("Sending ping to server");
                 writer.send(proto::ClientToServerMessage::Ping(Default::default())).await?;
@@ -267,6 +275,89 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     }
     log::info!("Disconnected from server");
     Ok(())
+}
+
+const OUTPUT_SAMPLE_RATE: u32 = 48_000;
+
+/// 10 ms at 48 kHz: the frame size `NetEq::get_audio` produces.
+const MIX_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 100;
+
+/// NetEq routes packets to decoders by RTP payload type; we only have Opus.
+const OPUS_PAYLOAD_TYPE: u8 = 0;
+
+/// Adapts libopus to NetEq's decoder interface.
+struct OpusDecoder(opus::Decoder);
+
+impl neteq::codec::AudioDecoder for OpusDecoder {
+    fn sample_rate(&self) -> u32 {
+        OUTPUT_SAMPLE_RATE
+    }
+
+    fn channels(&self) -> u8 {
+        1
+    }
+
+    fn decode(&mut self, encoded: &[u8]) -> neteq::Result<Vec<f32>> {
+        // 120 ms, Opus's largest frame.
+        let mut pcm = vec![0.0; OUTPUT_SAMPLE_RATE as usize * 120 / 1000];
+        let count = self
+            .0
+            .decode_float(encoded, &mut pcm, false)
+            .map_err(|e| neteq::NetEqError::DecoderError(e.to_string()))?;
+        pcm.truncate(count);
+        Ok(pcm)
+    }
+}
+
+/// One remote talker: a jitter buffer that decodes their Opus packets.
+struct Speaker {
+    neteq: neteq::NetEq,
+    // Over the TCP tunnel packets arrive complete and in order, so a running
+    // count is an exact sequence/timestamp. UDP will need Mumble's frame_number.
+    next_sequence: u16,
+    next_timestamp: u32,
+}
+
+impl Speaker {
+    fn new() -> Result<Self, Error> {
+        let mut neteq = neteq::NetEq::new(neteq::NetEqConfig {
+            sample_rate: OUTPUT_SAMPLE_RATE,
+            channels: 1,
+            ..Default::default()
+        })
+        .map_err(Error::other)?;
+        let decoder = opus::Decoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono).map_err(Error::other)?;
+        neteq.register_decoder(OPUS_PAYLOAD_TYPE, Box::new(OpusDecoder(decoder)));
+        Ok(Self { neteq, next_sequence: 0, next_timestamp: 0 })
+    }
+
+    fn insert_packet(&mut self, session: u32, opus_data: &[u8]) -> Result<(), Error> {
+        let samples = opus::packet::get_nb_samples(opus_data, OUTPUT_SAMPLE_RATE).map_err(Error::other)?;
+        let header = neteq::RtpHeader::new(self.next_sequence, self.next_timestamp, session, OPUS_PAYLOAD_TYPE, false);
+        let duration_ms = (samples * 1000 / OUTPUT_SAMPLE_RATE as usize) as u32;
+        let packet = neteq::AudioPacket::new(header, opus_data.to_vec(), OUTPUT_SAMPLE_RATE, 1, duration_ms);
+        self.neteq.insert_packet(packet).map_err(Error::other)?;
+        self.next_sequence = self.next_sequence.wrapping_add(1);
+        self.next_timestamp = self.next_timestamp.wrapping_add(samples as u32);
+        Ok(())
+    }
+}
+
+/// Mixes 10 ms from every speaker who has audio buffered.
+fn mix_frame(speakers: &mut HashMap<u32, Speaker>) -> Result<[i16; MIX_FRAME_SAMPLES], Error> {
+    let mut sum = [0.0f32; MIX_FRAME_SAMPLES];
+    for speaker in speakers.values_mut() {
+        // Skip idle speakers so NetEq doesn't synthesize concealment for silence.
+        if speaker.neteq.current_buffer_size_samples() == 0 {
+            continue;
+        }
+        let audio = speaker.neteq.get_audio().map_err(Error::other)?;
+        for (out, sample) in sum.iter_mut().zip(audio.samples) {
+            *out += sample;
+        }
+    }
+    // tanh soft-clips overlapping speakers instead of hard-clipping at ±1.
+    Ok(sum.map(|sample| (sample.tanh() * i16::MAX as f32) as i16))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -285,4 +376,56 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Opus-encodes `packets` × 20 ms of a 440 Hz tone, as a sender would.
+    fn tone_packets(packets: usize) -> Vec<Vec<u8>> {
+        const PACKET_SAMPLES: usize = 960;
+        let mut encoder =
+            opus::Encoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip).unwrap();
+        (0..packets)
+            .map(|packet| {
+                let pcm: Vec<f32> = (0..PACKET_SAMPLES)
+                    .map(|i| {
+                        let t = (packet * PACKET_SAMPLES + i) as f32 / OUTPUT_SAMPLE_RATE as f32;
+                        (t * 440.0 * std::f32::consts::TAU).sin() * 0.5
+                    })
+                    .collect();
+                let mut encoded = [0u8; 4000];
+                let len = encoder.encode_float(&pcm, &mut encoded).unwrap();
+                encoded[..len].to_vec()
+            })
+            .collect()
+    }
+
+    fn energy(frame: &[i16]) -> f32 {
+        frame.iter().map(|&s| (s as f32 / i16::MAX as f32).powi(2)).sum()
+    }
+
+    #[test]
+    fn speaker_audio_comes_out_of_the_mix() {
+        let mut speakers = HashMap::from([(7, Speaker::new().unwrap())]);
+        for packet in tone_packets(25) {
+            speakers.get_mut(&7).unwrap().insert_packet(7, &packet).unwrap();
+        }
+
+        let total: f32 = (0..50).map(|_| energy(&mix_frame(&mut speakers).unwrap())).sum();
+
+        // A 0.5-amplitude tone has mean power 0.125 per sample; 500 ms of it is
+        // ~3000. Require a healthy fraction to allow for NetEq's startup delay.
+        assert!(total > 500.0, "mix was nearly silent: energy {total}");
+    }
+
+    #[test]
+    fn idle_speaker_mixes_to_silence() {
+        let mut speakers = HashMap::from([(7, Speaker::new().unwrap())]);
+
+        let frame = mix_frame(&mut speakers).unwrap();
+
+        assert_eq!(frame, [0; MIX_FRAME_SAMPLES]);
+    }
 }
