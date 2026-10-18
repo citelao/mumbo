@@ -107,7 +107,12 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     let mut userState: Vec<proto::raw::UserState> = vec![];
     let mut serverSync: Option<proto::raw::ServerSync> = None;
 
-    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_empty() || userState.is_empty() || serverSync.is_none() {
+    // /* cryptSetup.is_none() || codecVersion.is_none() || */
+    // ^ don't need these.
+    //
+    // - cryptSetup - only for UDP, which we don't use.
+    // - codecVersion - clients use Opus, so this is not useful. Grumble doesn't reliably send.
+    while channelState.is_empty() || userState.is_empty() || serverSync.is_none() {
         let message = reader.try_next().await?;
         match &message {
             Some(proto::ServerToClientMessage::Reject(m)) => {
