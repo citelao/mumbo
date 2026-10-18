@@ -53,7 +53,7 @@ function App() {
             };
             try {
               // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-              await invoke("connect_disconnect", { server, port, password, name, channel });
+              await invoke("connect_and_listen", { server, port, password, name, channel });
             } catch (error) {
               console.error(error);
               alert("Failed to connect: " + error);
@@ -80,6 +80,16 @@ function App() {
             Connect/Disconnect
           </button>
         </form>
+        <button type="button" onClick={async () => {
+          try {
+            await invoke("disconnect");
+          } catch (error) {
+            console.error(error);
+            alert("Failed to disconnect: " + error);
+          }
+        }}>
+          Disconnect
+        </button>
       </main>
       <ProtocolViewer entries={protocolLog} onClear={() => setProtocolLog([])} />
     </>

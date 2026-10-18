@@ -15,9 +15,12 @@ use futures_util::TryStreamExt;
 
 mod AcceptAnyCert;
 
+// HACK! Global state.
+static CANCELLATION_TOKEN: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect_disconnect(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
+async fn connect_and_listen(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
     let _ = connect(server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
@@ -25,13 +28,29 @@ async fn connect_disconnect(app: AppHandle, server: String, port: u16, password:
     Ok(())
 }
 
-struct RawMumbleConnection {
-    // tcp_read: ReadHalf<TlsStream<TcpStream>>,
-    reader: FramedRead<ReadHalf<TlsStream<TcpStream>>, proto::codec::MumbleCodec>,
-    tcp_write: WriteHalf<TlsStream<TcpStream>>,
+#[tauri::command]
+async fn disconnect(app: AppHandle) -> Result<(), String> {
+    if let Some(token) = CANCELLATION_TOKEN.lock().unwrap().as_ref() {
+        log::info!("Disconnecting from server");
+        token.cancel();
+    } else {
+        log::info!("No active connection");
+    }
+    Ok(())
 }
 
+// struct RawMumbleConnection {
+//     // tcp_read: ReadHalf<TlsStream<TcpStream>>,
+//     // reader: FramedRead<ReadHalf<TlsStream<TcpStream>>, proto::codec::MumbleCodec>,
+//     // tcp_write: WriteHalf<TlsStream<TcpStream>>,
+//     // CANCELLATION_TOKEN: Option<tokio_util::sync::CancellationToken>,
+// }
+
 async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
+    // HACK! Global state?
+    let token = tokio_util::sync::CancellationToken::new();
+    *CANCELLATION_TOKEN.lock().unwrap() = Some(token.clone());
+
     // Connection process:
     //
     // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/establishing_connection.md
@@ -142,6 +161,10 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     loop {
         // Simultaneously read from the server & manage a ping loop.
         tokio::select! {
+            _ = token.cancelled() => {
+                log::info!("Breaking; cancellation requested");
+                break;
+            }
             message = reader.try_next() => {
                 match &message? {
                     Some(message) => {
@@ -174,17 +197,6 @@ async fn write_message(tcp_write: &mut WriteHalf<TlsStream<TcpStream>>, message:
     Ok(())
 }
 
-// async fn read_message(tcp_read: &mut ReadHalf<TlsStream<TcpStream>>) -> Result<proto::ServerToClientMessage, Error> {
-//     // TODO: throw a nice error if our connection gets closed because we didn't ping every 30s.
-//     let msg_type = tcp_read.read_u16().await?;
-//     let len = tcp_read.read_u32().await? as usize;
-//     let mut payload = vec![0u8; len];
-//     tcp_read.read_exact(&mut payload).await?;
-
-//     let message = proto::ServerToClientMessage::decode(msg_type, &payload[..])?;
-//     Ok(message)
-// }
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -194,7 +206,7 @@ pub fn run() {
             .level_for("mumbo_lib", log::LevelFilter::Trace)
             .with_colors(ColoredLevelConfig::default())
             .build())
-        .invoke_handler(tauri::generate_handler![connect_disconnect])
+        .invoke_handler(tauri::generate_handler![connect_and_listen, disconnect])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
