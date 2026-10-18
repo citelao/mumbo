@@ -44,6 +44,22 @@
     }
   },
   {
+    "type": "Ping",
+    "data": {
+      "timestamp": 123,
+      "good": 0,
+      "late": 0,
+      "lost": 0,
+      "resync": 0,
+      "udp_packets": null,
+      "tcp_packets": null,
+      "udp_ping_avg": null,
+      "udp_ping_var": null,
+      "tcp_ping_avg": 12.5,
+      "tcp_ping_var": null
+    }
+  },
+  {
     "type": "Reject",
     "data": {
       "type": null,

@@ -153,6 +153,17 @@ mod tests {
                 ..Default::default()
             })),
             ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(Default::default())),
+            // Shaped like Murmur's reply: echoed timestamp and crypt counters,
+            // plus a float stat, since the ping averages are f32.
+            ServerToClientMessage::Ping(raw::Ping {
+                timestamp: Some(123),
+                good: Some(0),
+                late: Some(0),
+                lost: Some(0),
+                resync: Some(0),
+                tcp_ping_avg: Some(12.5),
+                ..Default::default()
+            }),
             ServerToClientMessage::Reject(Default::default()),
             ServerToClientMessage::ServerSync(Default::default()),
             ServerToClientMessage::ChannelRemove(Default::default()),

@@ -19,18 +19,19 @@ const Version = z.strictObject({
   os_version: z.string().nullable(),
 });
 
+// Every field is optional in Mumble.proto; the ping stats are f32.
 const Ping = z.strictObject({
-  timestamp: u64,
-  good: u32,
-  late: u32,
-  lost: u32,
-  resync: u32,
+  timestamp: u64.nullable(),
+  good: u32.nullable(),
+  late: u32.nullable(),
+  lost: u32.nullable(),
+  resync: u32.nullable(),
   udp_packets: u32.nullable(),
   tcp_packets: u32.nullable(),
-  udp_ping_avg: u64.nullable(),
-  udp_ping_var: u64.nullable(),
-  tcp_ping_avg: u64.nullable(),
-  tcp_ping_var: u64.nullable(),
+  udp_ping_avg: z.number().nullable(),
+  udp_ping_var: z.number().nullable(),
+  tcp_ping_avg: z.number().nullable(),
+  tcp_ping_var: z.number().nullable(),
 });
 
 const Reject = z.strictObject({
