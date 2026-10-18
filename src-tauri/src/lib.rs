@@ -356,8 +356,22 @@ fn mix_frame(speakers: &mut HashMap<u32, Speaker>) -> Result<[i16; MIX_FRAME_SAM
             *out += sample;
         }
     }
-    // tanh soft-clips overlapping speakers instead of hard-clipping at ±1.
-    Ok(sum.map(|sample| (sample.tanh() * i16::MAX as f32) as i16))
+    Ok(sum.map(|sample| (soft_clip(sample) * i16::MAX as f32) as i16))
+}
+
+/// Passes normal levels through untouched and smoothly bends anything louder
+/// (e.g. overlapping speakers) toward, but never past, full scale.
+fn soft_clip(sample: f32) -> f32 {
+    const THRESHOLD: f32 = 0.8;
+    let magnitude = sample.abs();
+    if magnitude <= THRESHOLD {
+        return sample;
+    }
+    // tanh's slope is 1 at 0, so the curve continues the straight line at
+    // THRESHOLD without a kink, and approaches 1.0 asymptotically.
+    let headroom = 1.0 - THRESHOLD;
+    let bent = THRESHOLD + headroom * ((magnitude - THRESHOLD) / headroom).tanh();
+    bent.copysign(sample)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -418,6 +432,36 @@ mod tests {
         // A 0.5-amplitude tone has mean power 0.125 per sample; 500 ms of it is
         // ~3000. Require a healthy fraction to allow for NetEq's startup delay.
         assert!(total > 500.0, "mix was nearly silent: energy {total}");
+    }
+
+    #[test]
+    fn soft_clip_leaves_normal_levels_untouched() {
+        for sample in [0.0, 0.1, -0.5, 0.79, -0.79] {
+            assert_eq!(soft_clip(sample), sample);
+        }
+    }
+
+    #[test]
+    fn soft_clip_keeps_overlaps_below_full_scale() {
+        // Mathematically the curve stays strictly below 1.0, but for large inputs
+        // tanh rounds to exactly 1.0 in f32. Full scale itself is still safe.
+        for sample in [0.9, 1.0, 1.5, 3.0, 100.0] {
+            let clipped = soft_clip(sample);
+            assert!(clipped <= 1.0, "soft_clip({sample}) = {clipped}");
+            assert_eq!(soft_clip(-sample), -clipped);
+        }
+        assert!(soft_clip(1.0) < 1.0, "a moderate overlap should keep some headroom");
+    }
+
+    #[test]
+    fn soft_clip_is_smooth_and_increasing() {
+        // No jump at the threshold, and louder input never comes out quieter.
+        let samples: Vec<f32> = (0..=400).map(|i| i as f32 / 100.0).collect();
+        for pair in samples.windows(2) {
+            let (a, b) = (soft_clip(pair[0]), soft_clip(pair[1]));
+            assert!(b >= a, "soft_clip decreased between {} and {}", pair[0], pair[1]);
+            assert!(b - a <= 0.01 + f32::EPSILON, "soft_clip jumped between {} and {}", pair[0], pair[1]);
+        }
     }
 
     #[test]
