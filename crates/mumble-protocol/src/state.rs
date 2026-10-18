@@ -1,8 +1,10 @@
 use std::{collections::HashMap};
 use std::io::{self, Error};
 
+use serde::Serialize;
+
 // See raw::UserState for the fields that correspond to this struct.
-#[derive(Default)]
+#[derive(Default, Clone, Debug, Serialize)]
 pub struct User {
     // Unique user ID
     session: u32,
@@ -58,12 +60,16 @@ fn merge<T>(field: &mut T, update: Option<T>) {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
-    users: HashMap<u32, User>
+    users: HashMap<u32, User>,
 }
 
 impl MumbleState {
+    pub fn users(&self) -> Vec<User> {
+        self.users.values().cloned().collect()
+    }
+
     pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<(), Error> {
         match message {
             crate::ServerToClientMessage::UserState(m) => {

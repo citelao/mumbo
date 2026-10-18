@@ -19,6 +19,7 @@ mod AcceptAnyCert;
 
 // HACK! Global state.
 static CANCELLATION_TOKEN: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
+static CONNECTION: std::sync::Mutex<Option<proto::state::MumbleState>> = std::sync::Mutex::new(None);
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -41,6 +42,15 @@ async fn disconnect(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_users() -> Vec<proto::state::User> {
+    if let Some(connection) = CONNECTION.lock().unwrap().as_ref() {
+        return connection.users();
+    } else {
+        Vec::new()
+    }
+}
+
 // struct RawMumbleConnection {
 //     // tcp_read: ReadHalf<TlsStream<TcpStream>>,
 //     // reader: FramedRead<ReadHalf<TlsStream<TcpStream>>, proto::codec::MumbleCodec>,
@@ -52,6 +62,8 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     // HACK! Global state?
     let token = tokio_util::sync::CancellationToken::new();
     *CANCELLATION_TOKEN.lock().unwrap() = Some(token.clone());
+
+    *CONNECTION.lock().unwrap() = Some(proto::state::MumbleState::default());
 
     // Connection process:
     //
@@ -66,6 +78,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     let mut reader = FramedRead::new(tcp_read, proto::codec::MumbleCodec::default())
         .inspect(|result| {
             if let Ok(message) = result {
+                if let Some(ref mut connection) = *CONNECTION.lock().unwrap() {
+                    connection.apply(message.clone()).unwrap();
+                }
                 log::trace!("Received message from server: {:?}", message);
                 channel.send(message.clone()).unwrap();
             }
@@ -202,7 +217,11 @@ pub fn run() {
             .level_for("mumbo_lib", log::LevelFilter::Trace)
             .with_colors(ColoredLevelConfig::default())
             .build())
-        .invoke_handler(tauri::generate_handler![connect_and_listen, disconnect])
+        .invoke_handler(tauri::generate_handler![
+            connect_and_listen,
+            get_users,
+            disconnect
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
