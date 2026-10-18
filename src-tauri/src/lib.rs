@@ -45,7 +45,7 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     let mut reader = FramedRead::new(tcp_read, proto::codec::MumbleCodec::default())
         .inspect(|result| {
             if let Ok(message) = result {
-                log::info!("Received message from server: {:?}", message);
+                log::trace!("Received message from server: {:?}", message);
                 channel.send(message.clone()).unwrap();
             }
         });
@@ -103,10 +103,10 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     // need to be precise:
     let mut cryptSetup: Option<proto::raw::CryptSetup> = None;
     let mut codecVersion: Option<proto::raw::CodecVersion> = None;
-    let mut channelState: Option<proto::raw::ChannelState> = None;
-    let mut userState: Option<proto::raw::UserState> = None;
+    let mut channelState: Vec<proto::raw::ChannelState> = vec![];
+    let mut userState: Vec<proto::raw::UserState> = vec![];
 
-    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_none() || userState.is_none() {
+    while cryptSetup.is_none() || codecVersion.is_none() || channelState.is_empty() || userState.is_empty() {
         let message = reader.try_next().await?;
         match &message {
             Some(proto::ServerToClientMessage::Reject(m)) => {
@@ -115,8 +115,8 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
             }
             Some(proto::ServerToClientMessage::CryptSetup(m)) => cryptSetup = Some(m.clone()),
             Some(proto::ServerToClientMessage::CodecVersion(m)) => codecVersion = Some(m.clone()),
-            Some(proto::ServerToClientMessage::ChannelState(m)) => channelState = Some(m.clone()),
-            Some(proto::ServerToClientMessage::UserState(m)) => userState = Some(m.clone()),
+            Some(proto::ServerToClientMessage::ChannelState(m)) => channelState.push(m.clone()),
+            Some(proto::ServerToClientMessage::UserState(m)) => userState.push(m.clone()),
             Some(_) => {
                 log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
             }
