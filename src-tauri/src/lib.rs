@@ -10,23 +10,25 @@ use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::sync::broadcast;
 
-// HACK! Global state.
-static CONNECTION: std::sync::Mutex<Option<proto::client::MumbleClient>> = std::sync::Mutex::new(None);
+#[derive(Default)]
+struct AppState {
+    client: std::sync::Mutex<Option<proto::client::MumbleClient>>,
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
-    connect_internal(server, port, password, name, channel)
+async fn connect(state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
+    connect_internal(state, server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn disconnect() -> Result<(), String> {
+async fn disconnect(state: tauri::State<'_, AppState>) -> Result<(), String> {
     // `take` empties the slot under a single lock, so no other command can
     // observe the connection between "found it" and "removed it".
-    if let Some(client) = CONNECTION.lock().unwrap().take() {
+    if let Some(client) = state.client.lock().unwrap().take() {
         log::info!("Disconnecting from server");
         client.disconnect();
     } else {
@@ -36,8 +38,9 @@ async fn disconnect() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_users() -> Vec<proto::state::User> {
-    CONNECTION
+fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
+    state
+        .client
         .lock()
         .unwrap()
         .as_ref()
@@ -57,9 +60,8 @@ async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward:
     }
 }
 
-async fn connect_internal(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
-    // HACK! Global state?
-    if let Some(previous) = CONNECTION.lock().unwrap().take() {
+async fn connect_internal(state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
+    if let Some(previous) = state.client.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
         previous.disconnect();
     }
@@ -159,7 +161,7 @@ async fn connect_internal(server: String, port: u16, password: String, name: Str
         }
     });
 
-    *CONNECTION.lock().unwrap() = Some(client);
+    *state.client.lock().unwrap() = Some(client);
 
     log::info!("Connected to server");
     Ok(())
@@ -265,6 +267,7 @@ fn soft_clip(sample: f32) -> f32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_log::Builder::new()
             .level(log::LevelFilter::Info)
