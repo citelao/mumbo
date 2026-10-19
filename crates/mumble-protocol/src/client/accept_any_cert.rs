@@ -9,11 +9,11 @@ pub struct AcceptAnyCert(Arc<rustls::crypto::CryptoProvider>);
 impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
     fn verify_server_cert(
         &self,
-        end_entity: &rustls::pki_types::CertificateDer<'_>,
-        intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        server_name: &rustls::pki_types::ServerName<'_>,
-        ocsp_response: &[u8],
-        now: rustls::pki_types::UnixTime,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         Ok(ServerCertVerified::assertion())
     }

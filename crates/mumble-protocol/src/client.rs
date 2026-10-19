@@ -2,12 +2,11 @@ use std::io;
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
-use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use std::sync::{Arc, Mutex};
 use futures_util::{Sink, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 
 mod accept_any_cert;
-use accept_any_cert::AcceptAnyCert;
 
 use crate::{ServerToClientMessage, ServerToClientUdpMessage, state::{ConnectionStatus, MumbleState}};
 
@@ -75,11 +74,20 @@ pub async fn connect(options: ConnectionOptions) -> Result<Connection, MumbleCon
         .connect(server_name, tcp)
         .await?;
 
+    connect_over(tls, options).await
+}
+
+/// Runs the Mumble handshake and starts the connection over an already-open
+/// stream: TLS in production, an in-memory pipe in tests.
+async fn connect_over(
+    stream: impl AsyncRead + AsyncWrite + Send + 'static,
+    options: ConnectionOptions,
+) -> Result<Connection, MumbleConnectionError> {
     const DEBUG_CHANNEL_CAPACITY: usize = 512;
     let (debug_tx, debug_rx) = broadcast::channel::<ServerToClientMessage>(DEBUG_CHANNEL_CAPACITY);
 
-    let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
-    let mut reader = FramedRead::new(tcp_read, crate::codec::MumbleCodec::default())
+    let (stream_read, stream_write) = tokio::io::split(stream);
+    let mut reader = FramedRead::new(stream_read, crate::codec::MumbleCodec::default())
         .inspect(move |msg| {
             if let Ok(msg) = msg {
                 log::debug!("Received server message: {:?}", msg);
@@ -88,7 +96,7 @@ pub async fn connect(options: ConnectionOptions) -> Result<Connection, MumbleCon
                 }
             }
         });
-    let mut writer = FramedWrite::new(tcp_write, crate::codec::MumbleCodec::default());
+    let mut writer = FramedWrite::new(stream_write, crate::codec::MumbleCodec::default());
 
     // Send a version message!
     let (major, minor, patch) = (1u32, 5u32, 0u32);
@@ -159,7 +167,7 @@ pub async fn connect(options: ConnectionOptions) -> Result<Connection, MumbleCon
 
     Ok(Connection {
         client: MumbleClient {
-            state: state,
+            state,
             cancel: cancellation_token,
         },
         debug: debug_rx,
@@ -217,5 +225,243 @@ impl MumbleClient {
 
     pub fn state(&self) -> Arc<Mutex<MumbleState>> {
         self.state.clone()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codec::{MumbleFrame, MumbleFrameCodec};
+    use crate::{TcpMessageId, UdpMessageId, raw, raw_udp};
+    use prost::Message;
+    use std::time::Duration;
+    use tokio::io::DuplexStream;
+    use tokio_util::codec::Framed;
+
+    /// Generous bound so a broken test fails instead of hanging.
+    const TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// The server end of an in-memory connection, speaking raw frames.
+    struct FakeServer {
+        frames: Framed<DuplexStream, MumbleFrameCodec>,
+    }
+
+    impl FakeServer {
+        async fn send<M: TcpMessageId>(&mut self, message: M) {
+            let frame = MumbleFrame { type_id: M::TYPE_ID, payload: message.encode_to_vec().into() };
+            self.frames.send(frame).await.unwrap();
+        }
+
+        async fn send_audio(&mut self, audio: raw_udp::Audio) {
+            // Tunnelled voice: one UDP type byte, then the protobuf.
+            let mut payload = vec![raw_udp::Audio::TYPE_ID];
+            payload.extend(audio.encode_to_vec());
+            self.frames.send(MumbleFrame { type_id: raw::UdpTunnel::TYPE_ID, payload: payload.into() }).await.unwrap();
+        }
+
+        /// The next frame the client sent, or `None` once it hung up.
+        async fn receive(&mut self) -> Option<MumbleFrame> {
+            tokio::time::timeout(TIMEOUT, self.frames.next()).await.unwrap().map(Result::unwrap)
+        }
+
+        async fn receive_message<M: TcpMessageId>(&mut self) -> M {
+            let frame = self.receive().await.expect("client hung up");
+            assert_eq!(frame.type_id, M::TYPE_ID, "unexpected message type");
+            M::decode(frame.payload).unwrap()
+        }
+
+        /// Reads the client's opening Version and Authenticate, and answers with Version.
+        async fn greet(&mut self) -> raw::Authenticate {
+            self.receive_message::<raw::Version>().await;
+            self.send(raw::Version { version_v2: Some(1 << 48 | 5 << 32), ..Default::default() }).await;
+            self.receive_message::<raw::Authenticate>().await
+        }
+
+        /// Completes the handshake with one other user already on the server.
+        async fn accept(&mut self) {
+            self.greet().await;
+            self.send(user(1, "Alice")).await;
+            self.send(user(2, "me")).await;
+            self.send(raw::ServerSync { session: Some(2), ..Default::default() }).await;
+        }
+    }
+
+    fn user(session: u32, name: &str) -> raw::UserState {
+        raw::UserState { session: Some(session), name: Some(name.to_string()), ..Default::default() }
+    }
+
+    fn options() -> ConnectionOptions {
+        ConnectionOptions {
+            server: "test.invalid".to_string(),
+            port: None,
+            password: Some("hunter2".to_string()),
+            username: Some("me".to_string()),
+        }
+    }
+
+    /// Starts a client handshake against a fake server.
+    fn start() -> (tokio::task::JoinHandle<Result<Connection, MumbleConnectionError>>, FakeServer) {
+        let (client_end, server_end) = tokio::io::duplex(64 * 1024);
+        let connecting = tokio::spawn(connect_over(client_end, options()));
+        (connecting, FakeServer { frames: Framed::new(server_end, MumbleFrameCodec) })
+    }
+
+    async fn connected() -> (Connection, FakeServer) {
+        let (connecting, mut server) = start();
+        server.accept().await;
+        let connection = tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().unwrap();
+        (connection, server)
+    }
+
+    fn user_names(client: &MumbleClient) -> Vec<String> {
+        client.state().lock().unwrap().users().iter().map(|u| u.name().to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn handshake_sends_version_then_credentials() {
+        let (_connecting, mut server) = start();
+
+        let version = server.receive_message::<raw::Version>().await;
+        server.send(raw::Version::default()).await;
+        let authenticate = server.receive_message::<raw::Authenticate>().await;
+
+        assert_eq!(version.version_v2, Some(1 << 48 | 5 << 32), "should claim 1.5.0");
+        assert_eq!(authenticate.username.as_deref(), Some("me"));
+        assert_eq!(authenticate.password.as_deref(), Some("hunter2"));
+        assert_eq!(authenticate.opus, Some(true), "must advertise Opus or the server may fall back to CELT");
+    }
+
+    #[tokio::test]
+    async fn connect_keeps_every_user_sent_before_server_sync() {
+        let (connection, _server) = connected().await;
+
+        assert_eq!(user_names(&connection.client), ["Alice", "me"]);
+    }
+
+    #[tokio::test]
+    async fn connect_waits_for_server_sync() {
+        let (mut connecting, mut server) = start();
+        server.greet().await;
+        server.send(user(1, "Alice")).await;
+
+        // Everything but ServerSync has arrived: still connecting.
+        let still_waiting = tokio::time::timeout(Duration::from_millis(50), &mut connecting).await;
+        assert!(still_waiting.is_err(), "connect returned before ServerSync");
+
+        server.send(raw::ServerSync { session: Some(2), ..Default::default() }).await;
+        tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn connect_fails_when_the_server_rejects() {
+        let (connecting, mut server) = start();
+        server.greet().await;
+        server.send(raw::Reject {
+            r#type: Some(raw::reject::RejectType::WrongServerPw as i32),
+            reason: Some("Invalid server password".to_string()),
+        }).await;
+
+        let error = tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().err().expect("connect should fail");
+
+        assert!(error.to_string().contains("Invalid server password"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn connect_fails_when_the_server_hangs_up_mid_handshake() {
+        let (connecting, mut server) = start();
+        server.greet().await;
+        drop(server);
+
+        let error = tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().err().expect("connect should fail");
+
+        assert!(matches!(error, MumbleConnectionError::UnexpectedServerClose), "{error}");
+    }
+
+    #[tokio::test]
+    async fn audio_goes_to_the_audio_channel_not_the_state() {
+        let (mut connection, mut server) = connected().await;
+
+        server.send_audio(raw_udp::Audio { sender_session: 1, opus_data: vec![1, 2, 3], ..Default::default() }).await;
+        let audio = tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().unwrap();
+
+        assert_eq!((audio.sender_session, audio.opus_data), (1, vec![1, 2, 3]));
+        assert_eq!(user_names(&connection.client), ["Alice", "me"]);
+    }
+
+    #[tokio::test]
+    async fn debug_stream_includes_the_handshake() {
+        let (mut connection, _server) = connected().await;
+
+        let mut received = Vec::new();
+        while let Ok(message) = connection.debug.try_recv() {
+            received.push(message);
+        }
+
+        assert!(matches!(received[0], ServerToClientMessage::Version(_)), "{received:?}");
+        assert!(matches!(received.last(), Some(ServerToClientMessage::ServerSync(_))), "{received:?}");
+        assert_eq!(received.len(), 4, "Version, two UserStates, ServerSync: {received:?}");
+    }
+
+    #[tokio::test]
+    async fn state_keeps_updating_after_connect() {
+        let (connection, mut server) = connected().await;
+
+        server.send(user(3, "Bob")).await;
+
+        wait_until(|| user_names(&connection.client).contains(&"Bob".to_string())).await;
+    }
+
+    #[tokio::test]
+    async fn disconnect_closes_the_connection() {
+        let (mut connection, mut server) = connected().await;
+
+        connection.client.disconnect();
+
+        // The server sees the socket close (after any pings already in flight)…
+        while server.receive().await.is_some() {}
+        // …and the audio channel closes, which is how the app's audio task stops.
+        assert!(tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn server_hanging_up_closes_the_audio_channel() {
+        let (mut connection, server) = connected().await;
+
+        drop(server);
+
+        assert!(tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pings_every_15_seconds_to_stay_connected() {
+        let (_connection, mut server) = connected().await;
+
+        // The first ping goes out as soon as the loop starts.
+        assert_eq!(server.receive().await.unwrap().type_id, raw::Ping::TYPE_ID);
+
+        tokio::time::advance(Duration::from_secs(15)).await;
+        assert_eq!(server.receive().await.unwrap().type_id, raw::Ping::TYPE_ID);
+    }
+
+    #[tokio::test]
+    async fn a_full_audio_channel_does_not_stall_the_connection() {
+        let (connection, mut server) = connected().await;
+
+        // Nobody reads `connection.audio`; overflow it, then send a state update.
+        for _ in 0..600 {
+            server.send_audio(raw_udp::Audio { sender_session: 1, ..Default::default() }).await;
+        }
+        server.send(user(3, "Bob")).await;
+
+        wait_until(|| user_names(&connection.client).contains(&"Bob".to_string())).await;
+    }
+
+    async fn wait_until(condition: impl Fn() -> bool) {
+        tokio::time::timeout(TIMEOUT, async {
+            while !condition() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("condition never became true");
     }
 }

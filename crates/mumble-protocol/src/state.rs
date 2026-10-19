@@ -53,6 +53,12 @@ pub struct User {
 
 }
 
+impl User {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 /// Applies a protobuf delta: `None` means the field didn't change.
 fn merge<T>(field: &mut T, update: Option<T>) {
     if let Some(value) = update {

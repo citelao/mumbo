@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn create_authenticate_message() {
-        let foo = super::raw::Authenticate {
+        let _authenticate = super::raw::Authenticate {
             celt_versions: vec![],
             client_type: 0.into(),
             opus: false.into(),
