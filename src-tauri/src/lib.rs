@@ -396,8 +396,8 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    /// Opus-encodes `packets` × 20 ms of a 440 Hz tone, as a sender would.
-    fn tone_packets(packets: usize) -> Vec<Vec<u8>> {
+    /// Opus-encodes `packets` × 20 ms of a sine tone, as a sender would.
+    fn tone_packets(frequency: f32, amplitude: f32, packets: usize) -> Vec<Vec<u8>> {
         const PACKET_SAMPLES: usize = 960;
         let mut encoder =
             opus::Encoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip).unwrap();
@@ -406,7 +406,7 @@ mod tests {
                 let pcm: Vec<f32> = (0..PACKET_SAMPLES)
                     .map(|i| {
                         let t = (packet * PACKET_SAMPLES + i) as f32 / OUTPUT_SAMPLE_RATE as f32;
-                        (t * 440.0 * std::f32::consts::TAU).sin() * 0.5
+                        (t * frequency * std::f32::consts::TAU).sin() * amplitude
                     })
                     .collect();
                 let mut encoded = [0u8; 4000];
@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn speaker_audio_comes_out_of_the_mix() {
         let mut speakers = HashMap::from([(7, Speaker::new().unwrap())]);
-        for packet in tone_packets(25) {
+        for packet in tone_packets(440.0, 0.5, 25) {
             speakers.get_mut(&7).unwrap().insert_packet(7, &packet).unwrap();
         }
 
@@ -432,6 +432,38 @@ mod tests {
         // A 0.5-amplitude tone has mean power 0.125 per sample; 500 ms of it is
         // ~3000. Require a healthy fraction to allow for NetEq's startup delay.
         assert!(total > 500.0, "mix was nearly silent: energy {total}");
+    }
+
+    /// Amplitude of the `frequency` component of `samples` (a single DFT bin).
+    fn tone_strength(samples: &[f32], frequency: f32) -> f32 {
+        let (re, im) = samples.iter().enumerate().fold((0.0, 0.0), |(re, im), (n, &x)| {
+            let phase = std::f32::consts::TAU * frequency * n as f32 / OUTPUT_SAMPLE_RATE as f32;
+            (re + x * phase.cos(), im - x * phase.sin())
+        });
+        2.0 * (re * re + im * im).sqrt() / samples.len() as f32
+    }
+
+    #[test]
+    fn two_speakers_are_heard_together() {
+        let mut speakers = HashMap::from([(1, Speaker::new().unwrap()), (2, Speaker::new().unwrap())]);
+        // Quiet enough that the sum stays below soft_clip's threshold.
+        let alice = tone_packets(440.0, 0.25, 25);
+        let bob = tone_packets(1000.0, 0.25, 25);
+        for (alice_packet, bob_packet) in alice.iter().zip(&bob) {
+            speakers.get_mut(&1).unwrap().insert_packet(1, alice_packet).unwrap();
+            speakers.get_mut(&2).unwrap().insert_packet(2, bob_packet).unwrap();
+        }
+
+        let mixed: Vec<f32> = (0..50)
+            .flat_map(|_| mix_frame(&mut speakers).unwrap())
+            .map(|s| s as f32 / i16::MAX as f32)
+            .collect();
+
+        let (alice_level, bob_level) = (tone_strength(&mixed, 440.0), tone_strength(&mixed, 1000.0));
+        assert!(alice_level > 0.1, "440 Hz missing from mix: {alice_level}");
+        assert!(bob_level > 0.1, "1000 Hz missing from mix: {bob_level}");
+        // An unrelated frequency stays near zero, so the levels above are the tones, not noise.
+        assert!(tone_strength(&mixed, 3000.0) < 0.02);
     }
 
     #[test]
