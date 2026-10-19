@@ -25,7 +25,8 @@ pub struct Connection {
     // Audio packets, ready for decoding.
     pub audio: mpsc::Receiver<crate::raw_udp::Audio>,
 
-    // TODO: expose useful events, like connection etc.
+    // General server events, like users joining, leaving, & updating.
+    pub events: mpsc::UnboundedReceiver<crate::state::MumbleEvent>,
 }
 
 #[derive(Debug, Error)]
@@ -148,6 +149,11 @@ async fn connect_over(
 
     let state = Arc::new(Mutex::new(MumbleState::default()));
 
+    // Unbounded: an event must never be dropped (a lost UserRemove leaves a
+    // ghost user), and the driver must never wait on the app (that would stall
+    // pings). Events are infrequent, so the queue stays small.
+    let (events_tx, events_rx) = mpsc::unbounded_channel();
+
     // Assume 20ms packets, let's buffer ~10 seconds worth of audio.
     const AUDIO_CHANNEL_BUFFER_SIZE: usize = 512;
     assert!(AUDIO_CHANNEL_BUFFER_SIZE > (10 * 1000 / 20));
@@ -158,11 +164,11 @@ async fn connect_over(
         let Some(message) = reader.try_next().await? else {
             return Err(MumbleConnectionError::UnexpectedServerClose);
         };
-        state.lock().unwrap().apply(message)?;
+        apply_and_publish(&state, &events_tx, message)?;
     }
 
     let cancellation_token = CancellationToken::new();
-    tokio::spawn(run(reader, writer, state.clone(), audio_tx, cancellation_token.clone())
+    tokio::spawn(run(reader, writer, state.clone(), audio_tx, events_tx, cancellation_token.clone())
         .inspect_err(|e| log::error!("connection ended: {e}")));
 
     Ok(Connection {
@@ -170,9 +176,24 @@ async fn connect_over(
             state,
             cancel: cancellation_token,
         },
+        events: events_rx,
         debug: debug_rx,
         audio: audio_rx,
     })
+}
+
+/// Applies a message to the state and publishes any resulting event.
+fn apply_and_publish(
+    state: &Mutex<MumbleState>,
+    events: &mpsc::UnboundedSender<crate::state::MumbleEvent>,
+    message: ServerToClientMessage,
+) -> Result<(), MumbleConnectionError> {
+    let event = state.lock().unwrap().apply(message)?;
+    if let Some(event) = event {
+        // Only fails if the app dropped its receiver, i.e. nobody is listening.
+        let _ = events.send(event);
+    }
+    Ok(())
 }
 
 async fn run(
@@ -180,6 +201,7 @@ async fn run(
     mut writer: impl Sink<crate::ClientToServerMessage, Error = io::Error> + Unpin + Send + 'static,
     state: Arc<Mutex<MumbleState>>,
     audio_tx: tokio::sync::mpsc::Sender<crate::raw_udp::Audio>,
+    events_tx: mpsc::UnboundedSender<crate::state::MumbleEvent>,
     cancellation_token: CancellationToken) -> Result<(), MumbleConnectionError> {
 
     // Mumble requires pings every 30s by default; be eager.
@@ -203,7 +225,7 @@ async fn run(
                         }
                     }
                     _ => {
-                        state.lock().unwrap().apply(message)?;
+                        apply_and_publish(&state, &events_tx, message)?;
                     }
                 }
             }

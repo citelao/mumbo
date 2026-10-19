@@ -6,6 +6,7 @@ use mumble_protocol as proto;
 use mumble_protocol::client::{Connection, ConnectionOptions};
 use ringbuf::HeapRb;
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
+use tauri::Emitter;
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::sync::broadcast;
@@ -17,8 +18,8 @@ struct AppState {
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect(state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
-    connect_internal(state, server, port, password, name, channel)
+async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
+    connect_internal(app, state, server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
         .map_err(|e| e.to_string())
@@ -60,13 +61,13 @@ async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward:
     }
 }
 
-async fn connect_internal(state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
+async fn connect_internal(app: tauri::AppHandle, state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
     if let Some(previous) = state.client.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
         previous.disconnect();
     }
 
-    let Connection { client, debug, mut audio } = proto::client::connect(ConnectionOptions {
+    let Connection { client, debug, mut audio, mut events } = proto::client::connect(ConnectionOptions {
         server,
         port: Some(port),
         password: Some(password),
@@ -75,9 +76,23 @@ async fn connect_internal(state: tauri::State<'_, AppState>, server: String, por
         .await
         .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
 
+    // Send debug events to the channel.
     tauri::async_runtime::spawn(forward_debug(debug, move |message| {
         let _ = channel.send(message);
     }));
+
+    // Send state events to the app.
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = events.recv().await {
+            // TODO: a useful payload.
+            let _ = app.emit("session-changed", event);
+        }
+        // `recv` only returns `None` once the driver has exited, so the
+        // connection is over, however it ended.
+        // TODO: clear AppState and tell the UI. Careful: by now a newer
+        // connection may be in AppState, so only clear it if it's still ours.
+        log::info!("Connection ended");
+    });
 
     let mut speakers: HashMap<u32, Speaker> = HashMap::new();
 
