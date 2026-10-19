@@ -189,6 +189,92 @@ impl MumbleState {
 mod tests {
     use super::*;
 
+    fn user_state(session: u32, name: &str) -> crate::ServerToClientMessage {
+        crate::ServerToClientMessage::UserState(crate::raw::UserState {
+            session: Some(session),
+            name: Some(name.to_string()),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn text_messages_are_kept_in_order_and_reported() {
+        let mut state = MumbleState::default();
+
+        for text in ["hi", "how's it going"] {
+            let event = state
+                .apply(crate::ServerToClientMessage::TextMessage(crate::raw::TextMessage {
+                    message: text.to_string(),
+                    ..Default::default()
+                }))
+                .unwrap();
+            assert!(matches!(event, Some(MumbleEvent::ChatMessage)), "{event:?}");
+        }
+
+        assert_eq!(state.chat_messages(), &["hi", "how's it going"]);
+    }
+
+    #[test]
+    fn server_sync_connects_and_shows_the_welcome_text_in_chat() {
+        let mut state = MumbleState::default();
+
+        let event = state
+            .apply(crate::ServerToClientMessage::ServerSync(crate::raw::ServerSync {
+                welcome_text: Some("Welcome!".to_string()),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        assert_eq!(state.connection_status(), &ConnectionStatus::Connected);
+        assert_eq!(state.chat_messages(), &["Welcome!"]);
+        assert!(matches!(event, Some(MumbleEvent::ChatMessage)), "{event:?}");
+    }
+
+    #[test]
+    fn server_sync_without_welcome_text_connects_quietly() {
+        let mut state = MumbleState::default();
+
+        let event = state.apply(crate::ServerToClientMessage::ServerSync(Default::default())).unwrap();
+
+        assert_eq!(state.connection_status(), &ConnectionStatus::Connected);
+        assert!(state.chat_messages().is_empty());
+        assert!(event.is_none(), "{event:?}");
+    }
+
+    #[test]
+    fn user_joins_updates_and_leaves_are_reported() {
+        let mut state = MumbleState::default();
+
+        let joined = state.apply(user_state(1, "Alice")).unwrap();
+        let renamed = state.apply(user_state(1, "Alice Cooper")).unwrap();
+        let left = state
+            .apply(crate::ServerToClientMessage::UserRemove(crate::raw::UserRemove {
+                session: 1,
+                ..Default::default()
+            }))
+            .unwrap();
+
+        for event in [joined, renamed, left] {
+            assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+        }
+        assert!(state.users().is_empty());
+    }
+
+    #[test]
+    fn rejection_fails_with_the_server_reason() {
+        let mut state = MumbleState::default();
+
+        let error = state
+            .apply(crate::ServerToClientMessage::Reject(crate::raw::Reject {
+                r#type: Some(crate::raw::reject::RejectType::WrongServerPw as i32),
+                reason: Some("Invalid server password".to_string()),
+            }))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("Invalid server password"), "{error}");
+        assert_eq!(state.connection_status(), &ConnectionStatus::Failed);
+    }
+
     // src/mumbleState.test.ts parses the same fixture with the zod `User`
     // schema, so drift on either side fails a test.
     // Snapshots go to the UI and fixtures, so their order must not depend on

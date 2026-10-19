@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { fetchUsers } from "./mumbleState";
+import { fetchChatMessages, fetchUsers } from "./mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
 import fixture from "../crates/mumble-protocol/fixtures/users.json";
 
@@ -37,5 +37,18 @@ describe("fetchUsers", () => {
   it("propagates errors from Rust", async () => {
     mockInvoke.mockRejectedValue("not connected");
     await expect(fetchUsers()).rejects.toBe("not connected");
+  });
+});
+
+describe("fetchChatMessages", () => {
+  it("asks Rust for chat messages and returns them in order", async () => {
+    mockInvoke.mockResolvedValue(["Welcome!", "hi"]);
+    await expect(fetchChatMessages()).resolves.toEqual(["Welcome!", "hi"]);
+    expect(mockInvoke).toHaveBeenCalledWith("get_chat_messages");
+  });
+
+  it("rejects messages that aren't plain strings, e.g. if Rust adds metadata", async () => {
+    mockInvoke.mockResolvedValue([{ actor: 5, message: "hi" }]);
+    await expect(fetchChatMessages()).rejects.toThrow();
   });
 });

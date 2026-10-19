@@ -424,6 +424,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn events_report_the_handshake_and_later_changes() {
+        let (mut connection, mut server) = connected().await;
+
+        // Both users from the handshake were reported before connect returned…
+        let mut handshake = Vec::new();
+        while let Ok(event) = connection.events.try_recv() {
+            handshake.push(event);
+        }
+        assert!(
+            matches!(handshake[..], [crate::state::MumbleEvent::UsersChanged, crate::state::MumbleEvent::UsersChanged]),
+            "{handshake:?}"
+        );
+
+        // …and changes keep being reported afterwards.
+        server.send(raw::TextMessage { message: "hi".to_string(), ..Default::default() }).await;
+        let event = tokio::time::timeout(TIMEOUT, connection.events.recv()).await.unwrap();
+        assert!(matches!(event, Some(crate::state::MumbleEvent::ChatMessage)), "{event:?}");
+    }
+
+    #[tokio::test]
     async fn state_keeps_updating_after_connect() {
         let (connection, mut server) = connected().await;
 

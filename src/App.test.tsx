@@ -16,6 +16,13 @@ vi.mock("@tauri-apps/api/core", () => ({
     },
 }));
 const mockInvoke = vi.mocked(invoke);
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+
+/** Answers the commands the app makes, like a server with nobody else on it. */
+function fakeBackend(overrides: Partial<Record<string, unknown>> = {}) {
+    const responses: Record<string, unknown> = { get_users: [], get_chat_messages: [], ...overrides };
+    mockInvoke.mockImplementation(async (command) => responses[command]);
+}
 
 function connectChannel(): Channel<unknown> {
     const call = mockInvoke.mock.calls.find(([command]) => command === "connect");
@@ -47,7 +54,7 @@ describe("App", () => {
 
     it("connects with the login settings and switches to the main page", async () => {
         const user = userEvent.setup();
-        mockInvoke.mockResolvedValue(undefined);
+        fakeBackend();
         render(<App />);
 
         await connect(user);
@@ -77,7 +84,7 @@ describe("App", () => {
 
     it("logs messages from the connection, flagging ones that fail the schema", async () => {
         const user = userEvent.setup();
-        mockInvoke.mockResolvedValue(undefined);
+        fakeBackend();
         render(<App />);
         await connect(user);
 
@@ -94,21 +101,20 @@ describe("App", () => {
         expect(rows[1].className).toBe("protocol-viewer-invalid");
     });
 
-    it("shows users after refreshing", async () => {
+    it("shows the server's users and chat once connected", async () => {
         const user = userEvent.setup();
-        mockInvoke.mockImplementation(async (command) => (command === "get_users" ? users : undefined));
+        fakeBackend({ get_users: users, get_chat_messages: ["Welcome to the server!"] });
         render(<App />);
+
         await connect(user);
 
-        await user.click(screen.getByRole("button", { name: "Refresh users" }));
-
-        expect(await screen.findByText(/Alice \(channel 3\)/)).toBeTruthy();
-        expect(screen.getByText(/muted/)).toBeTruthy();
+        expect(await screen.findByText(/Alice \(channel 3\) muted/)).toBeTruthy();
+        expect(screen.getByText("Welcome to the server!")).toBeTruthy();
     });
 
     it("returns to the login page after disconnecting", async () => {
         const user = userEvent.setup();
-        mockInvoke.mockResolvedValue(undefined);
+        fakeBackend();
         render(<App />);
         await connect(user);
 
