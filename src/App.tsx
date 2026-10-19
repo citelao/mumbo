@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { listen } from '@tauri-apps/api/event';
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
 import { ProtocolViewer, type ProtocolLogEntry } from "./ProtocolViewer";
@@ -27,7 +28,6 @@ function toLogEntry(event: ServerToClientMessage): ProtocolLogEntry {
 
 function App() {
     const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
 
     const [isConnected, setIsConnected] = useState(false);
 
@@ -52,10 +52,6 @@ function App() {
         return { succeeded: true };
     };
 
-    if (!isConnected) {
-        return <LoginPage onConnect={onConnect} />;
-    }
-
     const onDisconnect = async () => {
         try {
             await invoke("disconnect");
@@ -66,42 +62,71 @@ function App() {
         }
     };
 
+    if (!isConnected) {
+        return <LoginPage onConnect={onConnect} />;
+    } else {
+        return <MainPage protocolLog={protocolLog} onClearProtocolLog={() => setProtocolLog([])} onDisconnect={onDisconnect} />;
+    }
+}
+
+interface MainPageProps {
+    protocolLog: ProtocolLogEntry[];
+    onClearProtocolLog: () => void;
+
+    onDisconnect: () => void;
+}
+
+function MainPage(props: MainPageProps) {
+    const [users, setUsers] = useState<User[]>([]);
+
+    useEffect(() => {
+        let stopped = false;
+        const refresh = async () => {
+            const users = await fetchUsers();
+            if (!stopped) {
+                setUsers(users);
+            }
+        };
+
+        console.log("Fetching initial state...");
+        refresh();
+
+        const unlisten = listen<unknown>("session-changed", (event) => {
+            console.log("Session changed event received:", event);
+
+            // TODO: parse the event.
+            refresh();
+        });
+        return () => {
+            stopped = true;
+            unlisten.then(stop => stop());
+        };
+    }, []);
+
     return (
         <>
             <main className="container">
                 <section className="user-list">
-                User list
-                <button
-                type="button"
-                onClick={async () => {
-                    try {
-                        setUsers(await fetchUsers());
-                    } catch (error) {
-                        console.error("Failed to fetch users:", error);
-                    }
-                }}
-                >
-                Refresh users
-                </button>
-                <ul>
-                {users.map((user) => (
-                    <li key={user.session}>
-                    {user.name} (channel {user.channel_id})
-                    {user.self_mute || user.mute ? " muted" : ""}
-                    {user.self_deaf || user.deaf ? " deafened" : ""}
-                    </li>
-                ))}
-                </ul>
+                    User list
+                    <ul>
+                        {users.map((user) => (
+                            <li key={user.session}>
+                            {user.name} (channel {user.channel_id})
+                            {user.self_mute || user.mute ? " muted" : ""}
+                            {user.self_deaf || user.deaf ? " deafened" : ""}
+                            </li>
+                        ))}
+                    </ul>
                 </section>
                 <section className="chat">
-                Chat
+                    Chat
                 </section>
 
-                <button type="button" onClick={onDisconnect}>
+                <button type="button" onClick={props.onDisconnect}>
                     Disconnect
                 </button>
             </main>
-            <ProtocolViewer entries={protocolLog} onClear={() => setProtocolLog([])} />
+            <ProtocolViewer entries={props.protocolLog} onClear={props.onClearProtocolLog} />
         </>
     );
 }
