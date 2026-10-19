@@ -4,3 +4,7 @@ services:
     ports:
       - "64738:64738/tcp"
       - "64738:64738/udp" # forward, even though we only use TCP.
+    environment:
+      MUMBLE_SUPERUSER_PASSWORD: "superuser"
+      MUMBLE_CONFIG_SERVERPASSWORD: "test"
+      MUMBLE_CONFIG_WELCOMETEXT: "Welcome to the server!<br />Thanks for joining!"

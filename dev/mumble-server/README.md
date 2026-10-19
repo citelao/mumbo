@@ -19,3 +19,8 @@ podman compose down
 ```
 
 ### Connect to it
+
+* Server: `localhost`
+* Port: `64738`
+* Password: `test`
+* Name: (whatever)
