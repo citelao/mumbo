@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Error};
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 // See raw::UserState for the fields that correspond to this struct.
@@ -59,6 +60,34 @@ impl User {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatTextMessage {
+    // The time the message was sent
+    pub timestamp: DateTime<Utc>,
+
+    // The user who sent the message
+    pub user_session: Option<u32>,
+
+    // The content of the message; may be HTML.
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerTextMessage {
+    // The time the server message was sent
+    pub timestamp: DateTime<Utc>,
+
+    // The content of the server message; may be HTML.
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum TextMessage {
+    ChatTextMessage(ChatTextMessage),
+    ServerTextMessage(ServerTextMessage),
+}
+
 /// Applies a protobuf delta: `None` means the field didn't change.
 fn merge<T>(field: &mut T, update: Option<T>) {
     if let Some(value) = update {
@@ -90,8 +119,7 @@ pub struct MumbleState {
 
     connection_status: ConnectionStatus,
 
-    // TODO: senders
-    chat_messages: Vec<String>,
+    chat_messages: Vec<TextMessage>,
 }
 
 impl MumbleState {
@@ -103,7 +131,7 @@ impl MumbleState {
         self.users.values().cloned().collect()
     }
 
-    pub fn chat_messages(&self) -> &Vec<String> {
+    pub fn chat_messages(&self) -> &Vec<TextMessage> {
         &self.chat_messages
     }
 
@@ -122,7 +150,10 @@ impl MumbleState {
 
                 // May include a welcome message, which we can add to the chat messages.
                 if let Some(welcome_text) = m.welcome_text {
-                    self.chat_messages.push(welcome_text);
+                    self.chat_messages.push(TextMessage::ServerTextMessage(ServerTextMessage {
+                        timestamp: chrono::Utc::now(),
+                        content: welcome_text,
+                    }));
                     // TODO: support multiple events for this
                     return Ok(Some(MumbleEvent::ChatMessage));
                 }
@@ -173,7 +204,14 @@ impl MumbleState {
 
             // Chat messages
             crate::ServerToClientMessage::TextMessage(m) => {
-                self.chat_messages.push(m.message);
+                // There are a few fields that tell how the msg reached you, e.g. via DM or channel message.
+                // TODO: expose them.
+
+                self.chat_messages.push(TextMessage::ChatTextMessage(ChatTextMessage {
+                    timestamp: chrono::Utc::now(),
+                    content: m.message,
+                    user_session: m.actor,
+                }));
                 return Ok(Some(MumbleEvent::ChatMessage));
             }
 

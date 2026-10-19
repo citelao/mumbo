@@ -24,6 +24,22 @@ export async function fetchUsers(): Promise<User[]> {
   return z.array(User).parse(await invoke<unknown>("get_users"));
 }
 
-export async function fetchChatMessages(): Promise<string[]> {
-  return z.array(z.string()).parse(await invoke<unknown>("get_chat_messages"));
+export const TextMessage = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("ChatTextMessage"),
+    timestamp: z.string().optional(),
+    user_session: z.number().int().nonnegative().optional(),
+    content: z.string(),
+  }),
+  z.strictObject({
+    type: z.literal("ServerTextMessage"),
+    timestamp: z.string().optional(),
+    content: z.string(),
+  }),
+]);
+
+export type TextMessage = z.infer<typeof TextMessage>;
+
+export async function fetchChatMessages(): Promise<TextMessage[]> {
+  return z.array(TextMessage).parse(await invoke<unknown>("get_chat_messages"));
 }

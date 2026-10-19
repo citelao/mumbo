@@ -49,9 +49,8 @@ fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
         .unwrap_or_default()
 }
 
-// TODO: chat messages include more metadata...
 #[tauri::command]
-fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<String> {
+fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::TextMessage> {
     state
         .client
         .lock()

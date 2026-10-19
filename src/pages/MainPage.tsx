@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { fetchChatMessages, fetchUsers, type User } from "../mumbleState";
+import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 
 export interface MainPageProps {
@@ -12,7 +12,7 @@ export interface MainPageProps {
 
 export function MainPage(props: MainPageProps) {
     const [users, setUsers] = useState<User[]>([]);
-    const [chatMessages, setChatMessages] = useState<string[]>([]);
+    const [chatMessages, setChatMessages] = useState<TextMessage[]>([]);
 
     useEffect(() => {
         let stopped = false;
@@ -64,9 +64,15 @@ export function MainPage(props: MainPageProps) {
                     Chat
 
                     <ol>
-                        {chatMessages.map((message, index) => (
-                            <li key={index}>{message}</li>
-                        ))}
+                        {chatMessages.map((message, index) => {
+                            // TODO: handle server messages
+                            const user = users.find(u => u.session === message.user_session);
+                            return (
+                                <li key={index}>
+                                    [{new Date(message.timestamp).toLocaleTimeString()}] {user ? user.name : "Unknown"}: {message.content}
+                                </li>
+                            );
+                        })}
                     </ol>
                     <label>
                         Chat
