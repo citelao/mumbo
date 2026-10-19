@@ -76,9 +76,11 @@ pub enum ConnectionStatus {
     Failed,
 }
 
-// pub enum MumbleEvent {
-//     Connected,
-// }
+#[derive(Debug, Clone, Serialize)]
+pub enum MumbleEvent {
+    // TODO: more granular events are probably useful, but let's start with this.
+    UsersChanged,
+}
 
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
@@ -97,7 +99,7 @@ impl MumbleState {
         self.users.values().cloned().collect()
     }
 
-    pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<(), Error> {
+    pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<Option<MumbleEvent>, Error> {
         match message {
             crate::ServerToClientMessage::Reject(m) => {
                 log::error!("Server rejected connection: {} - {}", m.r#type().as_str_name(), m.reason());
@@ -133,11 +135,13 @@ impl MumbleState {
                 merge(&mut user.self_deaf, m.self_deaf);
                 merge(&mut user.priority_speaker, m.priority_speaker);
                 merge(&mut user.recording, m.recording);
+                return Ok(Some(MumbleEvent::UsersChanged));
             },
             crate::ServerToClientMessage::UserRemove(m) => {
                 let removed = self.users.remove(&m.session);
                 if let Some(removed) = removed {
                     log::info!("Removed user: {} (session: {}) for reason: {:?} (ban: {:?})", removed.name, removed.session, m.reason, m.ban);
+                    return Ok(Some(MumbleEvent::UsersChanged));
                 } else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "User not found"));
                 }
@@ -146,7 +150,7 @@ impl MumbleState {
                 log::warn!("Unhandled message: {:?}", message);
             }
         }
-        Ok(())
+        Ok(None)
     }
 }
 
