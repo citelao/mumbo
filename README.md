@@ -1,6 +1,6 @@
-# Tauri + React + Typescript
+# Mumbo
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+This is still in development. I wanted to learn Tauri & I wanted a Mumble client that was auto-configured with good audio.
 
 ## Usage
 
