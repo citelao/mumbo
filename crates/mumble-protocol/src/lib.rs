@@ -83,27 +83,27 @@ pub enum ServerToClientMessage {
 impl ServerToClientMessage {
     pub fn decode(msg_type: u16, payload: &[u8]) -> Result<ServerToClientMessage, Error> {
         let message = match msg_type {
-            raw::Version::TYPE_ID => ServerToClientMessage::Version(raw::Version::decode(&payload[..])?),
+            raw::Version::TYPE_ID => ServerToClientMessage::Version(raw::Version::decode(payload)?),
             raw::UdpTunnel::TYPE_ID => {
                 let (&udp_type, rest) = payload.split_first().ok_or_else(|| Error::new(std::io::ErrorKind::InvalidData, "Empty UDP payload"))?;
                 match udp_type {
-                    raw_udp::Audio::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(raw_udp::Audio::decode(&rest[..])?)),
-                    raw_udp::Ping::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping::decode(&rest[..])?)),
+                    raw_udp::Audio::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(raw_udp::Audio::decode(rest)?)),
+                    raw_udp::Ping::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping::decode(rest)?)),
                     _ => return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown UDP message type: {}", udp_type))),
                 }
             },
-            raw::Ping::TYPE_ID => ServerToClientMessage::Ping(raw::Ping::decode(&payload[..])?),
-            raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(&payload[..])?),
-            raw::ChannelRemove::TYPE_ID => ServerToClientMessage::ChannelRemove(raw::ChannelRemove::decode(&payload[..])?),
-            raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(&payload[..])?),
-            raw::ServerSync::TYPE_ID => ServerToClientMessage::ServerSync(raw::ServerSync::decode(&payload[..])?),
-            raw::UserRemove::TYPE_ID => ServerToClientMessage::UserRemove(raw::UserRemove::decode(&payload[..])?),
-            raw::UserState::TYPE_ID => ServerToClientMessage::UserState(raw::UserState::decode(&payload[..])?),
-            raw::TextMessage::TYPE_ID => ServerToClientMessage::TextMessage(raw::TextMessage::decode(&payload[..])?),
-            raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(&payload[..])?),
-            raw::PermissionQuery::TYPE_ID => ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(&payload[..])?),
-            raw::CodecVersion::TYPE_ID => ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(&payload[..])?),
-            raw::ServerConfig::TYPE_ID => ServerToClientMessage::ServerConfig(raw::ServerConfig::decode(&payload[..])?),
+            raw::Ping::TYPE_ID => ServerToClientMessage::Ping(raw::Ping::decode(payload)?),
+            raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(payload)?),
+            raw::ChannelRemove::TYPE_ID => ServerToClientMessage::ChannelRemove(raw::ChannelRemove::decode(payload)?),
+            raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(payload)?),
+            raw::ServerSync::TYPE_ID => ServerToClientMessage::ServerSync(raw::ServerSync::decode(payload)?),
+            raw::UserRemove::TYPE_ID => ServerToClientMessage::UserRemove(raw::UserRemove::decode(payload)?),
+            raw::UserState::TYPE_ID => ServerToClientMessage::UserState(raw::UserState::decode(payload)?),
+            raw::TextMessage::TYPE_ID => ServerToClientMessage::TextMessage(raw::TextMessage::decode(payload)?),
+            raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(payload)?),
+            raw::PermissionQuery::TYPE_ID => ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(payload)?),
+            raw::CodecVersion::TYPE_ID => ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(payload)?),
+            raw::ServerConfig::TYPE_ID => ServerToClientMessage::ServerConfig(raw::ServerConfig::decode(payload)?),
             _ => {
                 return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, payload.len())));
             }

@@ -339,13 +339,13 @@ mod tests {
         assert_eq!(user.session, 1);
         assert_eq!(user.name, "Alice");
         assert_eq!(user.channel_id, 1);
-        assert_eq!(user.mute, false);
-        assert_eq!(user.deaf, false);
-        assert_eq!(user.suppress, false);
-        assert_eq!(user.self_mute, false);
-        assert_eq!(user.self_deaf, false);
-        assert_eq!(user.priority_speaker, false);
-        assert_eq!(user.recording, false);
+        assert!(!user.mute);
+        assert!(!user.deaf);
+        assert!(!user.suppress);
+        assert!(!user.self_mute);
+        assert!(!user.self_deaf);
+        assert!(!user.priority_speaker);
+        assert!(!user.recording);
 
         // Change name & some state
         state.apply(crate::ServerToClientMessage::UserState({
@@ -364,13 +364,13 @@ mod tests {
         assert_eq!(user.session, 1);
         assert_eq!(user.name, "Alice Cooper");
         assert_eq!(user.channel_id, 2);
-        assert_eq!(user.mute, true);
-        assert_eq!(user.deaf, false);
-        assert_eq!(user.suppress, true);
-        assert_eq!(user.self_mute, true);
-        assert_eq!(user.self_deaf, false);
-        assert_eq!(user.priority_speaker, false);
-        assert_eq!(user.recording, false);
+        assert!(user.mute);
+        assert!(!user.deaf);
+        assert!(user.suppress);
+        assert!(user.self_mute);
+        assert!(!user.self_deaf);
+        assert!(!user.priority_speaker);
+        assert!(!user.recording);
     }
 
     #[test]
@@ -396,6 +396,6 @@ mod tests {
                 ..Default::default()
             }
         })).unwrap();
-        assert!(state.users.get(&1).is_none());
+        assert!(!state.users.contains_key(&1));
     }
 }

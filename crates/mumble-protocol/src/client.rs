@@ -156,7 +156,8 @@ async fn connect_over(
 
     // Assume 20ms packets, let's buffer ~10 seconds worth of audio.
     const AUDIO_CHANNEL_BUFFER_SIZE: usize = 512;
-    assert!(AUDIO_CHANNEL_BUFFER_SIZE > (10 * 1000 / 20));
+    // Checked at compile time.
+    const _: () = assert!(AUDIO_CHANNEL_BUFFER_SIZE > (10 * 1000 / 20));
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel(AUDIO_CHANNEL_BUFFER_SIZE);
 
     // Let's wait for the handshake to complete.
