@@ -3,6 +3,8 @@ use std::io::Error;
 
 use futures_util::SinkExt;
 use futures_util::StreamExt;
+use mumble_protocol::client::Connection;
+use mumble_protocol::client::ConnectionOptions;
 use mumble_protocol::codec::MumbleCodec;
 use mumble_protocol as proto;
 use ringbuf::HeapRb;
@@ -19,11 +21,8 @@ use tokio_util::codec::FramedWrite;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
 
-mod AcceptAnyCert;
-
 // HACK! Global state.
-static CANCELLATION_TOKEN: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
-static CONNECTION: std::sync::Mutex<Option<proto::state::MumbleState>> = std::sync::Mutex::new(None);
+static CONNECTION: std::sync::Mutex<Option<proto::client::MumbleClient>> = std::sync::Mutex::new(None);
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -37,9 +36,10 @@ async fn connect_and_listen(app: AppHandle, server: String, port: u16, password:
 
 #[tauri::command]
 async fn disconnect(app: AppHandle) -> Result<(), String> {
-    if let Some(token) = CANCELLATION_TOKEN.lock().unwrap().as_ref() {
+    if CONNECTION.lock().unwrap().is_some() {
         log::info!("Disconnecting from server");
-        token.cancel();
+        CONNECTION.lock().unwrap().as_ref().unwrap().disconnect();
+        *CONNECTION.lock().unwrap() = None;
     } else {
         log::info!("No active connection");
     }
@@ -49,136 +49,46 @@ async fn disconnect(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn get_users() -> Vec<proto::state::User> {
     if let Some(connection) = CONNECTION.lock().unwrap().as_ref() {
-        return connection.users();
+        return connection.state().lock().unwrap().users().clone();
     } else {
         Vec::new()
     }
 }
 
-// struct RawMumbleConnection {
-//     // tcp_read: ReadHalf<TlsStream<TcpStream>>,
-//     // reader: FramedRead<ReadHalf<TlsStream<TcpStream>>, proto::codec::MumbleCodec>,
-//     // tcp_write: WriteHalf<TlsStream<TcpStream>>,
-//     // CANCELLATION_TOKEN: Option<tokio_util::sync::CancellationToken>,
-// }
-
 async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
     // HACK! Global state?
-    let token = tokio_util::sync::CancellationToken::new();
-    *CANCELLATION_TOKEN.lock().unwrap() = Some(token.clone());
+    // Disconnect any existing connection.
+    if CONNECTION.lock().unwrap().is_some() {
+        log::info!("Disconnecting from existing connection");
+        CONNECTION.lock().unwrap().as_ref().unwrap().disconnect();
+        *CONNECTION.lock().unwrap() = None;
+    }
 
-    *CONNECTION.lock().unwrap() = Some(proto::state::MumbleState::default());
+    let Connection { client, mut debug , mut audio } = proto::client::connect(ConnectionOptions {
+        server,
+        port: Some(port),
+        password: Some(password),
+        username: Some(name),
+    })
+        .await
+        .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
 
-    // Connection process:
-    //
-    // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/establishing_connection.md
-    log::info!("Connecting to server {} on port {}", server, port);
-    let server_name = rustls::pki_types::ServerName::try_from(server.clone()).map_err(Error::other)?;
-    let tcp = tokio::net::TcpStream::connect((server.clone(), port)).await?;
-    let tls = AcceptAnyCert::make_connector().map_err(Error::other)?
-        .connect(server_name, tcp)
-        .await?;
-    let (mut tcp_read, mut tcp_write) = tokio::io::split(tls);
-    let mut reader = FramedRead::new(tcp_read, proto::codec::MumbleCodec::default())
-        .inspect(|result| {
-            if let Ok(message) = result {
-                if let Some(ref mut connection) = *CONNECTION.lock().unwrap() {
-                    connection.apply(message.clone()).unwrap();
+    // Send debug messages to the provided channel.
+    tauri::async_runtime::spawn(async move {
+        log::info!("Listening for debug messages");
+        loop {
+            match debug.recv().await {
+                Ok(msg) => {
+                    let _ = channel.send(msg);
                 }
-                log::trace!("Received message from server: {:?}", message);
-                channel.send(message.clone()).unwrap();
-            }
-        });
-    let mut writer = FramedWrite::new(tcp_write, proto::codec::MumbleCodec::default());
-    log::trace!("TCP and TLS connection established with server {} on port {}", server, port);
-
-    // Send a version message!
-    let (major, minor, patch) = (1u32, 5u32, 0u32);
-    let our_version: u32 = (major << 16) | (minor << 8) | patch;
-    let our_version_v2: u64 = (u64::from(major) << 48) | (u64::from(minor) << 32) | (u64::from(patch) << 16);
-
-    let version = proto::raw::Version {
-        // not necessary, but nice
-        os: Some(std::env::consts::OS.into()),
-        release: Some("mumbo 0.1.0".into()),
-        os_version: None,
-
-        // required
-        version_v1: Some(our_version),
-        version_v2: Some(our_version_v2),
-    };
-    writer.send(proto::ClientToServerMessage::Version(version)).await?;
-    log::info!("Version message sent to server");
-
-    // Wait for the server's version message.
-    //
-    // ```
-    // [2026-10-15][01:44:44][INFO][mumbo_lib] Received version message: Version
-    // { version_v1: Some(67071), version_v2: Some(281496510595072), release:
-    // Some("1.5.901"), os: Some("Linux"), os_version: Some("Ubuntu 24.04.4 LTS
-    // [arm64]") }
-    // ```
-    let Some(proto::ServerToClientMessage::Version(version)) = reader
-        .try_next()
-        .await? else {
-        return Err(Error::other("Unexpected server close"));
-    };
-    log::info!("Received version message: {:?}", version);
-
-    let authenticate = proto::raw::Authenticate {
-        username: Some(name.into()),
-        password: Some(password.into()),
-
-        // We don't support authentication tokens for now
-        tokens: vec![],
-
-        // Outdated params
-        celt_versions: vec![],
-        opus: Some(true),
-        client_type: Some(0),
-    };
-    writer.send(proto::ClientToServerMessage::Authenticate(authenticate)).await?;
-    log::info!("Authenticate message sent to server");
-
-    // We need a bunch of setup messages, which should arrive in order, but no
-    // need to be precise:
-    let mut cryptSetup: Option<proto::raw::CryptSetup> = None;
-    let mut codecVersion: Option<proto::raw::CodecVersion> = None;
-    let mut channelState: Vec<proto::raw::ChannelState> = vec![];
-    let mut userState: Vec<proto::raw::UserState> = vec![];
-    let mut serverSync: Option<proto::raw::ServerSync> = None;
-
-    // /* cryptSetup.is_none() || codecVersion.is_none() || */
-    // ^ don't need these.
-    //
-    // - cryptSetup - only for UDP, which we don't use.
-    // - codecVersion - clients use Opus, so this is not useful. Grumble doesn't reliably send.
-    while channelState.is_empty() || userState.is_empty() || serverSync.is_none() {
-        let message = reader.try_next().await?;
-        match &message {
-            Some(proto::ServerToClientMessage::Reject(m)) => {
-                log::error!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason());
-                return Err(Error::other(format!("Server rejected setup message: {} - {}", m.r#type().as_str_name(), m.reason())));
-            }
-            Some(proto::ServerToClientMessage::CryptSetup(m)) => cryptSetup = Some(m.clone()),
-            Some(proto::ServerToClientMessage::CodecVersion(m)) => codecVersion = Some(m.clone()),
-            Some(proto::ServerToClientMessage::ChannelState(m)) => channelState.push(m.clone()),
-
-            // UserState(UserState { session: Some(165), actor: None, name: Some("kelvinbot"), user_id: None, channel_id: None, mute: None, deaf: None, suppress: None, self_mute: None, self_deaf: None, texture: None, plugin_context: None, plugin_identity: None, comment: None, hash: None, comment_hash: None, texture_hash: None, priority_speaker: None, recording: None, temporary_access_tokens: [], listening_channel_add: [], listening_channel_remove: [], listening_volume_adjustment: [] })
-            // UserState(UserState { session: Some(160), actor: None, name: Some("besto_testo"), user_id: None, channel_id: Some(0), mute: None, deaf: None, suppress: None, self_mute: None, self_deaf: None, texture: None, plugin_context: None, plugin_identity: None, comment: None, hash: None, comment_hash: None, texture_hash: None, priority_speaker: None, recording: None, temporary_access_tokens: [], listening_channel_add: [], listening_channel_remove: [], listening_volume_adjustment: [] })
-            Some(proto::ServerToClientMessage::UserState(m)) => userState.push(m.clone()),
-            Some(proto::ServerToClientMessage::ServerSync(m)) => serverSync = Some(m.clone()),
-            Some(_) => {
-                log::warn!("Received unexpected message while waiting for setup messages: {:?}", message);
-            }
-            None => {
-                log::error!("Stream ended unexpectedly while waiting for setup messages");
-                return Err(Error::other("Stream ended unexpectedly while waiting for setup messages"));
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => log::warn!("debug channel lagged by {n} messages"),
+                Err(e) => {
+                    log::error!("debug channel error: {e}");
+                    break;
+                }
             }
         }
-        log::info!("Handshake message: {:?}", message);
-    }
-    log::info!("Handshake complete!");
+    });
 
     let mut speakers: HashMap<u32, Speaker> = HashMap::new();
 
@@ -201,79 +111,69 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
         .unwrap_or(device.default_output_config().unwrap().config());
 
     let channels = config.channels as usize;
-    let stream = device.build_output_stream(
-        config,
-        move |output: &mut [f32], _| {
-            // same value in left and right
-            for frame in output.chunks_mut(channels) {
-                let sample = rbConsumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
-                frame.fill(sample);
-            }
-        },
-        |err| log::error!("audio stream error: {err}"),
-        None,
-    ).unwrap();
-    stream.play().unwrap();
 
-    // TODO: extract read loop.
-    // Mumble requires pings every 30s by default; be eager.
-    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(15));
-    // NetEq absorbs network jitter; this only needs to cover timer slop.
-    const MIX_TARGET_SAMPLES: usize = (OUTPUT_SAMPLE_RATE as usize / 1000) * 40;
-    let mut mix_interval = tokio::time::interval(std::time::Duration::from_millis(5));
-    loop {
-        // Simultaneously read from the server & manage a ping loop.
-        tokio::select! {
-            _ = token.cancelled() => {
-                log::info!("Breaking; cancellation requested");
-                break;
-            }
-            message = reader.try_next() => {
-                match &message? {
-                    Some(message) => {
-                        // Handle the message here
-                        log::info!("Received message from server: {:?}", message);
-                        match message {
-                            proto::ServerToClientMessage::UdpTunnel(proto::ServerToClientUdpMessage::Audio(m)) => {
-                                // TODO: volume adjustment
-                                let sender = m.sender_session;
+    // Start the audio loop!
+    tauri::async_runtime::spawn(async move {
+        let stream = device.build_output_stream(
+            config,
+            move |output: &mut [f32], _| {
+                // same value in left and right
+                for frame in output.chunks_mut(channels) {
+                    let sample = rbConsumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                    frame.fill(sample);
+                }
+            },
+            |err| log::error!("audio stream error: {err}"),
+            None,
+        ).unwrap();
+        stream.play().unwrap();
 
-                                let speaker = match speakers.entry(sender) {
-                                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                                    std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
-                                };
-                                if let Err(e) = speaker.insert_packet(sender, &m.opus_data) {
-                                    log::warn!("Dropping audio from session {sender}: {e}");
-                                }
-                            }
-                            _ => {
-                                // TODO: handle other messages.
-                                // log::warn!("Received unknown UDP message from server");
-                            }
+        // NetEq absorbs network jitter; this only needs to cover timer slop.
+        const MIX_TARGET_SAMPLES: usize = (OUTPUT_SAMPLE_RATE as usize / 1000) * 40;
+        let mut mix_interval = tokio::time::interval(std::time::Duration::from_millis(5));
+        let result = async {
+            loop {
+                tokio::select! {
+                    audio = audio.recv() => {
+                        // If we disconnect, stop the loop!
+                        let audio = match audio {
+                            Some(audio) => audio,
+                            None => break,
+                        };
+
+                        // TODO: volume adjustment
+                        let sender = audio.sender_session;
+
+                        let speaker = match speakers.entry(sender) {
+                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
+                        };
+                        if let Err(e) = speaker.insert_packet(sender, &audio.opus_data) {
+                            log::warn!("Dropping audio from session {sender}: {e}");
                         }
                     }
-                    None => {
-                        // Server disconnected.
-                        break;
+                    _ = mix_interval.tick() => {
+                        // Top the ring buffer up to a fixed level rather than mixing once per
+                        // tick: the card drains it at its own rate, so this follows the card's
+                        // clock instead of drifting against this timer.
+                        while rbProducer.occupied_len() < MIX_TARGET_SAMPLES {
+                            let frame = mix_frame(&mut speakers)?;
+                            rbProducer.push_slice(&frame);
+                        }
                     }
                 }
             }
-            _ = mix_interval.tick() => {
-                // Top the ring buffer up to a fixed level rather than mixing once per
-                // tick: the card drains it at its own rate, so this follows the card's
-                // clock instead of drifting against this timer.
-                while rbProducer.occupied_len() < MIX_TARGET_SAMPLES {
-                    let frame = mix_frame(&mut speakers)?;
-                    rbProducer.push_slice(&frame);
-                }
-            }
-            _ = ping_interval.tick() => {
-                log::trace!("Sending ping to server");
-                writer.send(proto::ClientToServerMessage::Ping(Default::default())).await?;
-            }
+            Ok::<(), Error>(())
+        }.await;
+        if let Err(e) = result {
+            // TODO: better reporting.
+            log::error!("Audio loop ended with error: {e}");
         }
-    }
-    log::info!("Disconnected from server");
+    });
+
+    *CONNECTION.lock().unwrap() = Some(client);
+
+    log::info!("Connected to server");
     Ok(())
 }
 

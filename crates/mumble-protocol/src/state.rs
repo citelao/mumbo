@@ -60,19 +60,51 @@ fn merge<T>(field: &mut T, update: Option<T>) {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ConnectionStatus {
+    #[default]
+    Connecting,
+
+    Connected,
+    Disconnected,
+    Failed,
+}
+
+// pub enum MumbleEvent {
+//     Connected,
+// }
+
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
     // Sorted by session, so snapshots (UI, fixtures) have a stable order.
     users: BTreeMap<u32, User>,
+
+    connection_status: ConnectionStatus,
 }
 
 impl MumbleState {
+    pub fn connection_status(&self) -> &ConnectionStatus {
+        &self.connection_status
+    }
+
     pub fn users(&self) -> Vec<User> {
         self.users.values().cloned().collect()
     }
 
     pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<(), Error> {
         match message {
+            crate::ServerToClientMessage::Reject(m) => {
+                log::error!("Server rejected connection: {} - {}", m.r#type().as_str_name(), m.reason());
+                self.connection_status = ConnectionStatus::Failed;
+                return Err(Error::new(io::ErrorKind::PermissionDenied, format!("Server rejected connection: {} - {}", m.r#type().as_str_name(), m.reason())));
+            }
+
+            // Signals the end of the initial server handshake.
+            crate::ServerToClientMessage::ServerSync(_) => {
+                self.connection_status = ConnectionStatus::Connected;
+                log::info!("Successfully connected to the server");
+            },
+
             crate::ServerToClientMessage::UserState(m) => {
                 let Some(session) = m.session else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Missing session"));

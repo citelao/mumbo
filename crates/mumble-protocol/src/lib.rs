@@ -11,6 +11,7 @@ pub mod raw_udp {
 
 pub mod codec;
 pub mod state;
+pub mod client;
 
 pub trait TcpMessageId: prost::Message + Default {
     const TYPE_ID: u16;

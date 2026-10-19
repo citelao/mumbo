@@ -2332,12 +2332,17 @@ name = "mumble-protocol"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "futures-util",
  "log",
  "prost",
  "prost-build",
  "protoc-bin-vendored",
+ "rustls",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
  "tokio-util",
 ]
 

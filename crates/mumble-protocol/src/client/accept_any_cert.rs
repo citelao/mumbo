@@ -4,7 +4,7 @@ use rustls::client::danger::ServerCertVerified;
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 
 #[derive(Debug)]
-struct AcceptAnyCert(Arc<rustls::crypto::CryptoProvider>);
+pub struct AcceptAnyCert(Arc<rustls::crypto::CryptoProvider>);
 
 impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
     fn verify_server_cert(

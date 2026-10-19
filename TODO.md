@@ -11,6 +11,7 @@ Work tracker.
 
 ## Connection
 
+- [ ] Verify SSL certs when requested.
 - [ ] Replace the `CANCELLATION_TOKEN`/`CONNECTION` statics with Tauri managed state; a second Connect overwrites them while the old connection is still running, mixing two servers' users
 - [ ] A webview reload leaves the old connection running in Rust with nobody listening
 - [ ] `apply(…).unwrap()` and `channel.send(…).unwrap()` in the reader's `inspect` panic (and abort release builds) on a bad `UserState` or a closed window; log instead
