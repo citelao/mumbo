@@ -177,6 +177,12 @@ mod tests {
                 texture: Some(vec![255]),
                 ..Default::default()
             }),
+            ServerToClientMessage::TextMessage(raw::TextMessage {
+                actor: Some(5),
+                channel_id: vec![0],
+                message: "Testing".to_string(),
+                ..Default::default()
+            }),
             ServerToClientMessage::CryptSetup(Default::default()),
             ServerToClientMessage::PermissionQuery(Default::default()),
             ServerToClientMessage::CodecVersion(Default::default()),
@@ -186,6 +192,39 @@ mod tests {
             serde_json::from_str(include_str!("../fixtures/server_to_client_messages.json")).unwrap();
 
         assert_eq!(serde_json::to_value(&samples).unwrap(), fixture);
+
+        let covered: std::collections::BTreeSet<_> = samples.iter().map(variant_name).collect();
+        assert_eq!(covered, EVERY_VARIANT.iter().copied().collect(), "every variant needs a sample");
+    }
+
+    /// Every variant, including UDP subtypes. Keep in sync with `variant_name`,
+    /// whose exhaustive match stops compiling when a variant is added.
+    const EVERY_VARIANT: &[&str] = &[
+        "Version", "UdpTunnel/Audio", "UdpTunnel/Ping", "Ping", "Reject", "ServerSync", "ChannelRemove",
+        "ChannelState", "UserRemove", "UserState", "TextMessage", "CryptSetup", "PermissionQuery",
+        "CodecVersion", "ServerConfig",
+    ];
+
+    // No `_ =>` arm on purpose: adding a variant fails to compile here, as a
+    // reminder to add a sample above (and to src/protocol.ts).
+    fn variant_name(message: &ServerToClientMessage) -> &'static str {
+        match message {
+            ServerToClientMessage::Version(_) => "Version",
+            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) => "UdpTunnel/Audio",
+            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(_)) => "UdpTunnel/Ping",
+            ServerToClientMessage::Ping(_) => "Ping",
+            ServerToClientMessage::Reject(_) => "Reject",
+            ServerToClientMessage::ServerSync(_) => "ServerSync",
+            ServerToClientMessage::ChannelRemove(_) => "ChannelRemove",
+            ServerToClientMessage::ChannelState(_) => "ChannelState",
+            ServerToClientMessage::UserRemove(_) => "UserRemove",
+            ServerToClientMessage::UserState(_) => "UserState",
+            ServerToClientMessage::TextMessage(_) => "TextMessage",
+            ServerToClientMessage::CryptSetup(_) => "CryptSetup",
+            ServerToClientMessage::PermissionQuery(_) => "PermissionQuery",
+            ServerToClientMessage::CodecVersion(_) => "CodecVersion",
+            ServerToClientMessage::ServerConfig(_) => "ServerConfig",
+        }
     }
 
     // The TS side (src/protocol.ts) parses this exact shape with zod.

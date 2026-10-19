@@ -144,6 +144,18 @@
     }
   },
   {
+    "type": "TextMessage",
+    "data": {
+      "actor": 5,
+      "session": [],
+      "channel_id": [
+        0
+      ],
+      "tree_id": [],
+      "message": "Testing"
+    }
+  },
+  {
     "type": "CryptSetup",
     "data": {
       "key": null,
