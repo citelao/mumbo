@@ -1,45 +1,34 @@
 use std::collections::HashMap;
 use std::io::Error;
 
-use futures_util::SinkExt;
-use futures_util::StreamExt;
-use mumble_protocol::client::Connection;
-use mumble_protocol::client::ConnectionOptions;
-use mumble_protocol::codec::MumbleCodec;
-use mumble_protocol as proto;
-use ringbuf::HeapRb;
-use tauri_plugin_log::fern::colors::ColoredLevelConfig;
-use tauri::{AppHandle, ipc::Channel};
-use tokio::io::ReadHalf;
-use tokio::io::WriteHalf;
-use tokio::net::TcpStream;
-use tokio::{self, io::AsyncReadExt, io::AsyncWriteExt};
-use tokio_rustls::client::TlsStream;
-use tokio_util::codec::FramedRead;
-use futures_util::TryStreamExt;
-use tokio_util::codec::FramedWrite;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use mumble_protocol as proto;
+use mumble_protocol::client::{Connection, ConnectionOptions};
+use ringbuf::HeapRb;
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
+use tauri::ipc::Channel;
+use tauri_plugin_log::fern::colors::ColoredLevelConfig;
+use tokio::sync::broadcast;
 
 // HACK! Global state.
 static CONNECTION: std::sync::Mutex<Option<proto::client::MumbleClient>> = std::sync::Mutex::new(None);
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect_and_listen(app: AppHandle, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
-    let _ = connect(server, port, password, name, channel)
+async fn connect_and_listen(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
+    connect(server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn disconnect(app: AppHandle) -> Result<(), String> {
-    if CONNECTION.lock().unwrap().is_some() {
+async fn disconnect() -> Result<(), String> {
+    // `take` empties the slot under a single lock, so no other command can
+    // observe the connection between "found it" and "removed it".
+    if let Some(client) = CONNECTION.lock().unwrap().take() {
         log::info!("Disconnecting from server");
-        CONNECTION.lock().unwrap().as_ref().unwrap().disconnect();
-        *CONNECTION.lock().unwrap() = None;
+        client.disconnect();
     } else {
         log::info!("No active connection");
     }
@@ -48,23 +37,34 @@ async fn disconnect(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn get_users() -> Vec<proto::state::User> {
-    if let Some(connection) = CONNECTION.lock().unwrap().as_ref() {
-        return connection.state().lock().unwrap().users().clone();
-    } else {
-        Vec::new()
+    CONNECTION
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|client| client.state().lock().unwrap().users())
+        .unwrap_or_default()
+}
+
+/// Forwards debug messages until the connection closes. A consumer that falls
+/// behind skips messages instead of stopping the stream.
+async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward: impl FnMut(T)) {
+    loop {
+        match debug.recv().await {
+            Ok(message) => forward(message),
+            Err(broadcast::error::RecvError::Lagged(skipped)) => log::warn!("Debug stream skipped {skipped} messages"),
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
     }
 }
 
 async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
     // HACK! Global state?
-    // Disconnect any existing connection.
-    if CONNECTION.lock().unwrap().is_some() {
+    if let Some(previous) = CONNECTION.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
-        CONNECTION.lock().unwrap().as_ref().unwrap().disconnect();
-        *CONNECTION.lock().unwrap() = None;
+        previous.disconnect();
     }
 
-    let Connection { client, mut debug , mut audio } = proto::client::connect(ConnectionOptions {
+    let Connection { client, debug, mut audio } = proto::client::connect(ConnectionOptions {
         server,
         port: Some(port),
         password: Some(password),
@@ -73,22 +73,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
         .await
         .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
 
-    // Send debug messages to the provided channel.
-    tauri::async_runtime::spawn(async move {
-        log::info!("Listening for debug messages");
-        loop {
-            match debug.recv().await {
-                Ok(msg) => {
-                    let _ = channel.send(msg);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => log::warn!("debug channel lagged by {n} messages"),
-                Err(e) => {
-                    log::error!("debug channel error: {e}");
-                    break;
-                }
-            }
-        }
-    });
+    tauri::async_runtime::spawn(forward_debug(debug, move |message| {
+        let _ = channel.send(message);
+    }));
 
     let mut speakers: HashMap<u32, Speaker> = HashMap::new();
 
@@ -96,42 +83,43 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
     const HEADROOM_MS: u32 = 200;
     const HEADROOM_SAMPLES: u32 = (OUTPUT_SAMPLE_RATE * HEADROOM_MS) / 1000;
 
-    // TODO: we only have 1 ringbuffer for audio, which is fine... but we need to combine all speakers.
-    let (mut rbProducer, mut rbConsumer) = HeapRb::<i16>::new(HEADROOM_SAMPLES as usize).split();
+    let (mut producer, mut consumer) = HeapRb::<i16>::new(HEADROOM_SAMPLES as usize).split();
 
     // TODO: allow user to select output device and configure sample rate.
-    // TODO: handle errors, not unwrap.
     let host = cpal::default_host();
-    let device = host.default_output_device().expect("No output device available");
-    let config = device
-        .supported_output_configs().unwrap()
+    let device = host.default_output_device().ok_or_else(|| Error::other("No audio output device"))?;
+    let preferred = device
+        .supported_output_configs().map_err(Error::other)?
         .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
-        .find_map(|c| c.try_with_sample_rate(48_000))
-        .map(|c| c.config())
-        .unwrap_or(device.default_output_config().unwrap().config());
+        .find_map(|c| c.try_with_sample_rate(OUTPUT_SAMPLE_RATE));
+    let config = match preferred {
+        Some(supported) => supported.config(),
+        None => device.default_output_config().map_err(Error::other)?.config(),
+    };
 
     let channels = config.channels as usize;
 
     // Start the audio loop!
     tauri::async_runtime::spawn(async move {
-        let stream = device.build_output_stream(
-            config,
-            move |output: &mut [f32], _| {
-                // same value in left and right
-                for frame in output.chunks_mut(channels) {
-                    let sample = rbConsumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
-                    frame.fill(sample);
-                }
-            },
-            |err| log::error!("audio stream error: {err}"),
-            None,
-        ).unwrap();
-        stream.play().unwrap();
-
         // NetEq absorbs network jitter; this only needs to cover timer slop.
         const MIX_TARGET_SAMPLES: usize = (OUTPUT_SAMPLE_RATE as usize / 1000) * 40;
         let mut mix_interval = tokio::time::interval(std::time::Duration::from_millis(5));
         let result = async {
+            // Playback stops when `stream` is dropped, so it lives for the whole loop.
+            let stream = device.build_output_stream(
+                config,
+                move |output: &mut [f32], _| {
+                    // same value in left and right
+                    for frame in output.chunks_mut(channels) {
+                        let sample = consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                        frame.fill(sample);
+                    }
+                },
+                |err| log::error!("audio stream error: {err}"),
+                None,
+            ).map_err(Error::other)?;
+            stream.play().map_err(Error::other)?;
+
             loop {
                 tokio::select! {
                     audio = audio.recv() => {
@@ -156,9 +144,9 @@ async fn connect(server: String, port: u16, password: String, name: String, chan
                         // Top the ring buffer up to a fixed level rather than mixing once per
                         // tick: the card drains it at its own rate, so this follows the card's
                         // clock instead of drifting against this timer.
-                        while rbProducer.occupied_len() < MIX_TARGET_SAMPLES {
+                        while producer.occupied_len() < MIX_TARGET_SAMPLES {
                             let frame = mix_frame(&mut speakers)?;
-                            rbProducer.push_slice(&frame);
+                            producer.push_slice(&frame);
                         }
                     }
                 }
@@ -394,6 +382,21 @@ mod tests {
             assert!(b >= a, "soft_clip decreased between {} and {}", pair[0], pair[1]);
             assert!(b - a <= 0.01 + f32::EPSILON, "soft_clip jumped between {} and {}", pair[0], pair[1]);
         }
+    }
+
+    #[tokio::test]
+    async fn debug_forwarding_survives_lag_and_ends_when_the_connection_closes() {
+        let (sender, receiver) = tokio::sync::broadcast::channel(2);
+        // Five messages into a 2-slot channel: the reader lags and skips 0..=2.
+        for message in 0..5 {
+            sender.send(message).unwrap();
+        }
+        drop(sender);
+
+        let mut forwarded = Vec::new();
+        forward_debug(receiver, |message| forwarded.push(message)).await;
+
+        assert_eq!(forwarded, [3, 4]);
     }
 
     #[test]
