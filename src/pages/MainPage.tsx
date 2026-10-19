@@ -17,14 +17,16 @@ export function MainPage(props: MainPageProps) {
     useEffect(() => {
         let stopped = false;
         const refresh = async () => {
-            const users = await fetchUsers();
-            const chatMessages = await fetchChatMessages();
-            if (!stopped) {
-                setUsers(users);
-            }
-
-            if (!stopped) {
-                setChatMessages(chatMessages);
+            try {
+                const users = await fetchUsers();
+                const chatMessages = await fetchChatMessages();
+                if (!stopped) {
+                    setUsers(users);
+                    setChatMessages(chatMessages);
+                }
+            } catch (error) {
+                // Keep showing the last good state; the next session change retries.
+                console.error("Failed to refresh session state:", error);
             }
         };
 

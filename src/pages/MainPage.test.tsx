@@ -69,6 +69,19 @@ describe("MainPage", () => {
         expect(screen.getByText("hi")).toBeTruthy();
     });
 
+    it("logs a failed refresh and recovers on the next change", async () => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        backend.users = [{ unexpected: true }];   // fails the User schema
+
+        renderMainPage();
+
+        await vi.waitFor(() => expect(consoleError).toHaveBeenCalled());
+        backend.users = users;
+        act(() => sessionChanged!());
+        expect(await screen.findByText(/Alice \(channel 3\)/)).toBeTruthy();
+        consoleError.mockRestore();
+    });
+
     it("keeps chat messages in the order they were sent", async () => {
         backend.chat = ["first", "second", "third"];
 
