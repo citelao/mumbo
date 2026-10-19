@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { listen } from '@tauri-apps/api/event';
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
-import { ProtocolViewer, type ProtocolLogEntry } from "./ProtocolViewer";
-import { fetchUsers, type User } from "./mumbleState";
+import type { ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
