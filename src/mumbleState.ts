@@ -24,16 +24,19 @@ export async function fetchUsers(): Promise<User[]> {
   return z.array(User).parse(await invoke<unknown>("get_users"));
 }
 
+// Mirrors `mumble_protocol::state::TextMessage` as serialized by serde: an
+// internally tagged enum, with `Option` fields sent as `null` and `DateTime`s
+// as RFC 3339 strings.
 export const TextMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("ChatTextMessage"),
-    timestamp: z.string().optional(),
-    user_session: z.number().int().nonnegative().optional(),
+    timestamp: z.string(),
+    user_session: z.number().int().nonnegative().nullable(),
     content: z.string(),
   }),
   z.strictObject({
     type: z.literal("ServerTextMessage"),
-    timestamp: z.string().optional(),
+    timestamp: z.string(),
     content: z.string(),
   }),
 ]);

@@ -66,7 +66,9 @@ export function MainPage(props: MainPageProps) {
                     <ol>
                         {chatMessages.map((message, index) => {
                             // TODO: handle server messages
-                            const user = users.find(u => u.session === message.user_session);
+                            const user = message.type === "ChatTextMessage"
+                                ? users.find(u => u.session === message.user_session)
+                                : undefined;
                             return (
                                 <li key={index}>
                                     [{new Date(message.timestamp).toLocaleTimeString()}] {user ? user.name : "Unknown"}: {message.content}

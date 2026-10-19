@@ -41,14 +41,26 @@ describe("fetchUsers", () => {
 });
 
 describe("fetchChatMessages", () => {
+  // Shaped like serde's output for `mumble_protocol::state::TextMessage`.
+  const messages = [
+    { type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31.123456Z", content: "Welcome!" },
+    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:32Z", user_session: 5, content: "hi" },
+    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:33Z", user_session: null, content: "who said this?" },
+  ];
+
   it("asks Rust for chat messages and returns them in order", async () => {
-    mockInvoke.mockResolvedValue(["Welcome!", "hi"]);
-    await expect(fetchChatMessages()).resolves.toEqual(["Welcome!", "hi"]);
+    mockInvoke.mockResolvedValue(messages);
+    await expect(fetchChatMessages()).resolves.toEqual(messages);
     expect(mockInvoke).toHaveBeenCalledWith("get_chat_messages");
   });
 
-  it("rejects messages that aren't plain strings, e.g. if Rust adds metadata", async () => {
-    mockInvoke.mockResolvedValue([{ actor: 5, message: "hi" }]);
+  it("rejects messages with fields the schema doesn't know about", async () => {
+    mockInvoke.mockResolvedValue([{ ...messages[1], channel_id: 1 }]);
+    await expect(fetchChatMessages()).rejects.toThrow();
+  });
+
+  it("rejects messages of an unknown type", async () => {
+    mockInvoke.mockResolvedValue([{ ...messages[0], type: "DirectTextMessage" }]);
     await expect(fetchChatMessages()).rejects.toThrow();
   });
 });

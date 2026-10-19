@@ -43,18 +43,26 @@ afterEach(() => {
     sessionChanged = undefined;
 });
 
+/** A chat message as Rust serializes it. */
+function chat(content: string, user_session: number | null = null) {
+    return { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:31Z", user_session, content };
+}
+
 function renderMainPage(onDisconnect = () => {}) {
     return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onDisconnect={onDisconnect} />);
 }
 
 describe("MainPage", () => {
     it("shows the users and chat already on the server", async () => {
-        backend = { users, chat: ["Welcome to the server!"] };
+        backend = {
+            users,
+            chat: [{ type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31Z", content: "Welcome to the server!" }],
+        };
 
         renderMainPage();
 
         expect(await screen.findByText(/Alice \(channel 3\) muted/)).toBeTruthy();
-        expect(screen.getByText("Welcome to the server!")).toBeTruthy();
+        expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
     });
 
     it("refreshes when the session changes", async () => {
@@ -62,11 +70,11 @@ describe("MainPage", () => {
         await vi.waitFor(() => expect(sessionChanged).toBeDefined());
         expect(screen.queryByText(/Alice/)).toBeNull();
 
-        backend = { users, chat: ["hi"] };
+        backend = { users, chat: [chat("hi")] };
         act(() => sessionChanged!());
 
         expect(await screen.findByText(/Alice \(channel 3\)/)).toBeTruthy();
-        expect(screen.getByText("hi")).toBeTruthy();
+        expect(screen.getByText(/hi$/)).toBeTruthy();
     });
 
     it("logs a failed refresh and recovers on the next change", async () => {
@@ -83,13 +91,27 @@ describe("MainPage", () => {
     });
 
     it("keeps chat messages in the order they were sent", async () => {
-        backend.chat = ["first", "second", "third"];
+        backend.chat = [chat("first"), chat("second"), chat("third")];
 
         renderMainPage();
 
-        await screen.findByText("third");
-        const chat = screen.getAllByRole("list")[1];
-        expect([...chat.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["first", "second", "third"]);
+        await screen.findByText(/third$/);
+        const list = screen.getAllByRole("list")[1];
+        expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+            expect.stringMatching(/first$/),
+            expect.stringMatching(/second$/),
+            expect.stringMatching(/third$/),
+        ]);
+    });
+
+    it("shows who sent each chat message", async () => {
+        const alice = users.find((u) => u.name === "Alice")!;
+        backend = { users, chat: [chat("hello", alice.session), chat("anyone?")] };
+
+        renderMainPage();
+
+        expect(await screen.findByText(/Alice: hello$/)).toBeTruthy();
+        expect(screen.getByText(/Unknown: anyone\?$/)).toBeTruthy();
     });
 
     it("stops listening when it goes away", async () => {

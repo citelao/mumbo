@@ -235,13 +235,27 @@ mod tests {
         })
     }
 
+    /// Each chat line as (sender session, content); server messages have no sender.
+    fn chat_log(state: &MumbleState) -> Vec<(Option<u32>, &str)> {
+        state
+            .chat_messages()
+            .iter()
+            .map(|m| match m {
+                TextMessage::ChatTextMessage(m) => (m.user_session, m.content.as_str()),
+                TextMessage::ServerTextMessage(m) => (None, m.content.as_str()),
+            })
+            .collect()
+    }
+
     #[test]
     fn text_messages_are_kept_in_order_and_reported() {
         let mut state = MumbleState::default();
 
-        for text in ["hi", "how's it going"] {
+        // `actor` is the sender's session; the server fills it in for user messages.
+        for (actor, text) in [(Some(1), "hi"), (Some(2), "how's it going"), (None, "who said that?")] {
             let event = state
                 .apply(crate::ServerToClientMessage::TextMessage(crate::raw::TextMessage {
+                    actor,
                     message: text.to_string(),
                     ..Default::default()
                 }))
@@ -249,7 +263,10 @@ mod tests {
             assert!(matches!(event, Some(MumbleEvent::ChatMessage)), "{event:?}");
         }
 
-        assert_eq!(state.chat_messages(), &["hi", "how's it going"]);
+        assert_eq!(
+            chat_log(&state),
+            [(Some(1), "hi"), (Some(2), "how's it going"), (None, "who said that?")]
+        );
     }
 
     #[test]
@@ -264,7 +281,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(state.connection_status(), &ConnectionStatus::Connected);
-        assert_eq!(state.chat_messages(), &["Welcome!"]);
+        assert!(
+            matches!(&state.chat_messages()[..], [TextMessage::ServerTextMessage(m)] if m.content == "Welcome!"),
+            "{:?}",
+            state.chat_messages()
+        );
         assert!(matches!(event, Some(MumbleEvent::ChatMessage)), "{event:?}");
     }
 

@@ -103,13 +103,16 @@ describe("App", () => {
 
     it("shows the server's users and chat once connected", async () => {
         const user = userEvent.setup();
-        fakeBackend({ get_users: users, get_chat_messages: ["Welcome to the server!"] });
+        fakeBackend({
+            get_users: users,
+            get_chat_messages: [{ type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31Z", content: "Welcome to the server!" }],
+        });
         render(<App />);
 
         await connect(user);
 
         expect(await screen.findByText(/Alice \(channel 3\) muted/)).toBeTruthy();
-        expect(screen.getByText("Welcome to the server!")).toBeTruthy();
+        expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
     });
 
     it("returns to the login page after disconnecting", async () => {
