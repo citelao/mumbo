@@ -15,8 +15,8 @@ static CONNECTION: std::sync::Mutex<Option<proto::client::MumbleClient>> = std::
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect_and_listen(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
-    connect(server, port, password, name, channel)
+async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
+    connect_internal(server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
         .map_err(|e| e.to_string())
@@ -57,7 +57,7 @@ async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward:
     }
 }
 
-async fn connect(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
+async fn connect_internal(server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
     // HACK! Global state?
     if let Some(previous) = CONNECTION.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
@@ -272,7 +272,7 @@ pub fn run() {
             .with_colors(ColoredLevelConfig::default())
             .build())
         .invoke_handler(tauri::generate_handler![
-            connect_and_listen,
+            connect,
             get_users,
             disconnect
         ])
