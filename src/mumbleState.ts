@@ -23,3 +23,7 @@ export async function fetchUsers(): Promise<User[]> {
   // `invoke` returns whatever Rust sent; parse rather than trust the cast.
   return z.array(User).parse(await invoke<unknown>("get_users"));
 }
+
+export async function fetchChatMessages(): Promise<string[]> {
+  return z.array(z.string()).parse(await invoke<unknown>("get_chat_messages"));
+}

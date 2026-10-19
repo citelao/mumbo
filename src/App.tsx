@@ -7,6 +7,7 @@ import { ProtocolViewer, type ProtocolLogEntry } from "./ProtocolViewer";
 import { fetchUsers, type User } from "./mumbleState";
 import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
+import { MainPage } from "./pages/MainPage";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
@@ -67,68 +68,6 @@ function App() {
     } else {
         return <MainPage protocolLog={protocolLog} onClearProtocolLog={() => setProtocolLog([])} onDisconnect={onDisconnect} />;
     }
-}
-
-interface MainPageProps {
-    protocolLog: ProtocolLogEntry[];
-    onClearProtocolLog: () => void;
-
-    onDisconnect: () => void;
-}
-
-function MainPage(props: MainPageProps) {
-    const [users, setUsers] = useState<User[]>([]);
-
-    useEffect(() => {
-        let stopped = false;
-        const refresh = async () => {
-            const users = await fetchUsers();
-            if (!stopped) {
-                setUsers(users);
-            }
-        };
-
-        console.log("Fetching initial state...");
-        refresh();
-
-        const unlisten = listen<unknown>("session-changed", (event) => {
-            console.log("Session changed event received:", event);
-
-            // TODO: parse the event.
-            refresh();
-        });
-        return () => {
-            stopped = true;
-            unlisten.then(stop => stop());
-        };
-    }, []);
-
-    return (
-        <>
-            <main className="container">
-                <section className="user-list">
-                    User list
-                    <ul>
-                        {users.map((user) => (
-                            <li key={user.session}>
-                            {user.name} (channel {user.channel_id})
-                            {user.self_mute || user.mute ? " muted" : ""}
-                            {user.self_deaf || user.deaf ? " deafened" : ""}
-                            </li>
-                        ))}
-                    </ul>
-                </section>
-                <section className="chat">
-                    Chat
-                </section>
-
-                <button type="button" onClick={props.onDisconnect}>
-                    Disconnect
-                </button>
-            </main>
-            <ProtocolViewer entries={props.protocolLog} onClear={props.onClearProtocolLog} />
-        </>
-    );
 }
 
 export default App;

@@ -49,6 +49,18 @@ fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
         .unwrap_or_default()
 }
 
+// TODO: chat messages include more metadata...
+#[tauri::command]
+fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<String> {
+    state
+        .client
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|client| client.state().lock().unwrap().chat_messages().to_vec())
+        .unwrap_or_default()
+}
+
 /// Forwards debug messages until the connection closes. A consumer that falls
 /// behind skips messages instead of stopping the stream.
 async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward: impl FnMut(T)) {
@@ -292,6 +304,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             connect,
             get_users,
+            get_chat_messages,
             disconnect
         ])
         .run(tauri::generate_context!())

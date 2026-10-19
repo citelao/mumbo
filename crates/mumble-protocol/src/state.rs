@@ -80,6 +80,7 @@ pub enum ConnectionStatus {
 pub enum MumbleEvent {
     // TODO: more granular events are probably useful, but let's start with this.
     UsersChanged,
+    ChatMessage,
 }
 
 #[derive(Default, Clone, Debug, Serialize)]
@@ -88,6 +89,9 @@ pub struct MumbleState {
     users: BTreeMap<u32, User>,
 
     connection_status: ConnectionStatus,
+
+    // TODO: senders
+    chat_messages: Vec<String>,
 }
 
 impl MumbleState {
@@ -99,6 +103,10 @@ impl MumbleState {
         self.users.values().cloned().collect()
     }
 
+    pub fn chat_messages(&self) -> &Vec<String> {
+        &self.chat_messages
+    }
+
     pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<Option<MumbleEvent>, Error> {
         match message {
             crate::ServerToClientMessage::Reject(m) => {
@@ -108,10 +116,26 @@ impl MumbleState {
             }
 
             // Signals the end of the initial server handshake.
-            crate::ServerToClientMessage::ServerSync(_) => {
+            crate::ServerToClientMessage::ServerSync(m) => {
                 self.connection_status = ConnectionStatus::Connected;
                 log::info!("Successfully connected to the server");
+
+                // May include a welcome message, which we can add to the chat messages.
+                if let Some(welcome_text) = m.welcome_text {
+                    self.chat_messages.push(welcome_text);
+                    // TODO: support multiple events for this
+                    return Ok(Some(MumbleEvent::ChatMessage));
+                }
             },
+
+            // TODO: unsure if this is a chat message.
+            // crate::ServerToClientMessage::ServerConfig(_) => {
+            //     if let Some(welcome_text) = m.welcome_text {
+            //         self.chat_messages.push(welcome_text);
+            //         // TODO: support multiple events for this
+            //         return Ok(Some(MumbleEvent::ChatMessage));
+            //     }
+            // }
 
             crate::ServerToClientMessage::UserState(m) => {
                 let Some(session) = m.session else {
@@ -146,6 +170,13 @@ impl MumbleState {
                     return Err(Error::new(io::ErrorKind::InvalidData, "User not found"));
                 }
             }
+
+            // Chat messages
+            crate::ServerToClientMessage::TextMessage(m) => {
+                self.chat_messages.push(m.message);
+                return Ok(Some(MumbleEvent::ChatMessage));
+            }
+
             _ => {
                 log::warn!("Unhandled message: {:?}", message);
             }
