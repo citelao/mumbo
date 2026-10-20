@@ -36,7 +36,7 @@ pub struct User {
 
     // Whether the user is recording
     recording: bool,
-    
+
     // actor?
     // user_id?
     // texture?
@@ -52,6 +52,8 @@ pub struct User {
     // NOT plugin_context
     // NOT plugin_identity
 
+    // Additional fields
+    pub is_speaking: bool,
 }
 
 impl User {
@@ -115,7 +117,7 @@ pub enum MumbleEvent {
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
     // Sorted by session, so snapshots (UI, fixtures) have a stable order.
-    users: BTreeMap<u32, User>,
+    pub users: BTreeMap<u32, User>,
 
     connection_status: ConnectionStatus,
 
@@ -214,6 +216,13 @@ impl MumbleState {
                 } else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "User not found"));
                 }
+            }
+            crate::ServerToClientMessage::UdpTunnel(crate::ServerToClientUdpMessage::Audio(m)) => {
+                if let Some(user) = self.users.get_mut(&m.sender_session) {
+                    let is_speaking = !m.is_terminator;
+                    user.is_speaking = is_speaking;
+                }
+                return Ok(Some(MumbleEvent::UsersChanged));
             }
 
             // Chat messages

@@ -16,6 +16,8 @@ export const User = z.strictObject({
   self_deaf: z.boolean(),
   priority_speaker: z.boolean(),
   recording: z.boolean(),
+
+  is_speaking: z.boolean(),
 });
 
 export type User = z.infer<typeof User>;

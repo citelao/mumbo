@@ -232,18 +232,7 @@ async fn run(
             }
             message = reader.try_next() => {
                 let Some(message) = message? else { break }; // None -> server closed
-
-                // Audio messages are handled outside of MumbleState
-                match message {
-                    ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(m)) => {
-                        if let Err(e) = audio_tx.try_send(m) {
-                            log::error!("Dropping voice packet: {e}");
-                        }
-                    }
-                    _ => {
-                        apply_and_publish(&state, &events_tx, message)?;
-                    }
-                }
+                apply_and_publish(&state, &events_tx, message)?;
             }
             message = server_rx.recv() => {
                 if let Some(message) = message {
@@ -256,16 +245,32 @@ async fn run(
                     writer.send(message.clone()).await?;
 
                     // Handle any bookkeeping needed for specific messages.
-                    if let crate::ClientToServerMessage::TextMessage(m) = &message {
-                        // Add the message to the local chat history.
-                        let mut state = state.lock().unwrap();
-                        let user_id = state.current_user_session;
-                        state.chat_messages.push(crate::state::TextMessage::ChatTextMessage(crate::state::ChatTextMessage {
-                            timestamp: chrono::Utc::now(),
-                            user_session: user_id,
-                            content: m.message.clone(),
-                        }));
-                        events_tx.send(crate::state::MumbleEvent::ChatMessage).unwrap();
+                    match &message {
+                        crate::ClientToServerMessage::UdpTunnel(crate::ClientToServerUdpMessage::Audio(m)) => {
+                            // Change local speaking state for current user.
+                            let mut state = state.lock().unwrap();
+                            let Some(current_user_session) = state.current_user_session else { continue; };
+                            let user = state.users.get_mut(&current_user_session);
+                            let is_speaking = !m.is_terminator;
+                            if let Some(user) = user {
+                                user.is_speaking = is_speaking;
+                            }
+                            events_tx.send(crate::state::MumbleEvent::UsersChanged).unwrap();
+                        }
+                        crate::ClientToServerMessage::TextMessage(m) => {
+                            // Add the message to the local chat history.
+                            let mut state = state.lock().unwrap();
+                            let user_id = state.current_user_session;
+                            state.chat_messages.push(crate::state::TextMessage::ChatTextMessage(crate::state::ChatTextMessage {
+                                timestamp: chrono::Utc::now(),
+                                user_session: user_id,
+                                content: m.message.clone(),
+                            }));
+                            events_tx.send(crate::state::MumbleEvent::ChatMessage).unwrap();
+                        }
+                        _ => {
+                            // No-op
+                        }
                     }
                 } else {
                     log::info!("Server channel closed, disconnecting");

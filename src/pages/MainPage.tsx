@@ -58,6 +58,7 @@ export function MainPage(props: MainPageProps) {
                             {user.name} (channel {user.channel_id})
                             {user.self_mute || user.mute ? " muted" : ""}
                             {user.self_deaf || user.deaf ? " deafened" : ""}
+                            {user.is_speaking ? " speaking" : ""}
                             </li>
                         ))}
                     </ul>
