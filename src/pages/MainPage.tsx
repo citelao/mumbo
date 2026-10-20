@@ -2,7 +2,7 @@ import { use, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
-import "./MainPage.css";
+import "./MainPage.scss";
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -51,14 +51,14 @@ export function MainPage(props: MainPageProps) {
         <>
             <main className="container">
                 <section className="user-list">
-                    User list
+                    Users
                     <ul>
                         {users.map((user) => (
                             <li key={user.session}>
+                            {user.is_speaking ? "● " : "◯ "}
                             {user.name} (channel {user.channel_id})
                             {user.self_mute || user.mute ? " muted" : ""}
                             {user.self_deaf || user.deaf ? " deafened" : ""}
-                            {user.is_speaking ? " speaking" : ""}
                             </li>
                         ))}
                     </ul>

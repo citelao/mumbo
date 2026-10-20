@@ -1,0 +1,20 @@
+.chat {
+    /* min-width: 80ch; */
+}
+
+pre {
+    font-family: monospace;
+}
+
+.user-list {
+    text-align: left;
+
+    ul {
+        margin: 0;
+        padding: 0;
+    }
+
+    li {
+        list-style-type: none;
+    }
+}

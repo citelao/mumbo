@@ -27,6 +27,14 @@ Work tracker.
 - [ ] Output & input device selection
 - [ ] Device configuration (e.g. mono/stereo, bitrate resampling)
 - [ ] Per-speaker auto-gain before summing, so one loud mic doesn't dominate
+- [ ] Handle custom speaker gain adjustments
+- [ ] Mute/unmute self
 - [ ] Skipping empty NetEq buffers also skips concealment when a speaker briefly runs dry mid-sentence; track talk spurts (`is_terminator`) instead
 - [ ] Move mixing (and the `cpal` stream) off the network task to an audio thread, so slow message handling can't starve playback
 - [ ] Use Mumble's `frame_number` for NetEq sequence/timestamps before moving voice to UDP
+
+## Channels
+
+- [ ] Channels visualization
+- [ ] Switching channels
+- [ ] Creating channels
