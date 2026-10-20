@@ -36,6 +36,10 @@ export default function LoginPage(props: LoginPageProps) {
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    useEffect(() => {
+        refreshServerStatsIfNeeded();
+    }, []);
+
     const refreshServerStatsIfNeeded = async () => {
         if (serverStats && serverStats.server === server && serverStats.port === port) {
             return;
@@ -88,12 +92,12 @@ export default function LoginPage(props: LoginPageProps) {
                         onChange={(e) => setPort(Number(e.target.value))}
                         onBlur={refreshServerStatsIfNeeded} />
                 </label>
-                {serverStats && (
+                {serverStats && serverStats.stats && (
                     <div className="server-stats">
-                        <p>Server Version: {serverStats.stats?.server_version_v2}</p>
-                        <p>User Count: {serverStats.stats?.user_count}</p>
-                        <p>Max User Count: {serverStats.stats?.max_user_count}</p>
-                        <p>Max Bandwidth per User: {serverStats.stats?.max_bandwidth_per_user}</p>
+                        <p>Server Version: {serverStats.stats.server_version_v2}</p>
+                        <p>User Count: {serverStats.stats.user_count}</p>
+                        <p>Max User Count: {serverStats.stats.max_user_count}</p>
+                        <p>Max Bandwidth per User: {serverStats.stats.max_bandwidth_per_user}</p>
                     </div>
                 )}
                 <label>
