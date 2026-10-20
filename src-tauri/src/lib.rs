@@ -356,6 +356,7 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .level_for("mumbo_lib", log::LevelFilter::Trace)
+                .level_for("mumble_protocol", log::LevelFilter::Trace)
                 .with_colors(ColoredLevelConfig::default())
                 .build(),
         )
