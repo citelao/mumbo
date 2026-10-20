@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
+import sanitizeHtml from 'sanitize-html';
 
 // Mirrors `mumble_protocol::state::User` as serialized by serde. Strict, so
 // fields added or renamed on the Rust side fail parsing instead of passing
@@ -44,5 +45,10 @@ export const TextMessage = z.discriminatedUnion("type", [
 export type TextMessage = z.infer<typeof TextMessage>;
 
 export async function fetchChatMessages(): Promise<TextMessage[]> {
-  return z.array(TextMessage).parse(await invoke<unknown>("get_chat_messages"));
+  const textMessages = z.array(TextMessage).parse(await invoke<unknown>("get_chat_messages"));
+  const sanitizedTextMessages = textMessages.map(msg => ({
+    ...msg,
+    content: sanitizeHtml(msg.content),
+  }));
+  return sanitizedTextMessages;
 }

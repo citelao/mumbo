@@ -2,6 +2,7 @@ import { use, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
+import "./MainPage.css";
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -69,7 +70,7 @@ export function MainPage(props: MainPageProps) {
                             if (message.type === "ServerTextMessage") {
                                 return (
                                     <li key={index}>
-                                        [{new Date(message.timestamp).toLocaleTimeString()}] {message.content}
+                                        [{new Date(message.timestamp).toLocaleTimeString()}] <span dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                     </li>
                                 );
                             }
@@ -77,7 +78,7 @@ export function MainPage(props: MainPageProps) {
                             const user = users.find(u => u.session === message.user_session);
                             return (
                                 <li key={index}>
-                                    [{new Date(message.timestamp).toLocaleTimeString()}] {user ? user.name : "Unknown"}: {message.content}
+                                    [{new Date(message.timestamp).toLocaleTimeString()}] {user ? user.name : "Unknown"}: <span dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                 </li>
                             );
                         })}
