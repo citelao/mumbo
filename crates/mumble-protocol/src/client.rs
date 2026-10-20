@@ -98,7 +98,12 @@ async fn connect_over(
     let mut reader = FramedRead::new(stream_read, crate::codec::MumbleCodec::default())
         .inspect(move |msg| {
             if let Ok(msg) = msg {
-                log::debug!("Received server message: {:?}", msg);
+                // Audio messages are noisy.
+                if let ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) = msg {
+                    log::trace!("Received audio message: {:?}", msg);
+                } else {
+                    log::debug!("Received server message: {:?}", msg);
+                }
                 if debug_tx.receiver_count() > 0 {
                     let _ = debug_tx.send(msg.clone());
                 }
