@@ -11,6 +11,8 @@ use tauri::Emitter;
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::sync::broadcast;
+use sonora::{AudioProcessing, Config, StreamConfig};
+use sonora::config::{EchoCanceller, NoiseSuppression, GainController2};
 
 #[derive(Default)]
 struct AppState {
@@ -181,8 +183,24 @@ async fn connect_internal(
             .config(),
     };
 
+    let input_channels = input_config.channels;
+    let input_rate = input_config.sample_rate;
+
+    let apm_config = Config {
+        echo_canceller: Some(EchoCanceller::default()),
+        noise_suppression: Some(NoiseSuppression::default()),
+        gain_controller2: Some(GainController2::default()),
+        ..Default::default()
+    };
+    let mut apm = AudioProcessing::builder()
+        .config(apm_config.clone())
+        .capture_config(StreamConfig::new(input_rate, input_channels))
+        .render_config(StreamConfig::new(input_rate, input_channels))
+        .build();
+
     log::info!("Audio output: {:?}, {config:?}", device.description().map_err(Error::other)?);
     log::info!("Audio input: {:?}, {input_config:?}", input_device.description().map_err(Error::other)?);
+    log::info!("Audio processing config: {apm_config:?}");
     if input_config.sample_rate != OUTPUT_SAMPLE_RATE {
         log::warn!("Mic runs at {} Hz; resampling to {OUTPUT_SAMPLE_RATE} Hz for Opus", input_config.sample_rate);
     }
@@ -212,12 +230,10 @@ async fn connect_internal(
             ).map_err(Error::other)?;
             stream.play().map_err(Error::other)?;
 
-            let input_channels = input_config.channels as usize;
-            let input_rate = input_config.sample_rate;
             let mic_stream = input_device.build_input_stream(
                 input_config,
                 move |input: &[f32], _| {
-                    for frame in input.chunks(input_channels) {
+                    for frame in input.chunks(input_channels as usize) {
                         let mono = frame.iter().sum::<f32>() / input_channels as f32;
                         let _ = input_producer.try_push(mono);
                     }
@@ -275,13 +291,17 @@ async fn connect_internal(
                         input_consumer.pop_slice(&mut captured);
                         mic_resampler.process(&captured, &mut mic_48k)?;
                         while mic_48k.len() >= MIC_FRAME_SAMPLES {
+                            // Process audio
+                            let mut processed = vec![0.0f32; MIC_FRAME_SAMPLES];
+                            apm.process_capture_f32(&[&mic_48k[..MIC_FRAME_SAMPLES]], &mut [&mut processed]).map_err(Error::other)?;
+
                             let len = encoder
                                 .encode_float(&mic_48k[..MIC_FRAME_SAMPLES], &mut output)
                                 .map_err(Error::other)?;
                             mic_48k.drain(..MIC_FRAME_SAMPLES);
                             cloned_client.send_audio(&output[..len], frame_counter).map_err(Error::other)?;
-                            // Opus expects 10ms chunks, we send 20ms.
-                            frame_counter += 2;
+                            // Opus expects 10ms chunks, we send 10ms.
+                            frame_counter += 1;
                         }
                     }
                 }
@@ -305,8 +325,8 @@ const OUTPUT_SAMPLE_RATE: u32 = 48_000;
 /// 10 ms at 48 kHz: the frame size `NetEq::get_audio` produces.
 const MIX_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 100;
 
-/// 20 ms at 48 kHz: the frame size for microphone input.
-const MIC_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 50;
+/// 10 ms at 48 kHz: the frame size for microphone input.
+const MIC_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 100;
 
 /// NetEq routes packets to decoders by RTP payload type; we only have Opus.
 const OPUS_PAYLOAD_TYPE: u8 = 0;

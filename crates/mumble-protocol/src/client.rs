@@ -97,9 +97,9 @@ async fn connect_over(
     let mut reader = FramedRead::new(stream_read, crate::codec::MumbleCodec::default())
         .inspect(move |msg| {
             if let Ok(msg) = msg {
-                // Audio messages are noisy.
                 if let ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) = msg {
-                    log::trace!("Received audio message: {:?}", msg);
+                    // Audio messages are noisy.
+                    // log::trace!("Received audio message: {:?}", msg);
                 } else {
                     log::debug!("Received server message: {:?}", msg);
                 }
@@ -247,7 +247,12 @@ async fn run(
             }
             message = server_rx.recv() => {
                 if let Some(message) = message {
-                    log::trace!("Sending message to server: {:?}", message);
+                    if let crate::ClientToServerMessage::UdpTunnel(crate::ClientToServerUdpMessage::Audio(_)) = message {
+                        // Audio messages are noisy.
+                        // log::trace!("Sending audio message: {:?}", msg);
+                    } else {
+                        log::trace!("Sending message to server: {:?}", message);
+                    }
                     writer.send(message.clone()).await?;
 
                     // Handle any bookkeeping needed for specific messages.
