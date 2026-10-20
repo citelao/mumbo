@@ -89,8 +89,13 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
     let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
 
     log::info!("Pinging server {} on port {}", server, port);
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+
     let socket = tokio::net::UdpSocket::bind(bind).await?;
     let ping_message = crate::raw_udp::Ping {
+        timestamp,
         request_extended_information: true,
         ..Default::default()
     };
@@ -99,17 +104,23 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
     ping_message.encode(&mut ping_buf)?;
     socket.send_to(&ping_buf, (server.clone(), port)).await?;
 
-    let mut buf = vec![0u8; 1024]; // TODO: size of the expected buffer.
-    let (len, _amt_read_from) = socket.recv_from(&mut buf).await?;
+    loop {
+        let mut buf = vec![0u8; 1024]; // TODO: size of the expected buffer.
+        let (len, _amt_read_from) = socket.recv_from(&mut buf).await?;
+    
+        // Should be a ping message in response
+        let response = crate::raw_udp::Ping::decode(&buf[1..len])?;
+        if response.timestamp == timestamp {
+            return Ok(ServerStats {
+                server_version_v2: response.server_version_v2,
+                user_count: response.user_count,
+                max_user_count: response.max_user_count,
+                max_bandwidth_per_user: response.max_bandwidth_per_user,
+            })
+        }
 
-    // Should be a ping message in response
-    let response = crate::raw_udp::Ping::decode(&buf[1..len])?;
-    Ok(ServerStats {
-        server_version_v2: response.server_version_v2,
-        user_count: response.user_count,
-        max_user_count: response.max_user_count,
-        max_bandwidth_per_user: response.max_bandwidth_per_user,
-    })
+        // TODO: abandon after a bit.
+    }
 }
 
 pub async fn connect(options: ConnectionOptions) -> Result<Connection, MumbleConnectionError> {
