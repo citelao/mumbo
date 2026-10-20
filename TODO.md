@@ -32,6 +32,7 @@ Work tracker.
 - [ ] Skipping empty NetEq buffers also skips concealment when a speaker briefly runs dry mid-sentence; track talk spurts (`is_terminator`) instead
 - [ ] Move mixing (and the `cpal` stream) off the network task to an audio thread, so slow message handling can't starve playback
 - [ ] Use Mumble's `frame_number` for NetEq sequence/timestamps before moving voice to UDP
+- [ ] BUG: tapping the microphone on a mac seems to trigger audio, even though no speech is present.
 
 ## Channels
 

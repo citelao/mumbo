@@ -43,6 +43,11 @@ function App(props: AppProps) {
         const channel = new Channel<ServerToClientMessage>();
         channel.onmessage = (event) => {
             const entry = toLogEntry(event);
+            // TODO: don't exceed the maximum number of log entries for audio messages.
+            // if (entry.ok && entry.message.type === "UdpTunnel" && entry.message.data.type === "Audio") {
+            //     return;
+            // }
+
             setProtocolLog((log) => [...log, entry].slice(-MAX_LOG_ENTRIES));
         };
         try {

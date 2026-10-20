@@ -62,6 +62,10 @@ export function MainPage(props: MainPageProps) {
                             </li>
                         ))}
                     </ul>
+
+                    <button type="button" onClick={props.onDisconnect}>
+                        Disconnect
+                    </button>
                 </section>
                 <section className="chat">
                     Chat
@@ -102,10 +106,6 @@ export function MainPage(props: MainPageProps) {
                         </label>
                     </form>
                 </section>
-
-                <button type="button" onClick={props.onDisconnect}>
-                    Disconnect
-                </button>
             </main>
             <ProtocolViewer entries={props.protocolLog} onClear={props.onClearProtocolLog} />
         </>
