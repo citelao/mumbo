@@ -68,6 +68,15 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
         .unwrap_or_default()
 }
 
+#[tauri::command]
+fn send_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
+    if let Some(client) = state.client.lock().unwrap().as_ref() {
+        client.send_message(message).map_err(|e| e.to_string())
+    } else {
+        Err("No active connection".into())
+    }
+}
+
 /// Forwards debug messages until the connection closes. A consumer that falls
 /// behind skips messages instead of stopping the stream.
 async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward: impl FnMut(T)) {
@@ -354,6 +363,7 @@ pub fn run() {
             connect,
             get_users,
             get_chat_messages,
+            send_message,
             disconnect
         ])
         .run(tauri::generate_context!())

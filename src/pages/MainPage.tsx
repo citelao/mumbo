@@ -8,6 +8,7 @@ export interface MainPageProps {
     onClearProtocolLog: () => void;
 
     onDisconnect: () => void;
+    onSendMessage: (message: string) => void;
 }
 
 export function MainPage(props: MainPageProps) {
@@ -81,10 +82,23 @@ export function MainPage(props: MainPageProps) {
                             );
                         })}
                     </ol>
-                    <label>
-                        Chat
-                        <textarea placeholder="Message" />
-                    </label>
+                    <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const input = e.currentTarget.querySelector('input[type="text"]') as HTMLInputElement;
+                        if (input && input.value.trim() !== "") {
+                            props.onSendMessage(input.value.trim());
+                            input.value = "";
+                        }
+                    }}>
+                        <label>
+                            Chat
+                            <input type="text" placeholder="Message" onKeyUp={(e) => {
+                                if (e.key === "Enter") {
+                                    e.currentTarget.form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+                                }
+                            }} />
+                        </label>
+                    </form>
                 </section>
 
                 <button type="button" onClick={props.onDisconnect}>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
 import type { ProtocolLogEntry } from "./ProtocolViewer";
@@ -7,6 +7,7 @@ import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 import { Settings } from "./settings";
+import { connect, disconnect, sendMessage } from "./invoke";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
@@ -46,7 +47,7 @@ function App(props: AppProps) {
         };
         try {
             // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-            await invoke("connect", { ...params, channel });
+            await connect({ ...params, channel });
         } catch (error) {
             console.error(error);
             alert("Failed to connect: " + error);
@@ -59,7 +60,7 @@ function App(props: AppProps) {
 
     const onDisconnect = async () => {
         try {
-            await invoke("disconnect");
+            await disconnect();
             setIsConnected(false);
         } catch (error) {
             console.error(error);
@@ -76,7 +77,11 @@ function App(props: AppProps) {
             onConnect={onConnect}
             onSaveSettings={props.onSaveSettings} />;
     } else {
-        return <MainPage protocolLog={protocolLog} onClearProtocolLog={() => setProtocolLog([])} onDisconnect={onDisconnect} />;
+        return <MainPage
+            protocolLog={protocolLog}
+            onClearProtocolLog={() => setProtocolLog([])}
+            onSendMessage={sendMessage}
+            onDisconnect={onDisconnect} />;
     }
 }
 

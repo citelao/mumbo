@@ -249,6 +249,10 @@ impl MumbleClient {
     pub fn state(&self) -> Arc<Mutex<MumbleState>> {
         self.state.clone()
     }
+
+    pub fn send_message(&self, message: String) -> Result<(), MumbleConnectionError> {
+        todo!()
+    }
 }
 #[cfg(test)]
 mod tests {
