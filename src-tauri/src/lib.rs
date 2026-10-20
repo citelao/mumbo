@@ -4,6 +4,7 @@ use std::io::Error;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use mumble_protocol as proto;
 use mumble_protocol::client::{Connection, ConnectionOptions};
+use opus::Channels::Mono;
 use ringbuf::HeapRb;
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use tauri::Emitter;
@@ -143,7 +144,8 @@ async fn connect_internal(
     const HEADROOM_MS: u32 = 200;
     const HEADROOM_SAMPLES: u32 = (OUTPUT_SAMPLE_RATE * HEADROOM_MS) / 1000;
 
-    let (mut producer, mut consumer) = HeapRb::<i16>::new(HEADROOM_SAMPLES as usize).split();
+    let (mut output_producer, mut output_consumer) = HeapRb::<i16>::new(HEADROOM_SAMPLES as usize).split();
+    let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(HEADROOM_SAMPLES as usize).split();
 
     // TODO: allow user to select output device and configure sample rate.
     let host = cpal::default_host();
@@ -163,13 +165,31 @@ async fn connect_internal(
             .config(),
     };
 
+    let input_device = host
+        .default_input_device()
+        .ok_or_else(|| Error::other("No audio input device"))?;
+    let input_config = input_device
+        .supported_input_configs()
+        .map_err(Error::other)?
+        .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
+        .find_map(|c| c.try_with_sample_rate(OUTPUT_SAMPLE_RATE));
+    let input_config = match input_config {
+        Some(supported) => supported.config(),
+        None => input_device
+            .default_input_config()
+            .map_err(Error::other)?
+            .config(),
+    };
+
     let channels = config.channels as usize;
 
     // Start the audio loop!
+    let cloned_client = client.clone();
     tauri::async_runtime::spawn(async move {
         // NetEq absorbs network jitter; this only needs to cover timer slop.
         const MIX_TARGET_SAMPLES: usize = (OUTPUT_SAMPLE_RATE as usize / 1000) * 40;
         let mut mix_interval = tokio::time::interval(std::time::Duration::from_millis(5));
+
         let result = async {
             // Playback stops when `stream` is dropped, so it lives for the whole loop.
             let stream = device.build_output_stream(
@@ -177,7 +197,7 @@ async fn connect_internal(
                 move |output: &mut [f32], _| {
                     // same value in left and right
                     for frame in output.chunks_mut(channels) {
-                        let sample = consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                        let sample = output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
                         frame.fill(sample);
                     }
                 },
@@ -185,6 +205,30 @@ async fn connect_internal(
                 None,
             ).map_err(Error::other)?;
             stream.play().map_err(Error::other)?;
+
+            let mic_stream = input_device.build_input_stream(
+                input_config,
+                move |input: &[f32], _| {
+                    for frame in input.chunks(channels) {
+                        let mono = frame.iter().sum::<f32>() / channels as f32;
+                        let _ = input_producer.try_push(mono);
+                    }
+                },
+                |err| log::error!("mic stream error: {err}"),
+                None,
+            ).map_err(Error::other)?;
+            mic_stream.play().map_err(Error::other)?;
+
+            let mut encoder = opus::Encoder::new(
+                OUTPUT_SAMPLE_RATE,
+                Mono,
+                opus::Application::Voip
+            ).map_err(Error::other)?;
+
+            // Pre-allocate buffers (I think these are on the heap so not huge prob).
+            let mut mic_frame = vec![0.0; MIC_FRAME_SAMPLES];
+            let mut output = vec![0u8; 4000];
+            let mut frame_counter: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -210,9 +254,18 @@ async fn connect_internal(
                         // Top the ring buffer up to a fixed level rather than mixing once per
                         // tick: the card drains it at its own rate, so this follows the card's
                         // clock instead of drifting against this timer.
-                        while producer.occupied_len() < MIX_TARGET_SAMPLES {
+                        while output_producer.occupied_len() < MIX_TARGET_SAMPLES {
                             let frame = mix_frame(&mut speakers)?;
-                            producer.push_slice(&frame);
+                            output_producer.push_slice(&frame);
+                        }
+
+                        // Send complete mic frames
+                        while input_consumer.occupied_len() >= MIC_FRAME_SAMPLES {
+                            input_consumer.pop_slice(&mut mic_frame);
+                            let len = encoder.encode_float(&mic_frame, &mut output).map_err(Error::other)?;
+                            cloned_client.send_audio(&output[..len], frame_counter).map_err(Error::other)?;
+                            // Opus expects 10ms chunks, we send 20ms.
+                            frame_counter += 2;
                         }
                     }
                 }
@@ -235,6 +288,9 @@ const OUTPUT_SAMPLE_RATE: u32 = 48_000;
 
 /// 10 ms at 48 kHz: the frame size `NetEq::get_audio` produces.
 const MIX_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 100;
+
+/// 20 ms at 48 kHz: the frame size for microphone input.
+const MIC_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 50;
 
 /// NetEq routes packets to decoders by RTP payload type; we only have Opus.
 const OPUS_PAYLOAD_TYPE: u8 = 0;

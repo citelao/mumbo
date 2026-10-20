@@ -112,10 +112,18 @@ impl ServerToClientMessage {
     }
 }
 
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ClientToServerUdpMessage {
+    Audio(raw_udp::Audio),
+    // Ping(raw_udp::Ping),
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientToServerMessage {
     Version(raw::Version),
+    UdpTunnel(ClientToServerUdpMessage),
     Authenticate(raw::Authenticate),
     Ping(raw::Ping),
     TextMessage(raw::TextMessage),
@@ -125,6 +133,14 @@ impl ClientToServerMessage {
     pub fn encode(&self) -> Result<(u16, Vec<u8>), Error> {
         match self {
             ClientToServerMessage::Version(msg) => Ok((raw::Version::TYPE_ID, msg.encode_to_vec())),
+            ClientToServerMessage::UdpTunnel(msg) => match msg {
+                ClientToServerUdpMessage::Audio(audio) => {
+                    let mut payload = vec![raw_udp::Audio::TYPE_ID];
+                    payload.extend(audio.encode_to_vec());
+                    Ok((raw::UdpTunnel::TYPE_ID, payload))
+                }
+                // ClientToServerUdpMessage::Ping(ping) => Ok((raw_udp::Ping::TYPE_ID, ping.encode_to_vec())),
+            },
             ClientToServerMessage::Authenticate(msg) => Ok((raw::Authenticate::TYPE_ID, msg.encode_to_vec())),
             ClientToServerMessage::Ping(msg) => Ok((raw::Ping::TYPE_ID, msg.encode_to_vec())),
             ClientToServerMessage::TextMessage(msg) => Ok((raw::TextMessage::TYPE_ID, msg.encode_to_vec())),

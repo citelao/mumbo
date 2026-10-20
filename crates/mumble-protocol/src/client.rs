@@ -1,4 +1,5 @@
 use std::io;
+use bytes::Buf;
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
@@ -10,6 +11,7 @@ mod accept_any_cert;
 
 use crate::{ServerToClientMessage, ServerToClientUdpMessage, state::{ConnectionStatus, MumbleState}};
 
+#[derive(Clone)]
 pub struct MumbleClient {
     // TODO: Exposed via helper methods?
     state: Arc<Mutex<MumbleState>>,
@@ -279,6 +281,24 @@ impl MumbleClient {
 
     pub fn state(&self) -> Arc<Mutex<MumbleState>> {
         self.state.clone()
+    }
+
+    pub fn send_audio(&self, audio: &[u8], frame_counter: u64) -> Result<(), MumbleConnectionError> {
+        let packet = crate::ClientToServerMessage::UdpTunnel(
+            crate::ClientToServerUdpMessage::Audio(
+            crate::raw_udp::Audio {
+                opus_data: audio.to_vec(),
+
+                // Normal speech
+                // header: Some(crate::raw_udp::audio::Header::Target(0)),
+
+                // Server loop-back
+                header: Some(crate::raw_udp::audio::Header::Target(31)),
+                frame_number: frame_counter,
+
+                ..Default::default()
+            }));
+        self.send(packet)
     }
 
     /// Sends a text message to the specified channel.
