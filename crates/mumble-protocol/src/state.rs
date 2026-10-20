@@ -145,6 +145,17 @@ impl MumbleState {
         &self.chat_messages
     }
 
+    /// Records whether `session` is speaking. Only reports actual changes,
+    /// since voice packets arrive 50-100 times a second per speaker.
+    pub(crate) fn set_speaking(&mut self, session: u32, is_speaking: bool) -> Option<MumbleEvent> {
+        let user = self.users.get_mut(&session)?;
+        if user.is_speaking == is_speaking {
+            return None;
+        }
+        user.is_speaking = is_speaking;
+        Some(MumbleEvent::UsersChanged)
+    }
+
     pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<Option<MumbleEvent>, Error> {
         match message {
             crate::ServerToClientMessage::Ping(_) => {
@@ -218,11 +229,7 @@ impl MumbleState {
                 }
             }
             crate::ServerToClientMessage::UdpTunnel(crate::ServerToClientUdpMessage::Audio(m)) => {
-                if let Some(user) = self.users.get_mut(&m.sender_session) {
-                    let is_speaking = !m.is_terminator;
-                    user.is_speaking = is_speaking;
-                }
-                return Ok(Some(MumbleEvent::UsersChanged));
+                return Ok(self.set_speaking(m.sender_session, !m.is_terminator));
             }
 
             // Chat messages

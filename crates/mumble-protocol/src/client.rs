@@ -232,6 +232,14 @@ async fn run(
             }
             message = reader.try_next() => {
                 let Some(message) = message? else { break }; // None -> server closed
+
+                // Voice goes to the audio task to be played; the state only
+                // tracks who is speaking.
+                if let ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(m)) = &message
+                    && let Err(e) = audio_tx.try_send(m.clone())
+                {
+                    log::error!("Dropping voice packet: {e}");
+                }
                 apply_and_publish(&state, &events_tx, message)?;
             }
             message = server_rx.recv() => {
@@ -247,15 +255,13 @@ async fn run(
                     // Handle any bookkeeping needed for specific messages.
                     match &message {
                         crate::ClientToServerMessage::UdpTunnel(crate::ClientToServerUdpMessage::Audio(m)) => {
-                            // Change local speaking state for current user.
+                            // The server doesn't echo our voice, so track our own speaking.
                             let mut state = state.lock().unwrap();
-                            let Some(current_user_session) = state.current_user_session else { continue; };
-                            let user = state.users.get_mut(&current_user_session);
-                            let is_speaking = !m.is_terminator;
-                            if let Some(user) = user {
-                                user.is_speaking = is_speaking;
+                            let me = state.current_user_session;
+                            if let Some(event) = me.and_then(|me| state.set_speaking(me, !m.is_terminator)) {
+                                // Only fails if nobody is listening.
+                                let _ = events_tx.send(event);
                             }
-                            events_tx.send(crate::state::MumbleEvent::UsersChanged).unwrap();
                         }
                         crate::ClientToServerMessage::TextMessage(m) => {
                             // Add the message to the local chat history.
