@@ -206,11 +206,12 @@ async fn connect_internal(
             ).map_err(Error::other)?;
             stream.play().map_err(Error::other)?;
 
+            let input_channels = input_config.channels as usize;
             let mic_stream = input_device.build_input_stream(
                 input_config,
                 move |input: &[f32], _| {
-                    for frame in input.chunks(channels) {
-                        let mono = frame.iter().sum::<f32>() / channels as f32;
+                    for frame in input.chunks(input_channels) {
+                        let mono = frame.iter().sum::<f32>() / input_channels as f32;
                         let _ = input_producer.try_push(mono);
                     }
                 },
