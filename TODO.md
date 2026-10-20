@@ -8,6 +8,10 @@ Work tracker.
 - [ ] State tracking for users
 - [ ] Managing user state (comments, volume adjustments, etc)
 - [ ] Remove `Speaker`s on `UserRemove` or after inactivity; today they live for the whole connection
+- [ ] Gracefully disconnect server rather than panicking:
+
+    > [2026-10-20][01:52:30][DEBUG][mumble_protocol::client] Received server message: UserRemove(UserRemove { session: 24, actor: None, reason: Some("You connected to the server from another device"), ban: None })
+    > [2026-10-20][01:52:30][INFO][mumble_protocol::state] Removed user: testo (session: 24) for reason: Some("You connected to the server from another device") (ban: None)
 
 ## Connection
 

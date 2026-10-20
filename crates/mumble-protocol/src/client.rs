@@ -242,7 +242,20 @@ async fn run(
             message = server_rx.recv() => {
                 if let Some(message) = message {
                     log::trace!("Sending message to server: {:?}", message);
-                    writer.send(message).await?;
+                    writer.send(message.clone()).await?;
+
+                    // Handle any bookkeeping needed for specific messages.
+                    if let crate::ClientToServerMessage::TextMessage(m) = &message {
+                        // Add the message to the local chat history.
+                        let mut state = state.lock().unwrap();
+                        let user_id = state.current_user_session;
+                        state.chat_messages.push(crate::state::TextMessage::ChatTextMessage(crate::state::ChatTextMessage {
+                            timestamp: chrono::Utc::now(),
+                            user_session: user_id,
+                            content: m.message.clone(),
+                        }));
+                        events_tx.send(crate::state::MumbleEvent::ChatMessage).unwrap();
+                    }
                 } else {
                     log::info!("Server channel closed, disconnecting");
                     break; // Channel closed, disconnect
@@ -279,10 +292,11 @@ impl MumbleClient {
         };
         log::trace!("Sending text message: {} to channel: {:?}", message, channel_id);
         self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
-            message: message,
+            message: message.clone(),
             channel_id: vec![channel_id],
             ..Default::default()
-        }))
+        }))?;
+        Ok(())
     }
 
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {

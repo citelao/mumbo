@@ -120,9 +120,9 @@ pub struct MumbleState {
     connection_status: ConnectionStatus,
 
     // Session (ID) for the current user
-    current_user_session: Option<u32>,
+    pub current_user_session: Option<u32>,
 
-    chat_messages: Vec<TextMessage>,
+    pub chat_messages: Vec<TextMessage>,
 }
 
 impl MumbleState {
@@ -145,6 +145,11 @@ impl MumbleState {
 
     pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<Option<MumbleEvent>, Error> {
         match message {
+            crate::ServerToClientMessage::Ping(_) => {
+                // Ignore for now.
+                // TODO: track round-trip time etc.
+            }
+            
             crate::ServerToClientMessage::Reject(m) => {
                 log::error!("Server rejected connection: {} - {}", m.r#type().as_str_name(), m.reason());
                 self.connection_status = ConnectionStatus::Failed;
