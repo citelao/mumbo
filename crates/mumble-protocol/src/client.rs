@@ -299,10 +299,10 @@ impl MumbleClient {
                 opus_data: audio.to_vec(),
 
                 // Normal speech
-                // header: Some(crate::raw_udp::audio::Header::Target(0)),
+                header: Some(crate::raw_udp::audio::Header::Target(0)),
 
                 // Server loop-back
-                header: Some(crate::raw_udp::audio::Header::Target(31)),
+                // header: Some(crate::raw_udp::audio::Header::Target(31)),
                 frame_number: frame_counter,
 
                 ..Default::default()
