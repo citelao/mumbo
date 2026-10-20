@@ -181,6 +181,12 @@ async fn connect_internal(
             .config(),
     };
 
+    log::info!("Audio output: {:?}, {config:?}", device.description().map_err(Error::other)?);
+    log::info!("Audio input: {:?}, {input_config:?}", input_device.description().map_err(Error::other)?);
+    if input_config.sample_rate != OUTPUT_SAMPLE_RATE {
+        log::warn!("Mic runs at {} Hz; resampling to {OUTPUT_SAMPLE_RATE} Hz for Opus", input_config.sample_rate);
+    }
+
     let channels = config.channels as usize;
 
     // Start the audio loop!
@@ -207,6 +213,7 @@ async fn connect_internal(
             stream.play().map_err(Error::other)?;
 
             let input_channels = input_config.channels as usize;
+            let input_rate = input_config.sample_rate;
             let mic_stream = input_device.build_input_stream(
                 input_config,
                 move |input: &[f32], _| {
@@ -227,7 +234,10 @@ async fn connect_internal(
             ).map_err(Error::other)?;
 
             // Pre-allocate buffers (I think these are on the heap so not huge prob).
-            let mut mic_frame = vec![0.0; MIC_FRAME_SAMPLES];
+            let mut mic_resampler = MicResampler::new(input_rate)?;
+            // Captured mic audio at the device rate, then at 48 kHz awaiting a full frame.
+            let mut captured = Vec::new();
+            let mut mic_48k = Vec::new();
             let mut output = vec![0u8; 4000];
             let mut frame_counter: u64 = 0;
 
@@ -260,10 +270,15 @@ async fn connect_internal(
                             output_producer.push_slice(&frame);
                         }
 
-                        // Send complete mic frames
-                        while input_consumer.occupied_len() >= MIC_FRAME_SAMPLES {
-                            input_consumer.pop_slice(&mut mic_frame);
-                            let len = encoder.encode_float(&mic_frame, &mut output).map_err(Error::other)?;
+                        // Send complete mic frames, resampled to 48 kHz first.
+                        captured.resize(input_consumer.occupied_len(), 0.0);
+                        input_consumer.pop_slice(&mut captured);
+                        mic_resampler.process(&captured, &mut mic_48k)?;
+                        while mic_48k.len() >= MIC_FRAME_SAMPLES {
+                            let len = encoder
+                                .encode_float(&mic_48k[..MIC_FRAME_SAMPLES], &mut output)
+                                .map_err(Error::other)?;
+                            mic_48k.drain(..MIC_FRAME_SAMPLES);
                             cloned_client.send_audio(&output[..len], frame_counter).map_err(Error::other)?;
                             // Opus expects 10ms chunks, we send 20ms.
                             frame_counter += 2;
@@ -317,6 +332,68 @@ impl neteq::codec::AudioDecoder for OpusDecoder {
             .map_err(|e| neteq::NetEqError::DecoderError(e.to_string()))?;
         pcm.truncate(count);
         Ok(pcm)
+    }
+}
+
+/// Converts mono mic audio from the device's sample rate to the 48 kHz Opus
+/// expects. Feeding audio at the wrong rate shifts its pitch and speed.
+enum MicResampler {
+    /// The mic already runs at 48 kHz.
+    Passthrough,
+    Resample {
+        resampler: Box<rubato::Fft<f32>>,
+        /// Input not yet resampled: rubato consumes fixed-size chunks.
+        pending: Vec<f32>,
+        scratch: Vec<f32>,
+    },
+}
+
+impl MicResampler {
+    fn new(input_rate: u32) -> Result<Self, Error> {
+        if input_rate == OUTPUT_SAMPLE_RATE {
+            return Ok(Self::Passthrough);
+        }
+        let chunk = input_rate as usize / 100; // 10 ms of input per step
+        let resampler = Box::new(
+            rubato::Fft::new(
+                input_rate as usize,
+                OUTPUT_SAMPLE_RATE as usize,
+                chunk,
+                1,
+                rubato::FixedSync::Input,
+            )
+            .map_err(Error::other)?,
+        );
+        let scratch = vec![0.0; rubato::Resampler::output_frames_max(&*resampler)];
+        Ok(Self::Resample { resampler, pending: Vec::new(), scratch })
+    }
+
+    /// Appends the 48 kHz version of `input` to `output`. Input that doesn't
+    /// fill a whole chunk yet is kept for the next call.
+    fn process(&mut self, input: &[f32], output: &mut Vec<f32>) -> Result<(), Error> {
+        let Self::Resample { resampler, pending, scratch } = self else {
+            output.extend_from_slice(input);
+            return Ok(());
+        };
+        use rubato::Resampler;
+        use rubato::audioadapter_buffers::direct::InterleavedSlice;
+
+        pending.extend_from_slice(input);
+        let mut consumed = 0;
+        while pending.len() - consumed >= resampler.input_frames_next() {
+            let frames_in = resampler.input_frames_next();
+            let frames_out = scratch.len();
+            let chunk_in = InterleavedSlice::new(&pending[consumed..consumed + frames_in], 1, frames_in)
+                .map_err(Error::other)?;
+            let mut chunk_out = InterleavedSlice::new_mut(&mut scratch[..], 1, frames_out).map_err(Error::other)?;
+            let (used, written) = resampler
+                .process_into_buffer(&chunk_in, &mut chunk_out, None)
+                .map_err(Error::other)?;
+            output.extend_from_slice(&scratch[..written]);
+            consumed += used;
+        }
+        pending.drain(..consumed);
+        Ok(())
     }
 }
 
@@ -484,6 +561,42 @@ mod tests {
     }
 
     /// Amplitude of the `frequency` component of `samples` (a single DFT bin).
+    fn sine(frequency: f32, sample_rate: u32, samples: usize) -> Vec<f32> {
+        (0..samples)
+            .map(|i| (i as f32 / sample_rate as f32 * frequency * std::f32::consts::TAU).sin() * 0.5)
+            .collect()
+    }
+
+    #[test]
+    fn mic_audio_at_48_khz_passes_through_unchanged() {
+        let mut resampler = MicResampler::new(OUTPUT_SAMPLE_RATE).unwrap();
+        let input = sine(440.0, OUTPUT_SAMPLE_RATE, 4800);
+
+        let mut output = Vec::new();
+        resampler.process(&input, &mut output).unwrap();
+
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn mic_audio_at_44_1_khz_is_resampled_without_changing_pitch() {
+        let mut resampler = MicResampler::new(44_100).unwrap();
+        // One second, fed in uneven pieces like a real capture callback.
+        let input = sine(440.0, 44_100, 44_100);
+        let mut output = Vec::new();
+        for chunk in input.chunks(337) {
+            resampler.process(chunk, &mut output).unwrap();
+        }
+
+        // About one second at 48 kHz: the clock is preserved…
+        assert!((47_000..=48_000).contains(&output.len()), "got {} samples", output.len());
+        // …and so is the pitch. Treating 44.1 kHz audio as 48 kHz without
+        // resampling would shift 440 Hz up to ~479 Hz (the "mousy" bug).
+        let settled = &output[4800..];   // skip the resampler's startup delay
+        assert!(tone_strength(settled, 440.0) > 0.4, "440 Hz missing");
+        assert!(tone_strength(settled, 479.0) < 0.05, "pitch shifted up");
+    }
+
     fn tone_strength(samples: &[f32], frequency: f32) -> f32 {
         let (re, im) = samples
             .iter()

@@ -1,5 +1,4 @@
 use std::io;
-use bytes::Buf;
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
