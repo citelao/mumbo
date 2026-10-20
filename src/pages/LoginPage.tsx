@@ -36,16 +36,25 @@ export default function LoginPage(props: LoginPageProps) {
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const refreshServerStats = async () => {
+    const refreshServerStatsIfNeeded = async () => {
+        if (serverStats && serverStats.server === server && serverStats.port === port) {
+            return;
+        }
+
         try {
+            setServerStats({ stats: undefined, server, port });
             const stats = await getServerStats({ server, port });
-            setServerStats(stats);
+            setServerStats({ stats, server, port });
         } catch (err) {
             console.error("Failed to fetch server stats:", err);
         }
     };
 
-    const [serverStats, setServerStats] = useState<ServerStats | null>(null);
+    const [serverStats, setServerStats] = useState<{
+        stats?: ServerStats,
+        server: string;
+        port: number;
+    } | null>(null);
 
     return (
         <main className="container">
@@ -69,7 +78,7 @@ export default function LoginPage(props: LoginPageProps) {
                         placeholder="Server"
                         value={server}
                         onChange={(e) => setServer(e.target.value)}
-                        onBlur={refreshServerStats} />
+                        onBlur={refreshServerStatsIfNeeded} />
                 </label>
                 <label>
                     Port
@@ -77,14 +86,14 @@ export default function LoginPage(props: LoginPageProps) {
                         placeholder="Port"
                         value={port}
                         onChange={(e) => setPort(Number(e.target.value))}
-                        onBlur={refreshServerStats} />
+                        onBlur={refreshServerStatsIfNeeded} />
                 </label>
                 {serverStats && (
                     <div className="server-stats">
-                        <p>Server Version: {serverStats.server_version_v2}</p>
-                        <p>User Count: {serverStats.user_count}</p>
-                        <p>Max User Count: {serverStats.max_user_count}</p>
-                        <p>Max Bandwidth per User: {serverStats.max_bandwidth_per_user}</p>
+                        <p>Server Version: {serverStats.stats?.server_version_v2}</p>
+                        <p>User Count: {serverStats.stats?.user_count}</p>
+                        <p>Max User Count: {serverStats.stats?.max_user_count}</p>
+                        <p>Max Bandwidth per User: {serverStats.stats?.max_bandwidth_per_user}</p>
                     </div>
                 )}
                 <label>
