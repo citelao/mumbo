@@ -7,7 +7,7 @@ import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 import { Settings } from "./settings";
-import { connect, disconnect, sendMessage } from "./invoke";
+import { connect, disconnect, sendChannelMessage } from "./invoke";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
@@ -80,7 +80,7 @@ function App(props: AppProps) {
         return <MainPage
             protocolLog={protocolLog}
             onClearProtocolLog={() => setProtocolLog([])}
-            onSendMessage={sendMessage}
+            onSendMessage={sendChannelMessage}
             onDisconnect={onDisconnect} />;
     }
 }

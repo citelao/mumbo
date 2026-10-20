@@ -17,6 +17,6 @@ export function disconnect(): Promise<void> {
     return invoke("disconnect");
 }
 
-export function sendMessage(message: string): Promise<void> {
-    return invoke("send_message", { message });
+export function sendChannelMessage(message: string): Promise<void> {
+    return invoke("send_channel_message", { message });
 }

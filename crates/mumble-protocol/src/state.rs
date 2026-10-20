@@ -119,6 +119,9 @@ pub struct MumbleState {
 
     connection_status: ConnectionStatus,
 
+    // Session (ID) for the current user
+    current_user_session: Option<u32>,
+
     chat_messages: Vec<TextMessage>,
 }
 
@@ -129,6 +132,11 @@ impl MumbleState {
 
     pub fn users(&self) -> Vec<User> {
         self.users.values().cloned().collect()
+    }
+
+    pub fn current_user_channel(&self) -> Option<u32> {
+        let current_user_session = self.current_user_session?;
+        self.users.get(&current_user_session).map(|user| user.channel_id)
     }
 
     pub fn chat_messages(&self) -> &Vec<TextMessage> {
@@ -145,6 +153,7 @@ impl MumbleState {
 
             // Signals the end of the initial server handshake.
             crate::ServerToClientMessage::ServerSync(m) => {
+                self.current_user_session = m.session;
                 self.connection_status = ConnectionStatus::Connected;
                 log::info!("Successfully connected to the server");
 

@@ -268,10 +268,19 @@ impl MumbleClient {
         self.state.clone()
     }
 
-    pub fn send_message(&self, message: String) -> Result<(), MumbleConnectionError> {
-        log::trace!("Sending text message: {}", message);
+    /// Sends a text message to the specified channel.
+    ///
+    /// Defaults to the current user's channel.
+    pub fn send_channel_message(&self, message: String, channel_id: Option<u32>) -> Result<(), MumbleConnectionError> {
+        let channel_id = if let Some(channel_id) = channel_id {
+            channel_id
+        } else {
+            self.state.lock().unwrap().current_user_channel().unwrap()
+        };
+        log::trace!("Sending text message: {} to channel: {:?}", message, channel_id);
         self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
             message: message,
+            channel_id: vec![channel_id],
             ..Default::default()
         }))
     }

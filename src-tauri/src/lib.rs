@@ -69,9 +69,9 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
 }
 
 #[tauri::command]
-fn send_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
+fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
     if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.send_message(message).map_err(|e| e.to_string())
+        client.send_channel_message(message, None).map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
@@ -364,7 +364,7 @@ pub fn run() {
             connect,
             get_users,
             get_chat_messages,
-            send_message,
+            send_channel_message,
             disconnect
         ])
         .run(tauri::generate_context!())
