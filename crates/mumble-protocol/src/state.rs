@@ -145,6 +145,17 @@ impl MumbleState {
         &self.chat_messages
     }
 
+    /// Records whether `session` is speaking. Only reports actual changes,
+    /// since voice packets arrive 50-100 times a second per speaker.
+    pub(crate) fn set_speaking(&mut self, session: u32, is_speaking: bool) -> Option<MumbleEvent> {
+        let user = self.users.get_mut(&session)?;
+        if user.is_speaking == is_speaking {
+            return None;
+        }
+        user.is_speaking = is_speaking;
+        Some(MumbleEvent::UsersChanged)
+    }
+
     pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<Option<MumbleEvent>, Error> {
         match message {
             crate::ServerToClientMessage::Ping(_) => {
@@ -218,11 +229,7 @@ impl MumbleState {
                 }
             }
             crate::ServerToClientMessage::UdpTunnel(crate::ServerToClientUdpMessage::Audio(m)) => {
-                if let Some(user) = self.users.get_mut(&m.sender_session) {
-                    let is_speaking = !m.is_terminator;
-                    user.is_speaking = is_speaking;
-                }
-                return Ok(Some(MumbleEvent::UsersChanged));
+                return Ok(self.set_speaking(m.sender_session, !m.is_terminator));
             }
 
             // Chat messages
@@ -256,6 +263,21 @@ mod tests {
             name: Some(name.to_string()),
             ..Default::default()
         })
+    }
+
+    /// A voice packet from `session`, as the server relays it.
+    fn voice(session: u32, is_terminator: bool) -> crate::ServerToClientMessage {
+        crate::ServerToClientMessage::UdpTunnel(crate::ServerToClientUdpMessage::Audio(crate::raw_udp::Audio {
+            sender_session: session,
+            opus_data: vec![1, 2, 3],
+            is_terminator,
+            ..Default::default()
+        }))
+    }
+
+    /// Sessions of the users currently speaking.
+    fn speaking(state: &MumbleState) -> Vec<u32> {
+        state.users().iter().filter(|u| u.is_speaking).map(|u| u.session).collect()
     }
 
     /// Each chat line as (sender session, content); server messages have no sender.
@@ -479,5 +501,124 @@ mod tests {
             }
         })).unwrap();
         assert!(!state.users.contains_key(&1));
+    }
+
+    #[test]
+    fn new_users_are_not_speaking() {
+        let mut state = MumbleState::default();
+
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        assert_eq!(speaking(&state), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn voice_marks_the_sender_as_speaking() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        let event = state.apply(voice(1, false)).unwrap();
+
+        assert_eq!(speaking(&state), [1]);
+        assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+    }
+
+    #[test]
+    fn a_terminator_marks_the_sender_as_stopped() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(voice(1, false)).unwrap();
+
+        let event = state.apply(voice(1, true)).unwrap();
+
+        assert_eq!(speaking(&state), Vec::<u32>::new());
+        assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+    }
+
+    #[test]
+    fn speaking_again_after_a_terminator() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        state.apply(voice(1, false)).unwrap();
+        state.apply(voice(1, true)).unwrap();
+        state.apply(voice(1, false)).unwrap();
+
+        assert_eq!(speaking(&state), [1]);
+    }
+
+    #[test]
+    fn only_the_sender_is_marked_as_speaking() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(user_state(2, "Bob")).unwrap();
+        state.apply(user_state(3, "Carol")).unwrap();
+
+        state.apply(voice(1, false)).unwrap();
+        state.apply(voice(3, false)).unwrap();
+        state.apply(voice(3, true)).unwrap();
+
+        assert_eq!(speaking(&state), [1]);
+    }
+
+    #[test]
+    fn user_state_updates_keep_speaking() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(voice(1, false)).unwrap();
+
+        // E.g. Alice mutes herself mid-sentence; her audio is still arriving.
+        state
+            .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
+                session: Some(1),
+                self_mute: Some(true),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        assert_eq!(speaking(&state), [1]);
+    }
+
+    #[test]
+    fn speaking_users_who_leave_are_removed() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(voice(1, false)).unwrap();
+
+        state
+            .apply(crate::ServerToClientMessage::UserRemove(crate::raw::UserRemove {
+                session: 1,
+                ..Default::default()
+            }))
+            .unwrap();
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        // A later user reusing the session starts out quiet.
+        assert_eq!(speaking(&state), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn voice_from_an_unknown_session_changes_nothing() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        let event = state.apply(voice(99, false)).unwrap();
+
+        assert_eq!(state.users().len(), 1, "voice must not create users");
+        assert_eq!(speaking(&state), Vec::<u32>::new());
+        assert!(event.is_none(), "nothing changed, so nothing to report: {event:?}");
+    }
+
+    // Voice arrives 50-100 times a second per speaker; reporting each packet
+    // would make the UI refetch users that often.
+    #[test]
+    fn continued_speech_is_reported_once() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        let events: Vec<_> = (0..5).map(|_| state.apply(voice(1, false)).unwrap()).collect();
+
+        assert!(matches!(events[0], Some(MumbleEvent::UsersChanged)), "{events:?}");
+        assert!(events[1..].iter().all(Option::is_none), "{events:?}");
     }
 }

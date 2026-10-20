@@ -45,9 +45,13 @@ async function connect(user: ReturnType<typeof userEvent.setup>) {
     await screen.findByRole("button", { name: "Disconnect" });
 }
 
+function renderApp() {
+    return render(<App settings={{}} onSaveSettings={async () => {}} />);
+}
+
 describe("App", () => {
     it("shows the login page initially", () => {
-        render(<App />);
+        renderApp();
         expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
         expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
     });
@@ -55,15 +59,15 @@ describe("App", () => {
     it("connects with the login settings and switches to the main page", async () => {
         const user = userEvent.setup();
         fakeBackend();
-        render(<App />);
+        renderApp();
 
         await connect(user);
 
         expect(mockInvoke).toHaveBeenCalledWith("connect", {
-            server: "warmitup.chat",
+            server: "localhost",
             port: 64738,
             password: "",
-            name: "besto_testo",
+            name: "testo",
             channel: expect.any(Channel),
         });
         expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
@@ -72,7 +76,7 @@ describe("App", () => {
     it("stays on the login page and shows the error when connecting fails", async () => {
         const user = userEvent.setup();
         mockInvoke.mockRejectedValue("connection refused");
-        render(<App />);
+        renderApp();
 
         await user.click(screen.getByRole("button", { name: "Connect" }));
 
@@ -85,7 +89,7 @@ describe("App", () => {
     it("logs messages from the connection, flagging ones that fail the schema", async () => {
         const user = userEvent.setup();
         fakeBackend();
-        render(<App />);
+        renderApp();
         await connect(user);
 
         const channel = connectChannel();
@@ -107,7 +111,7 @@ describe("App", () => {
             get_users: users,
             get_chat_messages: [{ type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31Z", content: "Welcome to the server!" }],
         });
-        render(<App />);
+        renderApp();
 
         await connect(user);
 
@@ -118,7 +122,7 @@ describe("App", () => {
     it("returns to the login page after disconnecting", async () => {
         const user = userEvent.setup();
         fakeBackend();
-        render(<App />);
+        renderApp();
         await connect(user);
 
         await user.click(screen.getByRole("button", { name: "Disconnect" }));

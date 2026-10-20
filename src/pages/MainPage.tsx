@@ -1,4 +1,4 @@
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
@@ -87,7 +87,8 @@ export function MainPage(props: MainPageProps) {
                             if (message.type === "ServerTextMessage") {
                                 return (
                                     <li key={index}>
-                                        [{new Date(message.timestamp).toLocaleTimeString()}] <span dangerouslySetInnerHTML={{ __html: message.content }}></span>
+                                        <span className="date">[{new Date(message.timestamp).toLocaleTimeString()}]</span>
+                                        <span className="content" dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                     </li>
                                 );
                             }
@@ -95,7 +96,9 @@ export function MainPage(props: MainPageProps) {
                             const user = users.find(u => u.session === message.user_session);
                             return (
                                 <li key={index}>
-                                    [{new Date(message.timestamp).toLocaleTimeString()}] {user ? user.name : "Unknown"}: <span dangerouslySetInnerHTML={{ __html: message.content }}></span>
+                                    <span className="date">[{new Date(message.timestamp).toLocaleTimeString()}]</span>
+                                    <span className="user">{user ? user.name : "Unknown"}:</span>
+                                    <span className="content" dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                 </li>
                             );
                         })}
