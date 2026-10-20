@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getServerStats } from "../invoke";
+import type { ServerStats } from "../invoke";
 
 export interface OnConnectParams {
     server: string;
@@ -34,6 +36,17 @@ export default function LoginPage(props: LoginPageProps) {
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const refreshServerStats = async () => {
+        try {
+            const stats = await getServerStats({ server, port });
+            setServerStats(stats);
+        } catch (err) {
+            console.error("Failed to fetch server stats:", err);
+        }
+    };
+
+    const [serverStats, setServerStats] = useState<ServerStats | null>(null);
+
     return (
         <main className="container">
             {/* Form for connection */}
@@ -52,12 +65,28 @@ export default function LoginPage(props: LoginPageProps) {
                 }}>
                 <label>
                     Server
-                    <input placeholder="Server" value={server} onChange={(e) => setServer(e.target.value)} />
+                    <input
+                        placeholder="Server"
+                        value={server}
+                        onChange={(e) => setServer(e.target.value)}
+                        onBlur={refreshServerStats} />
                 </label>
                 <label>
                     Port
-                    <input placeholder="Port" value={port} onChange={(e) => setPort(Number(e.target.value))} />
+                    <input
+                        placeholder="Port"
+                        value={port}
+                        onChange={(e) => setPort(Number(e.target.value))}
+                        onBlur={refreshServerStats} />
                 </label>
+                {serverStats && (
+                    <div className="server-stats">
+                        <p>Server Version: {serverStats.server_version_v2}</p>
+                        <p>User Count: {serverStats.user_count}</p>
+                        <p>Max User Count: {serverStats.max_user_count}</p>
+                        <p>Max Bandwidth per User: {serverStats.max_bandwidth_per_user}</p>
+                    </div>
+                )}
                 <label>
                     Password
                     <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />

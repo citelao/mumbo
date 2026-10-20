@@ -21,6 +21,14 @@ struct AppState {
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
+async fn get_server_stats(server: String, port: u16) -> Result<proto::client::ServerStats, String> {
+    proto::client::get_server_stats(server, Some(port))
+        .await
+        .inspect_err(|e| log::error!("{e}"))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn connect(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -601,6 +609,7 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            get_server_stats,
             connect,
             get_users,
             get_chat_messages,

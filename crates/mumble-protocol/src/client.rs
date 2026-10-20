@@ -1,6 +1,8 @@
 use std::io;
+use prost::Message;
+use serde::Serialize;
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc};
+use tokio::{net::unix::SocketAddr, sync::{broadcast, mpsc}};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
 use tokio::io::{AsyncRead, AsyncWrite};
 use std::sync::{Arc, Mutex};
@@ -8,7 +10,7 @@ use futures_util::{Sink, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt}
 
 mod accept_any_cert;
 
-use crate::{ServerToClientMessage, ServerToClientUdpMessage, state::{ConnectionStatus, MumbleState}};
+use crate::{ServerToClientMessage, ServerToClientUdpMessage, UdpMessageId, state::{ConnectionStatus, MumbleState}};
 
 #[derive(Clone)]
 pub struct MumbleClient {
@@ -48,6 +50,12 @@ pub enum MumbleConnectionError {
 
     #[error("Disconnected from server")]
     Disconnected,
+
+    #[error("Prost decode error: {0}")]
+    ProstDecodeError(#[from] prost::DecodeError),
+
+    #[error("Prost encode error: {0}")]
+    ProstEncodeError(#[from] prost::EncodeError),
 }
 
 pub struct ConnectionOptions {
@@ -62,6 +70,46 @@ pub struct ConnectionOptions {
 
     // Username to use
     pub username: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerStats {
+    pub server_version_v2: u64,
+    pub user_count: u32,
+    pub max_user_count: u32,
+    pub max_bandwidth_per_user: u32,
+}
+
+pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<ServerStats, MumbleConnectionError> {
+    let port = port.unwrap_or(64738);
+    let addr = tokio::net::lookup_host((server.as_str(), port))
+        .await?
+        .next()
+        .ok_or(MumbleConnectionError::IoError(io::Error::new(io::ErrorKind::Other, "No address found")))?;
+    let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+
+    log::info!("Pinging server {} on port {}", server, port);
+    let socket = tokio::net::UdpSocket::bind(bind).await?;
+    let ping_message = crate::raw_udp::Ping {
+        request_extended_information: true,
+        ..Default::default()
+    };
+    let mut ping_buf = Vec::new();
+    ping_buf.push(crate::raw_udp::Ping::TYPE_ID);
+    ping_message.encode(&mut ping_buf)?;
+    socket.send_to(&ping_buf, (server.clone(), port)).await?;
+
+    let mut buf = vec![0u8; 1024]; // TODO: size of the expected buffer.
+    let (len, _amt_read_from) = socket.recv_from(&mut buf).await?;
+
+    // Should be a ping message in response
+    let response = crate::raw_udp::Ping::decode(&buf[1..len])?;
+    Ok(ServerStats {
+        server_version_v2: response.server_version_v2,
+        user_count: response.user_count,
+        max_user_count: response.max_user_count,
+        max_bandwidth_per_user: response.max_bandwidth_per_user,
+    })
 }
 
 pub async fn connect(options: ConnectionOptions) -> Result<Connection, MumbleConnectionError> {

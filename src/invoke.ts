@@ -1,5 +1,26 @@
+
+
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { ServerToClientMessage } from "./protocol";
+import z from "zod";
+
+export interface GetServerStatsParams {
+    server: string;
+    port: number;
+}
+
+const ServerStatsSchema = z.object({
+    server_version_v2: z.number(),
+    user_count: z.number(),
+    max_user_count: z.number(),
+    max_bandwidth_per_user: z.number(),
+});
+export type ServerStats = z.infer<typeof ServerStatsSchema>;
+
+export async function getServerStats(params: GetServerStatsParams): Promise<ServerStats> {
+    const raw = await invoke("get_server_stats", { ...params });
+    return ServerStatsSchema.parse(raw);
+}
 
 export interface ConnectParams {
     name: string;
