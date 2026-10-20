@@ -18,7 +18,15 @@ struct AppState {
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), String> {
+async fn connect(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    server: String,
+    port: u16,
+    password: String,
+    name: String,
+    channel: Channel<proto::ServerToClientMessage>,
+) -> Result<(), String> {
     connect_internal(app, state, server, port, password, name, channel)
         .await
         .inspect_err(|e| log::error!("{e}"))
@@ -66,26 +74,41 @@ async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward:
     loop {
         match debug.recv().await {
             Ok(message) => forward(message),
-            Err(broadcast::error::RecvError::Lagged(skipped)) => log::warn!("Debug stream skipped {skipped} messages"),
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                log::warn!("Debug stream skipped {skipped} messages")
+            }
             Err(broadcast::error::RecvError::Closed) => break,
         }
     }
 }
 
-async fn connect_internal(app: tauri::AppHandle, state: tauri::State<'_, AppState>, server: String, port: u16, password: String, name: String, channel: Channel<proto::ServerToClientMessage>) -> Result<(), Error> {
+async fn connect_internal(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    server: String,
+    port: u16,
+    password: String,
+    name: String,
+    channel: Channel<proto::ServerToClientMessage>,
+) -> Result<(), Error> {
     if let Some(previous) = state.client.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
         previous.disconnect();
     }
 
-    let Connection { client, debug, mut audio, mut events } = proto::client::connect(ConnectionOptions {
+    let Connection {
+        client,
+        debug,
+        mut audio,
+        mut events,
+    } = proto::client::connect(ConnectionOptions {
         server,
         port: Some(port),
         password: Some(password),
         username: Some(name),
     })
-        .await
-        .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
+    .await
+    .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
 
     // Send debug events to the channel.
     tauri::async_runtime::spawn(forward_debug(debug, move |message| {
@@ -115,14 +138,20 @@ async fn connect_internal(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 
     // TODO: allow user to select output device and configure sample rate.
     let host = cpal::default_host();
-    let device = host.default_output_device().ok_or_else(|| Error::other("No audio output device"))?;
+    let device = host
+        .default_output_device()
+        .ok_or_else(|| Error::other("No audio output device"))?;
     let preferred = device
-        .supported_output_configs().map_err(Error::other)?
+        .supported_output_configs()
+        .map_err(Error::other)?
         .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
         .find_map(|c| c.try_with_sample_rate(OUTPUT_SAMPLE_RATE));
     let config = match preferred {
         Some(supported) => supported.config(),
-        None => device.default_output_config().map_err(Error::other)?.config(),
+        None => device
+            .default_output_config()
+            .map_err(Error::other)?
+            .config(),
     };
 
     let channels = config.channels as usize;
@@ -242,16 +271,34 @@ impl Speaker {
             ..Default::default()
         })
         .map_err(Error::other)?;
-        let decoder = opus::Decoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono).map_err(Error::other)?;
+        let decoder =
+            opus::Decoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono).map_err(Error::other)?;
         neteq.register_decoder(OPUS_PAYLOAD_TYPE, Box::new(OpusDecoder(decoder)));
-        Ok(Self { neteq, next_sequence: 0, next_timestamp: 0 })
+        Ok(Self {
+            neteq,
+            next_sequence: 0,
+            next_timestamp: 0,
+        })
     }
 
     fn insert_packet(&mut self, session: u32, opus_data: &[u8]) -> Result<(), Error> {
-        let samples = opus::packet::get_nb_samples(opus_data, OUTPUT_SAMPLE_RATE).map_err(Error::other)?;
-        let header = neteq::RtpHeader::new(self.next_sequence, self.next_timestamp, session, OPUS_PAYLOAD_TYPE, false);
+        let samples =
+            opus::packet::get_nb_samples(opus_data, OUTPUT_SAMPLE_RATE).map_err(Error::other)?;
+        let header = neteq::RtpHeader::new(
+            self.next_sequence,
+            self.next_timestamp,
+            session,
+            OPUS_PAYLOAD_TYPE,
+            false,
+        );
         let duration_ms = (samples * 1000 / OUTPUT_SAMPLE_RATE as usize) as u32;
-        let packet = neteq::AudioPacket::new(header, opus_data.to_vec(), OUTPUT_SAMPLE_RATE, 1, duration_ms);
+        let packet = neteq::AudioPacket::new(
+            header,
+            opus_data.to_vec(),
+            OUTPUT_SAMPLE_RATE,
+            1,
+            duration_ms,
+        );
         self.neteq.insert_packet(packet).map_err(Error::other)?;
         self.next_sequence = self.next_sequence.wrapping_add(1);
         self.next_timestamp = self.next_timestamp.wrapping_add(samples as u32);
@@ -293,13 +340,16 @@ fn soft_clip(sample: f32) -> f32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::new().build())
         .manage(AppState::default())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_log::Builder::new()
-            .level(log::LevelFilter::Info)
-            .level_for("mumbo_lib", log::LevelFilter::Trace)
-            .with_colors(ColoredLevelConfig::default())
-            .build())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .level_for("mumbo_lib", log::LevelFilter::Trace)
+                .with_colors(ColoredLevelConfig::default())
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             connect,
             get_users,
@@ -317,8 +367,12 @@ mod tests {
     /// Opus-encodes `packets` × 20 ms of a sine tone, as a sender would.
     fn tone_packets(frequency: f32, amplitude: f32, packets: usize) -> Vec<Vec<u8>> {
         const PACKET_SAMPLES: usize = 960;
-        let mut encoder =
-            opus::Encoder::new(OUTPUT_SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip).unwrap();
+        let mut encoder = opus::Encoder::new(
+            OUTPUT_SAMPLE_RATE,
+            opus::Channels::Mono,
+            opus::Application::Voip,
+        )
+        .unwrap();
         (0..packets)
             .map(|packet| {
                 let pcm: Vec<f32> = (0..PACKET_SAMPLES)
@@ -335,17 +389,26 @@ mod tests {
     }
 
     fn energy(frame: &[i16]) -> f32 {
-        frame.iter().map(|&s| (s as f32 / i16::MAX as f32).powi(2)).sum()
+        frame
+            .iter()
+            .map(|&s| (s as f32 / i16::MAX as f32).powi(2))
+            .sum()
     }
 
     #[test]
     fn speaker_audio_comes_out_of_the_mix() {
         let mut speakers = HashMap::from([(7, Speaker::new().unwrap())]);
         for packet in tone_packets(440.0, 0.5, 25) {
-            speakers.get_mut(&7).unwrap().insert_packet(7, &packet).unwrap();
+            speakers
+                .get_mut(&7)
+                .unwrap()
+                .insert_packet(7, &packet)
+                .unwrap();
         }
 
-        let total: f32 = (0..50).map(|_| energy(&mix_frame(&mut speakers).unwrap())).sum();
+        let total: f32 = (0..50)
+            .map(|_| energy(&mix_frame(&mut speakers).unwrap()))
+            .sum();
 
         // A 0.5-amplitude tone has mean power 0.125 per sample; 500 ms of it is
         // ~3000. Require a healthy fraction to allow for NetEq's startup delay.
@@ -354,22 +417,35 @@ mod tests {
 
     /// Amplitude of the `frequency` component of `samples` (a single DFT bin).
     fn tone_strength(samples: &[f32], frequency: f32) -> f32 {
-        let (re, im) = samples.iter().enumerate().fold((0.0, 0.0), |(re, im), (n, &x)| {
-            let phase = std::f32::consts::TAU * frequency * n as f32 / OUTPUT_SAMPLE_RATE as f32;
-            (re + x * phase.cos(), im - x * phase.sin())
-        });
+        let (re, im) = samples
+            .iter()
+            .enumerate()
+            .fold((0.0, 0.0), |(re, im), (n, &x)| {
+                let phase =
+                    std::f32::consts::TAU * frequency * n as f32 / OUTPUT_SAMPLE_RATE as f32;
+                (re + x * phase.cos(), im - x * phase.sin())
+            });
         2.0 * (re * re + im * im).sqrt() / samples.len() as f32
     }
 
     #[test]
     fn two_speakers_are_heard_together() {
-        let mut speakers = HashMap::from([(1, Speaker::new().unwrap()), (2, Speaker::new().unwrap())]);
+        let mut speakers =
+            HashMap::from([(1, Speaker::new().unwrap()), (2, Speaker::new().unwrap())]);
         // Quiet enough that the sum stays below soft_clip's threshold.
         let alice = tone_packets(440.0, 0.25, 25);
         let bob = tone_packets(1000.0, 0.25, 25);
         for (alice_packet, bob_packet) in alice.iter().zip(&bob) {
-            speakers.get_mut(&1).unwrap().insert_packet(1, alice_packet).unwrap();
-            speakers.get_mut(&2).unwrap().insert_packet(2, bob_packet).unwrap();
+            speakers
+                .get_mut(&1)
+                .unwrap()
+                .insert_packet(1, alice_packet)
+                .unwrap();
+            speakers
+                .get_mut(&2)
+                .unwrap()
+                .insert_packet(2, bob_packet)
+                .unwrap();
         }
 
         let mixed: Vec<f32> = (0..50)
@@ -377,7 +453,8 @@ mod tests {
             .map(|s| s as f32 / i16::MAX as f32)
             .collect();
 
-        let (alice_level, bob_level) = (tone_strength(&mixed, 440.0), tone_strength(&mixed, 1000.0));
+        let (alice_level, bob_level) =
+            (tone_strength(&mixed, 440.0), tone_strength(&mixed, 1000.0));
         assert!(alice_level > 0.1, "440 Hz missing from mix: {alice_level}");
         assert!(bob_level > 0.1, "1000 Hz missing from mix: {bob_level}");
         // An unrelated frequency stays near zero, so the levels above are the tones, not noise.
@@ -400,7 +477,10 @@ mod tests {
             assert!(clipped <= 1.0, "soft_clip({sample}) = {clipped}");
             assert_eq!(soft_clip(-sample), -clipped);
         }
-        assert!(soft_clip(1.0) < 1.0, "a moderate overlap should keep some headroom");
+        assert!(
+            soft_clip(1.0) < 1.0,
+            "a moderate overlap should keep some headroom"
+        );
     }
 
     #[test]
@@ -409,8 +489,18 @@ mod tests {
         let samples: Vec<f32> = (0..=400).map(|i| i as f32 / 100.0).collect();
         for pair in samples.windows(2) {
             let (a, b) = (soft_clip(pair[0]), soft_clip(pair[1]));
-            assert!(b >= a, "soft_clip decreased between {} and {}", pair[0], pair[1]);
-            assert!(b - a <= 0.01 + f32::EPSILON, "soft_clip jumped between {} and {}", pair[0], pair[1]);
+            assert!(
+                b >= a,
+                "soft_clip decreased between {} and {}",
+                pair[0],
+                pair[1]
+            );
+            assert!(
+                b - a <= 0.01 + f32::EPSILON,
+                "soft_clip jumped between {} and {}",
+                pair[0],
+                pair[1]
+            );
         }
     }
 
