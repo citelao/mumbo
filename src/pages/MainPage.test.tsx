@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { MainPage } from "./MainPage";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
 import users from "../../crates/mumble-protocol/fixtures/users.json";
@@ -11,6 +12,7 @@ import users from "../../crates/mumble-protocol/fixtures/users.json";
 // There's no Tauri runtime under vitest.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
 const mockListen = vi.mocked(listen);
 
@@ -131,5 +133,30 @@ describe("MainPage", () => {
         await user.click(screen.getByRole("button", { name: "Disconnect" }));
 
         expect(onDisconnect).toHaveBeenCalledOnce();
+    });
+
+    it("opens chat links in the system browser instead of navigating", async () => {
+        backend.chat = [chat('<a href="https://example.com/x">link</a>')];
+        renderMainPage();
+        const link = await screen.findByRole("link", { name: "link" });
+        expect(link.getAttribute("target")).toBe("_blank");
+        expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+
+        const notPrevented = fireEvent.click(link);
+
+        expect(notPrevented).toBe(false);
+        expect(openUrl).toHaveBeenCalledWith("https://example.com/x");
+    });
+
+    it("never opens non-web chat links", async () => {
+        backend.chat = [chat('<a href="javascript:alert(1)">link</a>')];
+        renderMainPage();
+        const link = await screen.findByText("link");
+        // DOMPurify drops disallowed schemes, leaving an inert anchor.
+        expect(link.getAttribute("href")).toBeNull();
+
+        fireEvent.click(link);
+
+        expect(openUrl).not.toHaveBeenCalled();
     });
 });

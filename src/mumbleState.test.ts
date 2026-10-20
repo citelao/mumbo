@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { User } from "./mumbleState";

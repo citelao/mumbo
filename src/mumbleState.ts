@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
-import sanitizeHtml from 'sanitize-html';
+import DOMPurify from "dompurify";
 
 // Mirrors `mumble_protocol::state::User` as serialized by serde. Strict, so
 // fields added or renamed on the Rust side fail parsing instead of passing
@@ -46,11 +46,21 @@ export const TextMessage = z.discriminatedUnion("type", [
 
 export type TextMessage = z.infer<typeof TextMessage>;
 
+// Chat links are opened by MainPage's click handler; `target`/`rel` are a
+// safety net in case a click ever slips past it. The hook is global to
+// DOMPurify, so it must be registered once, at module load.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node instanceof HTMLAnchorElement) {
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer");
+  }
+});
+
 export async function fetchChatMessages(): Promise<TextMessage[]> {
   const textMessages = z.array(TextMessage).parse(await invoke<unknown>("get_chat_messages"));
   const sanitizedTextMessages = textMessages.map(msg => ({
     ...msg,
-    content: sanitizeHtml(msg.content),
+    content: DOMPurify.sanitize(msg.content),
   }));
   return sanitizedTextMessages;
 }

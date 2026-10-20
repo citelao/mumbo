@@ -1,5 +1,6 @@
 import { use, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import "./MainPage.scss";
@@ -10,6 +11,17 @@ export interface MainPageProps {
 
     onDisconnect: () => void;
     onSendMessage: (message: string) => void;
+}
+
+// Chat content is server-supplied HTML. Without this, clicking a link would
+// navigate the whole webview away from the app instead of opening a browser.
+function openChatLink(e: React.MouseEvent) {
+    const href = (e.target as HTMLElement).closest("a")?.getAttribute("href");
+    if (href === undefined || href === null) return;
+    e.preventDefault();
+    if (/^(https?:\/\/|mailto:)/i.test(href)) {
+        void openUrl(href);
+    }
 }
 
 export function MainPage(props: MainPageProps) {
@@ -70,7 +82,7 @@ export function MainPage(props: MainPageProps) {
                 <section className="chat">
                     Chat
 
-                    <ol>
+                    <ol onClick={openChatLink} onAuxClick={openChatLink}>
                         {chatMessages.map((message, index) => {
                             if (message.type === "ServerTextMessage") {
                                 return (
