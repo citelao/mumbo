@@ -2423,6 +2423,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sonora",
+ "sonora-agc2",
+ "sonora-simd",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",

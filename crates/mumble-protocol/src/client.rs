@@ -292,7 +292,9 @@ impl MumbleClient {
         self.state.clone()
     }
 
-    pub fn send_audio(&self, audio: &[u8], frame_counter: u64) -> Result<(), MumbleConnectionError> {
+    /// Sends one Opus packet. Set `is_terminator` on the last packet of a
+    /// burst so listeners know the speaker stopped rather than lost packets.
+    pub fn send_audio(&self, audio: &[u8], frame_counter: u64, is_terminator: bool) -> Result<(), MumbleConnectionError> {
         let packet = crate::ClientToServerMessage::UdpTunnel(
             crate::ClientToServerUdpMessage::Audio(
             crate::raw_udp::Audio {
@@ -304,6 +306,7 @@ impl MumbleClient {
                 // Server loop-back
                 // header: Some(crate::raw_udp::audio::Header::Target(31)),
                 frame_number: frame_counter,
+                is_terminator,
 
                 ..Default::default()
             }));
@@ -372,6 +375,19 @@ mod tests {
             let frame = self.receive().await.expect("client hung up");
             assert_eq!(frame.type_id, M::TYPE_ID, "unexpected message type");
             M::decode(frame.payload).unwrap()
+        }
+
+        /// The next voice packet the client sent, skipping pings.
+        async fn receive_audio(&mut self) -> raw_udp::Audio {
+            loop {
+                let frame = self.receive().await.expect("client hung up");
+                if frame.type_id == raw::Ping::TYPE_ID {
+                    continue;
+                }
+                assert_eq!(frame.type_id, raw::UdpTunnel::TYPE_ID, "unexpected message type");
+                assert_eq!(frame.payload[0], raw_udp::Audio::TYPE_ID, "not a voice packet");
+                return raw_udp::Audio::decode(&frame.payload[1..]).unwrap();
+            }
         }
 
         /// Reads the client's opening Version and Authenticate, and answers with Version.
@@ -490,6 +506,19 @@ mod tests {
 
         assert_eq!((audio.sender_session, audio.opus_data), (1, vec![1, 2, 3]));
         assert_eq!(user_names(&connection.client), ["Alice", "me"]);
+    }
+
+    #[tokio::test]
+    async fn only_the_last_packet_of_a_burst_is_a_terminator() {
+        let (connection, mut server) = connected().await;
+
+        connection.client.send_audio(&[1], 7, false).unwrap();
+        connection.client.send_audio(&[2], 8, true).unwrap();
+        let first = server.receive_audio().await;
+        let last = server.receive_audio().await;
+
+        assert_eq!((first.opus_data, first.frame_number, first.is_terminator), (vec![1], 7, false));
+        assert_eq!((last.opus_data, last.frame_number, last.is_terminator), (vec![2], 8, true));
     }
 
     #[tokio::test]

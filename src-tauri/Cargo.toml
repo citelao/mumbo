@@ -38,6 +38,9 @@ neteq = { version = "0.9.1", default-features = false }
 tauri-plugin-store = "2"
 rubato = "5.0.1"
 sonora = "0.2.0"
+# sonora's internal voice detector, which sonora itself doesn't expose.
+sonora-agc2 = "0.2.0"
+sonora-simd = "0.2.0"
 
 
 [dev-dependencies]

@@ -260,6 +260,8 @@ async fn connect_internal(
             let mut mic_48k = Vec::new();
             let mut output = vec![0u8; 4000];
             let mut frame_counter: u64 = 0;
+            let mut speech_detector = SpeechDetector::new();
+            let mut voice_gate = VoiceGate::default();
 
             loop {
                 tokio::select! {
@@ -301,12 +303,23 @@ async fn connect_internal(
                             let mut processed = vec![0.0f32; MIC_FRAME_SAMPLES];
                             apm.process_capture_f32(&[&mic_48k[..MIC_FRAME_SAMPLES]], &mut [&mut processed]).map_err(Error::other)?;
 
-                            let len = encoder
-                                .encode_float(&processed, &mut output)
-                                .map_err(Error::other)?;
                             mic_48k.drain(..MIC_FRAME_SAMPLES);
-                            cloned_client.send_audio(&output[..len], frame_counter).map_err(Error::other)?;
-                            // Opus expects 10ms chunks, we send 10ms.
+
+                            let transmit = voice_gate.update(speech_detector.is_speech(&processed));
+                            if transmit == Transmit::Start {
+                                // Start each burst fresh rather than from the end of the
+                                // previous one, which may have been minutes ago.
+                                encoder.reset_state().map_err(Error::other)?;
+                            }
+                            if transmit != Transmit::Skip {
+                                let len = encoder
+                                    .encode_float(&processed, &mut output)
+                                    .map_err(Error::other)?;
+                                let is_terminator = transmit == Transmit::End;
+                                cloned_client.send_audio(&output[..len], frame_counter, is_terminator).map_err(Error::other)?;
+                            }
+                            // Opus expects 10ms chunks, we send 10ms. Counts unsent frames
+                            // too, so the frame number keeps tracking time across silence.
                             frame_counter += 1;
                         }
                     }
@@ -420,6 +433,73 @@ impl MicResampler {
         }
         pending.drain(..consumed);
         Ok(())
+    }
+}
+
+/// How long to keep sending after speech stops, so pauses between words and
+/// quiet word endings aren't cut off: 250 ms of 10 ms mic frames.
+const VOICE_HOLD_FRAMES: usize = 25;
+
+/// Detects speech in 10 ms mic frames, using the neural voice detector sonora
+/// runs internally for its gain control.
+struct SpeechDetector(sonora_agc2::vad_wrapper::VoiceActivityDetectorWrapper);
+
+impl SpeechDetector {
+    fn new() -> Self {
+        Self(sonora_agc2::vad_wrapper::VoiceActivityDetectorWrapper::new(
+            sonora_simd::detect_backend(),
+            OUTPUT_SAMPLE_RATE as i32,
+        ))
+    }
+
+    fn is_speech(&mut self, frame: &[f32]) -> bool {
+        // Like WebRTC, sonora's internals scale floats like i16 samples, not to
+        // [-1, 1]; unscaled audio reads as silence.
+        let scaled: [f32; MIC_FRAME_SAMPLES] = std::array::from_fn(|i| frame[i] * 32768.0);
+        self.0.analyze(&scaled) > 0.5
+    }
+}
+
+/// What to do with a mic frame.
+#[derive(Debug, PartialEq)]
+enum Transmit {
+    /// Not talking: send nothing.
+    Skip,
+    /// The first frame of a burst.
+    Start,
+    Continue,
+    /// The last frame of a burst, marked as a terminator.
+    End,
+}
+
+/// Decides which mic frames to send: speech, plus a short hold after it.
+#[derive(Default)]
+struct VoiceGate {
+    /// Frames since speech was last heard, while a burst is in progress.
+    frames_since_speech: Option<usize>,
+}
+
+impl VoiceGate {
+    fn update(&mut self, is_speech: bool) -> Transmit {
+        match (self.frames_since_speech, is_speech) {
+            (None, false) => Transmit::Skip,
+            (None, true) => {
+                self.frames_since_speech = Some(0);
+                Transmit::Start
+            }
+            (Some(_), true) => {
+                self.frames_since_speech = Some(0);
+                Transmit::Continue
+            }
+            (Some(frames), false) if frames + 1 >= VOICE_HOLD_FRAMES => {
+                self.frames_since_speech = None;
+                Transmit::End
+            }
+            (Some(frames), false) => {
+                self.frames_since_speech = Some(frames + 1);
+                Transmit::Continue
+            }
+        }
     }
 }
 
@@ -733,5 +813,74 @@ mod tests {
         let frame = mix_frame(&mut speakers).unwrap();
 
         assert_eq!(frame, [0; MIX_FRAME_SAMPLES]);
+    }
+
+    /// 10 ms frames of a speech-like sound: a 140 Hz voice with harmonics,
+    /// pulsing at a syllable-ish 4 Hz.
+    fn voiced_frames(frames: usize) -> Vec<Vec<f32>> {
+        (0..frames)
+            .map(|frame| {
+                (0..MIC_FRAME_SAMPLES)
+                    .map(|i| {
+                        let t = (frame * MIC_FRAME_SAMPLES + i) as f32 / OUTPUT_SAMPLE_RATE as f32;
+                        let envelope = 0.5 + 0.5 * (t * 4.0 * std::f32::consts::TAU).sin();
+                        let voice: f32 = (1..25)
+                            .map(|k| (t * 140.0 * k as f32 * std::f32::consts::TAU).sin() / k as f32)
+                            .sum();
+                        0.15 * envelope * voice
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn speech_detector_hears_a_voice() {
+        let mut detector = SpeechDetector::new();
+
+        let speech = voiced_frames(10).iter().filter(|frame| detector.is_speech(frame)).count();
+
+        // The detector needs a frame or two to react.
+        assert!(speech >= 8, "only {speech} of 10 voiced frames were speech");
+    }
+
+    #[test]
+    fn speech_detector_ignores_silence() {
+        let mut detector = SpeechDetector::new();
+
+        let speech = (0..10).filter(|_| detector.is_speech(&[0.0; MIC_FRAME_SAMPLES])).count();
+
+        assert_eq!(speech, 0);
+    }
+
+    #[test]
+    fn voice_gate_sends_nothing_while_silent() {
+        let mut gate = VoiceGate::default();
+
+        assert_eq!(gate.update(false), Transmit::Skip);
+        assert_eq!(gate.update(false), Transmit::Skip);
+    }
+
+    #[test]
+    fn voice_gate_bridges_pauses_shorter_than_the_hold() {
+        let mut gate = VoiceGate::default();
+
+        assert_eq!(gate.update(true), Transmit::Start);
+        for _ in 0..VOICE_HOLD_FRAMES - 1 {
+            assert_eq!(gate.update(false), Transmit::Continue);
+        }
+        assert_eq!(gate.update(true), Transmit::Continue, "the pause should not end the burst");
+    }
+
+    #[test]
+    fn voice_gate_ends_the_burst_after_the_hold() {
+        let mut gate = VoiceGate::default();
+
+        gate.update(true);
+        let after: Vec<Transmit> = (0..VOICE_HOLD_FRAMES + 1).map(|_| gate.update(false)).collect();
+
+        assert!(after[..VOICE_HOLD_FRAMES - 1].iter().all(|t| *t == Transmit::Continue), "{after:?}");
+        assert_eq!(after[VOICE_HOLD_FRAMES - 1..], [Transmit::End, Transmit::Skip]);
+        assert_eq!(gate.update(true), Transmit::Start, "new speech starts a new burst");
     }
 }
