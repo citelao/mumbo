@@ -14,6 +14,8 @@ pub struct MumbleClient {
     // TODO: Exposed via helper methods?
     state: Arc<Mutex<MumbleState>>,
     cancel: CancellationToken,
+
+    outgoing: mpsc::UnboundedSender<crate::ClientToServerMessage>,
 }
 
 pub struct Connection {
@@ -42,6 +44,9 @@ pub enum MumbleConnectionError {
 
     #[error("Unexpected server close")]
     UnexpectedServerClose,
+
+    #[error("Disconnected from server")]
+    Disconnected,
 }
 
 pub struct ConnectionOptions {
@@ -168,14 +173,17 @@ async fn connect_over(
         apply_and_publish(&state, &events_tx, message)?;
     }
 
+    let (server_tx, server_rx) = mpsc::unbounded_channel::<crate::ClientToServerMessage>();
+
     let cancellation_token = CancellationToken::new();
-    tokio::spawn(run(reader, writer, state.clone(), audio_tx, events_tx, cancellation_token.clone())
+    tokio::spawn(run(reader, writer, state.clone(), audio_tx, events_tx, server_rx, cancellation_token.clone())
         .inspect_err(|e| log::error!("connection ended: {e}")));
 
     Ok(Connection {
         client: MumbleClient {
             state,
             cancel: cancellation_token,
+            outgoing: server_tx,
         },
         events: events_rx,
         debug: debug_rx,
@@ -203,6 +211,7 @@ async fn run(
     state: Arc<Mutex<MumbleState>>,
     audio_tx: tokio::sync::mpsc::Sender<crate::raw_udp::Audio>,
     events_tx: mpsc::UnboundedSender<crate::state::MumbleEvent>,
+    mut server_rx: mpsc::UnboundedReceiver<crate::ClientToServerMessage>,
     cancellation_token: CancellationToken) -> Result<(), MumbleConnectionError> {
 
     // Mumble requires pings every 30s by default; be eager.
@@ -230,6 +239,15 @@ async fn run(
                     }
                 }
             }
+            message = server_rx.recv() => {
+                if let Some(message) = message {
+                    log::trace!("Sending message to server: {:?}", message);
+                    writer.send(message).await?;
+                } else {
+                    log::info!("Server channel closed, disconnecting");
+                    break; // Channel closed, disconnect
+                }
+            }
             _ = ping_interval.tick() => {
                 // TODO: include timestamp in Ping.
                 log::trace!("Sending ping to server");
@@ -251,7 +269,15 @@ impl MumbleClient {
     }
 
     pub fn send_message(&self, message: String) -> Result<(), MumbleConnectionError> {
-        todo!()
+        log::trace!("Sending text message: {}", message);
+        self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
+            message: message,
+            ..Default::default()
+        }))
+    }
+
+    fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {
+        self.outgoing.send(message).map_err(|_| MumbleConnectionError::Disconnected)
     }
 }
 #[cfg(test)]
