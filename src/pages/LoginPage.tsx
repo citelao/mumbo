@@ -1,4 +1,3 @@
-import { load } from '@tauri-apps/plugin-store';
 import { useState } from "react";
 
 export interface OnConnectParams {

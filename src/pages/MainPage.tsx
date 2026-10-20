@@ -1,4 +1,4 @@
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";

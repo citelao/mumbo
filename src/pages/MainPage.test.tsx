@@ -48,8 +48,14 @@ function chat(content: string, user_session: number | null = null) {
     return { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:31Z", user_session, content };
 }
 
+/** Matches a whole chat line, whose message content is rendered in its own element. */
+function chatLine(pattern: RegExp) {
+    return (_: string, element: Element | null) =>
+        element?.tagName === "LI" && pattern.test(element.textContent ?? "");
+}
+
 function renderMainPage(onDisconnect = () => {}) {
-    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onDisconnect={onDisconnect} />);
+    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onDisconnect={onDisconnect} />);
 }
 
 describe("MainPage", () => {
@@ -110,8 +116,8 @@ describe("MainPage", () => {
 
         renderMainPage();
 
-        expect(await screen.findByText(/Alice: hello$/)).toBeTruthy();
-        expect(screen.getByText(/Unknown: anyone\?$/)).toBeTruthy();
+        expect(await screen.findByText(chatLine(/Alice: hello$/))).toBeTruthy();
+        expect(screen.getByText(chatLine(/Unknown: anyone\?$/))).toBeTruthy();
     });
 
     it("stops listening when it goes away", async () => {
