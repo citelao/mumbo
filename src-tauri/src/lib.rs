@@ -198,6 +198,10 @@ async fn connect_internal(
         .render_config(StreamConfig::new(input_rate, input_channels))
         .build();
 
+    // A best-guess for the network-induced delay.
+    // TODO: measure actual network delay and update this value accordingly.
+    apm.set_stream_delay_ms(50).map_err(Error::other)?;
+
     log::info!("Audio output: {:?}, {config:?}", device.description().map_err(Error::other)?);
     log::info!("Audio input: {:?}, {input_config:?}", input_device.description().map_err(Error::other)?);
     log::info!("Audio processing config: {apm_config:?}");
@@ -283,7 +287,9 @@ async fn connect_internal(
                         // clock instead of drifting against this timer.
                         while output_producer.occupied_len() < MIX_TARGET_SAMPLES {
                             let frame = mix_frame(&mut speakers)?;
-                            output_producer.push_slice(&frame);
+                            let mut processed_frame = vec![0i16; frame.len()];
+                            apm.process_render_i16(&frame, &mut processed_frame).map_err(Error::other)?;
+                            output_producer.push_slice(&processed_frame);
                         }
 
                         // Send complete mic frames, resampled to 48 kHz first.
@@ -296,7 +302,7 @@ async fn connect_internal(
                             apm.process_capture_f32(&[&mic_48k[..MIC_FRAME_SAMPLES]], &mut [&mut processed]).map_err(Error::other)?;
 
                             let len = encoder
-                                .encode_float(&mic_48k[..MIC_FRAME_SAMPLES], &mut output)
+                                .encode_float(&processed, &mut output)
                                 .map_err(Error::other)?;
                             mic_48k.drain(..MIC_FRAME_SAMPLES);
                             cloned_client.send_audio(&output[..len], frame_counter).map_err(Error::other)?;
