@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the app's Info.plist by Tauri. macOS shows this text in
+	     the microphone permission prompt, and refuses mic access without it. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>mumbo needs your microphone so others on the Mumble server can hear you.</string>
+</dict>
+</plist>
