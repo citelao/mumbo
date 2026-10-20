@@ -1,6 +1,11 @@
+#container {
+    overflow: hidden;
+}
+
 .chat {
     /* min-width: 80ch; */
     text-align: left;
+    overflow: scroll;
 
     ol {
         margin: 0;
@@ -36,6 +41,7 @@ pre {
 
 .user-list {
     text-align: left;
+    overflow: scroll;
 
     ul {
         margin: 0;
