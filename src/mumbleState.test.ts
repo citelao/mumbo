@@ -15,6 +15,11 @@ describe("User", () => {
     expect(User.safeParse(user).success).toBe(false);
   });
 
+  it("requires the speaking flag", () => {
+    const { is_speaking: _isSpeaking, ...user } = fixture[0];
+    expect(User.safeParse(user).success).toBe(false);
+  });
+
   it("rejects missing fields", () => {
     const { name: _name, ...user } = fixture[0];
     expect(User.safeParse(user).success).toBe(false);

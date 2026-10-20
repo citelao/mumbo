@@ -9,6 +9,7 @@
     "self_mute": true,
     "self_deaf": false,
     "priority_speaker": false,
-    "recording": false
+    "recording": false,
+    "is_speaking": false
   }
 ]

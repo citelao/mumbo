@@ -438,6 +438,16 @@ mod tests {
         (connection, server)
     }
 
+    /// Names of the users the client thinks are speaking.
+    fn speaking(client: &MumbleClient) -> Vec<String> {
+        client.state().lock().unwrap().users().iter().filter(|u| u.is_speaking).map(|u| u.name().to_string()).collect()
+    }
+
+    /// Discards the events reported so far, e.g. from the handshake.
+    fn drain_events(connection: &mut Connection) {
+        while connection.events.try_recv().is_ok() {}
+    }
+
     fn user_names(client: &MumbleClient) -> Vec<String> {
         client.state().lock().unwrap().users().iter().map(|u| u.name().to_string()).collect()
     }
@@ -612,6 +622,62 @@ mod tests {
         server.send(user(3, "Bob")).await;
 
         wait_until(|| user_names(&connection.client).contains(&"Bob".to_string())).await;
+    }
+
+    #[tokio::test]
+    async fn sending_voice_marks_me_as_speaking_until_the_terminator() {
+        let (connection, mut server) = connected().await;
+
+        connection.client.send_audio(&[1], 0, false).unwrap();
+        server.receive_audio().await;
+        wait_until(|| speaking(&connection.client) == ["me"]).await;
+
+        connection.client.send_audio(&[2], 1, true).unwrap();
+        server.receive_audio().await;
+        wait_until(|| speaking(&connection.client).is_empty()).await;
+    }
+
+    #[tokio::test]
+    async fn sending_voice_is_reported() {
+        let (mut connection, mut server) = connected().await;
+        drain_events(&mut connection);
+
+        connection.client.send_audio(&[1], 0, false).unwrap();
+        server.receive_audio().await;
+        let event = tokio::time::timeout(TIMEOUT, connection.events.recv()).await.unwrap();
+
+        assert!(matches!(event, Some(crate::state::MumbleEvent::UsersChanged)), "{event:?}");
+    }
+
+    #[tokio::test]
+    async fn received_voice_is_played_and_marks_the_sender_as_speaking() {
+        let (mut connection, mut server) = connected().await;
+
+        server.send_audio(raw_udp::Audio { sender_session: 1, opus_data: vec![1, 2, 3], ..Default::default() }).await;
+
+        let audio = tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().unwrap();
+        assert_eq!(audio.opus_data, [1, 2, 3]);
+        assert_eq!(speaking(&connection.client), ["Alice"]);
+    }
+
+    // See state::tests::continued_speech_is_reported_once.
+    #[tokio::test]
+    async fn my_continued_speech_is_reported_once() {
+        let (mut connection, mut server) = connected().await;
+        drain_events(&mut connection);
+
+        for frame in 0..5 {
+            connection.client.send_audio(&[1], frame, false).unwrap();
+            server.receive_audio().await;
+        }
+        // Give the client loop a moment to report anything else.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut events = Vec::new();
+        while let Ok(event) = connection.events.try_recv() {
+            events.push(event);
+        }
+        assert_eq!(events.len(), 1, "{events:?}");
     }
 
     async fn wait_until(condition: impl Fn() -> bool) {

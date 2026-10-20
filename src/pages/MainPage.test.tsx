@@ -48,6 +48,14 @@ function chat(content: string, user_session: number | null = null) {
     return { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:31Z", user_session, content };
 }
 
+const alice = users[0];
+
+/** Each line of the user list. */
+function userLines(): string[] {
+    const list = screen.getAllByRole("list")[0];
+    return [...list.querySelectorAll("li")].map((li) => li.textContent ?? "");
+}
+
 function renderMainPage(onDisconnect = () => {}) {
     return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onDisconnect={onDisconnect} />);
 }
@@ -88,6 +96,36 @@ describe("MainPage", () => {
         act(() => sessionChanged!());
         expect(await screen.findByText(/Alice \(channel 3\)/)).toBeTruthy();
         consoleError.mockRestore();
+    });
+
+    it("marks only the users who are speaking", async () => {
+        backend.users = [
+            { ...alice, is_speaking: true },
+            { ...alice, session: 8, name: "Bob", is_speaking: false },
+        ];
+
+        renderMainPage();
+
+        await screen.findByText(/Bob/);
+        expect(userLines()).toEqual([
+            expect.stringMatching(/^Alice .* speaking$/),
+            expect.not.stringMatching(/speaking/),
+        ]);
+    });
+
+    it("shows when someone starts and stops speaking", async () => {
+        backend.users = [alice];
+        renderMainPage();
+        await screen.findByText(/Alice/);
+        expect(screen.queryByText(/speaking/)).toBeNull();
+
+        backend.users = [{ ...alice, is_speaking: true }];
+        act(() => sessionChanged!());
+        expect(await screen.findByText(/Alice .* speaking/)).toBeTruthy();
+
+        backend.users = [alice];
+        act(() => sessionChanged!());
+        await vi.waitFor(() => expect(screen.queryByText(/speaking/)).toBeNull());
     });
 
     it("keeps chat messages in the order they were sent", async () => {
