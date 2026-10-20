@@ -56,8 +56,14 @@ function userLines(): string[] {
     return [...list.querySelectorAll("li")].map((li) => li.textContent ?? "");
 }
 
+/** Matches a whole chat line, whose message content is rendered in its own element. */
+function chatLine(pattern: RegExp) {
+    return (_: string, element: Element | null) =>
+        element?.tagName === "LI" && pattern.test(element.textContent ?? "");
+}
+
 function renderMainPage(onDisconnect = () => {}) {
-    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onDisconnect={onDisconnect} />);
+    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onDisconnect={onDisconnect} />);
 }
 
 describe("MainPage", () => {
@@ -108,24 +114,23 @@ describe("MainPage", () => {
 
         await screen.findByText(/Bob/);
         expect(userLines()).toEqual([
-            expect.stringMatching(/^Alice .* speaking$/),
-            expect.not.stringMatching(/speaking/),
+            expect.stringMatching(/^● Alice/),
+            expect.stringMatching(/^◯ Bob/),
         ]);
     });
 
     it("shows when someone starts and stops speaking", async () => {
         backend.users = [alice];
         renderMainPage();
-        await screen.findByText(/Alice/);
-        expect(screen.queryByText(/speaking/)).toBeNull();
+        expect(await screen.findByText(/◯ Alice/)).toBeTruthy();
 
         backend.users = [{ ...alice, is_speaking: true }];
         act(() => sessionChanged!());
-        expect(await screen.findByText(/Alice .* speaking/)).toBeTruthy();
+        expect(await screen.findByText(/● Alice/)).toBeTruthy();
 
         backend.users = [alice];
         act(() => sessionChanged!());
-        await vi.waitFor(() => expect(screen.queryByText(/speaking/)).toBeNull());
+        expect(await screen.findByText(/◯ Alice/)).toBeTruthy();
     });
 
     it("keeps chat messages in the order they were sent", async () => {
@@ -148,8 +153,8 @@ describe("MainPage", () => {
 
         renderMainPage();
 
-        expect(await screen.findByText(/Alice: hello$/)).toBeTruthy();
-        expect(screen.getByText(/Unknown: anyone\?$/)).toBeTruthy();
+        expect(await screen.findByText(chatLine(/Alice:\s*hello$/))).toBeTruthy();
+        expect(screen.getByText(chatLine(/Unknown:\s*anyone\?$/))).toBeTruthy();
     });
 
     it("stops listening when it goes away", async () => {
