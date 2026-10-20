@@ -6,6 +6,7 @@ import type { ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
+import { Settings } from "./settings";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
@@ -25,7 +26,12 @@ function toLogEntry(event: ServerToClientMessage): ProtocolLogEntry {
     return { ...base, ok: true, message: result.data };
 }
 
-function App() {
+interface AppProps {
+    settings: Settings;
+    onSaveSettings: (settings: Settings) => Promise<void>;
+}
+
+function App(props: AppProps) {
     const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
 
     const [isConnected, setIsConnected] = useState(false);
@@ -62,7 +68,13 @@ function App() {
     };
 
     if (!isConnected) {
-        return <LoginPage onConnect={onConnect} />;
+        return <LoginPage
+            name={props.settings.name}
+            server={props.settings.server}
+            port={props.settings.port}
+            password={props.settings.password}
+            onConnect={onConnect}
+            onSaveSettings={props.onSaveSettings} />;
     } else {
         return <MainPage protocolLog={protocolLog} onClearProtocolLog={() => setProtocolLog([])} onDisconnect={onDisconnect} />;
     }

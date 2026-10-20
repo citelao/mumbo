@@ -1,3 +1,4 @@
+import { load } from '@tauri-apps/plugin-store';
 import { useState } from "react";
 
 export interface OnConnectParams {
@@ -15,14 +16,21 @@ export type OnConnectResult = {
 
 
 export interface LoginPageProps {
+    // Defaults:
+    name?: string;
+    server?: string;
+    port?: number;
+    password?: string;
+
     onConnect: (params: OnConnectParams) => Promise<OnConnectResult>;
+    onSaveSettings: (settings: OnConnectParams) => Promise<void>;
 }
 
 export default function LoginPage(props: LoginPageProps) {
-    const [name, setName] = useState("besto_testo");
-    const [server, setServer] = useState("warmitup.chat");
-    const [port, setPort] = useState(64738);
-    const [password, setPassword] = useState("");
+    const [name, setName] = useState(props.name ?? "testo");
+    const [server, setServer] = useState(props.server ?? "localhost");
+    const [port, setPort] = useState(props.port ?? 64738);
+    const [password, setPassword] = useState(props.password ?? "");
 
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -39,6 +47,7 @@ export default function LoginPage(props: LoginPageProps) {
                     if (!result.succeeded) {
                         setError(result.error);
                     } else {
+                        await props.onSaveSettings({ server, port, password, name });
                         setError(null);
                     }
                 }}>
