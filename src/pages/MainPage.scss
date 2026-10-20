@@ -1,5 +1,27 @@
 .chat {
     /* min-width: 80ch; */
+    text-align: left;
+
+    ol {
+        margin: 0;
+        padding: 0;
+
+        .date {
+            color: #888;
+        }
+
+        .user {
+            font-weight: 500;
+        }
+    }
+
+    li {
+        list-style-type: none;
+
+        display: flex;
+        flex-direction: row;
+        gap: 0.2rem;
+    }
 }
 
 pre {
