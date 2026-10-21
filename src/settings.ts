@@ -13,7 +13,7 @@ const SettingsSchema = z.object({
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
-type Server = z.infer<typeof ServerSchema>;
+export type Server = z.infer<typeof ServerSchema>;
 
 // Password is not considered when determining if a server is the same as another.
 function isSameServer(a: Server, b: Server): boolean {

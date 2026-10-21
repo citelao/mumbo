@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
 import "./LoginPage.scss";
+import { Server } from "../settings";
 
 export interface OnConnectParams {
     server: string;
@@ -24,9 +25,10 @@ export interface LoginPageProps {
     port?: number;
     password?: string;
 
-    recentServers?: { name?: string; server?: string; port?: number; password?: string }[];
+    recentServers?: Server[];
 
     onConnect: (params: OnConnectParams) => Promise<OnConnectResult>;
+    onRemoveRecentServer: (params: Server) => Promise<void>;
 }
 
 export default function LoginPage(props: LoginPageProps) {
@@ -82,7 +84,6 @@ export default function LoginPage(props: LoginPageProps) {
 
     return (
         <main className="container">
-            {/* Form for connection */}
             {props.recentServers && props.recentServers.length > 0 && (
                 <div className="recent-servers">
                     <h3>Recent Servers</h3>
@@ -93,7 +94,17 @@ export default function LoginPage(props: LoginPageProps) {
                                     e.preventDefault();
                                     await connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! });
                                 }}>
-                                    {s.name} ({s.server}:{s.port})
+                                    {s.name} @ <strong>{s.server}</strong>:{s.port}
+                                </button>
+                                <button
+                                    className="remove"
+                                    onClick={async (e) => {
+                                        e.preventDefault();
+                                        await props.onRemoveRecentServer(s);
+                                    }}
+                                    aria-label={`Remove ${s.name} @ ${s.server}:${s.port} from recent servers`}
+                                    title={`Remove ${s.name} @ ${s.server}:${s.port} from recent servers`}>
+                                    &times;
                                 </button>
                             </li>
                         ))}
@@ -101,11 +112,13 @@ export default function LoginPage(props: LoginPageProps) {
                 </div>
             )}
 
+            {/* Form for connection */}
             <form className="connection-form"
                 onSubmit={async (e) => {
                     e.preventDefault();
                     await connectToServer({ name, server, port, password });
                 }}>
+                <h3>Connect to Server</h3>
                 <label htmlFor="server">
                     Server
                 </label>

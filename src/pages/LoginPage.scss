@@ -6,6 +6,41 @@
     height: 100vh;
 }
 
+.user-count.error {
+    color: red;
+}
+
+.recent-servers {
+    ul {
+        padding: 0;
+        margin: 0;
+    }
+
+    li {
+        list-style: none;
+
+        display: flex;
+        gap: 0.25rem;
+
+        & + li {
+            margin-top: 0.5rem;
+        }
+    }
+
+    button {
+        padding: 0.5rem 1rem;
+        text-align: left;
+        flex-grow: 1;
+    }
+
+    .remove {
+        width: auto;
+        padding: 0.5rem 0.8rem;
+        text-align: center;
+        flex-grow: 0;
+    }
+}
+
 form {
     display: grid;
     gap: 1rem;
@@ -14,6 +49,10 @@ form {
     grid-template-columns: auto auto;
 
     min-width: 25rem;
+
+    h3 {
+        grid-column: span 2;
+    }
 }
 
 label {
@@ -32,29 +71,6 @@ label {
     }
 }
 
-.user-count.error {
-    color: red;
-}
-
-.recent-servers {
-    ul {
-        padding: 0;
-        margin: 0;
-    }
-
-    li {
-        list-style: none;
-
-        & + li {
-            margin-top: 0.5rem;
-        }
-    }
-
-    button {
-        width: 100%;
-        padding: 0.5rem 1rem;
-    }
-}
 
 // .server-stats {
 //     grid-column: span 2;

@@ -6,7 +6,7 @@ import type { ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
-import SettingsStore, { Settings } from "./settings";
+import SettingsStore, { Server, Settings } from "./settings";
 import { connect, disconnect, sendChannelMessage, setSelfMute } from "./invoke";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
@@ -44,6 +44,11 @@ function App(props: AppProps) {
         })();
     }, [props.settings]);
 
+    const onRemoveRecentServer = async (server: Server) => {
+        await props.settings.removeRecentServer(server);
+        setSettings(await props.settings.getSettings());
+    };
+
     const onConnect = async (params: OnConnectParams): Promise<OnConnectResult> => {
         // A channel can't be reused: when the Rust side drops it (the
         // command ends), Tauri unregisters its JS callback.
@@ -70,6 +75,7 @@ function App(props: AppProps) {
 
         // If connected successfully, update the recent servers in the settings.
         await props.settings.addRecentServer({ name: params.name, server: params.server, port: params.port, password: params.password });
+        setSettings(await props.settings.getSettings());
 
         return { succeeded: true };
     };
@@ -93,7 +99,8 @@ function App(props: AppProps) {
             server={mostRecentServer?.server}
             port={mostRecentServer?.port}
             password={mostRecentServer?.password}
-            onConnect={onConnect} />;
+            onConnect={onConnect}
+            onRemoveRecentServer={onRemoveRecentServer} />;
     } else {
         return <MainPage
             protocolLog={protocolLog}
