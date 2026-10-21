@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
 import "./LoginPage.scss";
 import { Server } from "../settings";
+import { throttle, throttled, useThrottledEffect } from "../helpers/throttle";
 
 export interface OnConnectParams {
     server: string;
@@ -44,7 +45,9 @@ export default function LoginPage(props: LoginPageProps) {
         refreshServerStats();
     }, []);
 
-    const refreshServerStats = async () => {
+    // Refresh server stats, throttled to at most once every 500ms.
+    const THROTTLE_MS = 500;
+    const refreshServerStats = useCallback(throttled(async () => {
         // if (serverStats && serverStats.server === server && serverStats.port === port) {
         //     return;
         // }
@@ -58,7 +61,7 @@ export default function LoginPage(props: LoginPageProps) {
             console.error("Failed to fetch server stats:", err);
             setError("Failed to fetch server stats");
         }
-    };
+    }, THROTTLE_MS), [server, port]);
 
     const [serverStats, setServerStats] = useState<{
         stats?: ServerStats,
@@ -164,8 +167,9 @@ interface RecentServerButtonProps {
 function RecentServerButton(props: RecentServerButtonProps) {
     const { server, onRemove, onConnect } = props;
 
+    // Limit checking status to every 2s, worst-case (even though this should not refire).
     const [serverStats, setServerStats] = useState<ServerStats | null>(null);
-    useEffect(() => {
+    useThrottledEffect(() => {
         const fetchServerStats = async () => {
             try {
                 const stats = await getServerStats({ server: server.server!, port: server.port! });
@@ -176,7 +180,7 @@ function RecentServerButton(props: RecentServerButtonProps) {
         };
 
         fetchServerStats();
-    }, [server.server, server.port]);
+    }, [server.server, server.port], 2000);
 
     return (
         <li>
