@@ -209,11 +209,7 @@ async fn connect_internal(
         gain_controller2: Some(GainController2::default()),
         ..Default::default()
     };
-    let mut apm = AudioProcessing::builder()
-        .config(apm_config.clone())
-        .capture_config(StreamConfig::new(input_rate, input_channels))
-        .render_config(StreamConfig::new(input_rate, input_channels))
-        .build();
+    let mut apm = audio_processing(apm_config.clone());
 
     // A best-guess for the network-induced delay.
     // TODO: measure actual network delay and update this value accordingly.
@@ -354,6 +350,20 @@ async fn connect_internal(
 
     log::info!("Connected to server");
     Ok(())
+}
+
+/// Builds the echo canceller/noise suppressor. Both streams are declared as
+/// 48 kHz mono, whatever the devices run at: the mic is resampled and downmixed
+/// before capture processing, and the mix is mono 48 kHz before render
+/// processing. Declaring the device's format instead makes sonora read frames
+/// of the wrong size.
+fn audio_processing(config: Config) -> AudioProcessing {
+    let stream = StreamConfig::new(OUTPUT_SAMPLE_RATE, 1);
+    AudioProcessing::builder()
+        .config(config)
+        .capture_config(stream)
+        .render_config(stream)
+        .build()
 }
 
 const OUTPUT_SAMPLE_RATE: u32 = 48_000;
@@ -633,6 +643,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mic at 44.1 kHz stereo is resampled/downmixed to 48 kHz mono before
+    /// the APM sees it, so the APM must accept 10 ms 48 kHz mono frames.
+    #[test]
+    fn audio_processing_accepts_48k_mono_frames() {
+        let mut apm = audio_processing(Config::default());
+        let mut capture_out = vec![0.0f32; MIC_FRAME_SAMPLES];
+        apm.process_capture_f32(&[&[0.1f32; MIC_FRAME_SAMPLES]], &mut [&mut capture_out]).unwrap();
+        let mut render_out = [0i16; MIX_FRAME_SAMPLES];
+        apm.process_render_i16(&[1000i16; MIX_FRAME_SAMPLES], &mut render_out).unwrap();
+    }
 
     /// Opus-encodes `packets` × 20 ms of a sine tone, as a sender would.
     fn tone_packets(frequency: f32, amplitude: f32, packets: usize) -> Vec<Vec<u8>> {
