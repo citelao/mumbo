@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { getServerStats } from "../invoke";
-import type { ServerStats } from "../invoke";
+import { getAudioInputDevices, getServerStats } from "../invoke";
+import type { AudioDevice, ServerStats } from "../invoke";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
 import { throttled, useThrottledEffect } from "../helpers/throttle";
@@ -17,7 +17,6 @@ export type OnConnectResult = {
     succeeded: false;
     error: string;
 }
-
 
 export interface LoginPageProps {
     // Defaults:
@@ -43,6 +42,7 @@ export default function LoginPage(props: LoginPageProps) {
 
     useEffect(() => {
         refreshServerStats();
+        refreshAudioDevices();
     }, []);
 
     // Refresh server stats, throttled to at most once every 500ms.
@@ -62,6 +62,16 @@ export default function LoginPage(props: LoginPageProps) {
             setError("Failed to fetch server stats");
         }
     }, THROTTLE_MS), [server, port]);
+
+    const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
+    const refreshAudioDevices = useCallback(throttled(async () => {
+        try {
+            const audioDevices = await getAudioInputDevices();
+            setAudioDevices(audioDevices);
+        } catch (err) {
+            console.error("Failed to fetch audio input devices:", err);
+        }
+    }, THROTTLE_MS), []);
 
     const [serverStats, setServerStats] = useState<{
         stats?: ServerStats,
@@ -155,6 +165,19 @@ export default function LoginPage(props: LoginPageProps) {
                         </button>
                     </div>
                 </form>
+            </div>
+            <div>
+                <h3>Settings</h3>
+                <select>
+                    {audioDevices.sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0)).map((device) => {
+                        const isDefault = device.is_default;
+                        return (
+                            <option key={device.id} value={device.id}>
+                                {device.name} {isDefault ? "(Default)" : ""}
+                            </option>
+                        );
+                    })}
+                </select>
             </div>
         </main>
     );

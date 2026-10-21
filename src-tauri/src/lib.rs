@@ -14,12 +14,21 @@ use tokio::sync::broadcast;
 use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora::config::{EchoCanceller, NoiseSuppression, GainController2};
 
+pub mod audio;
+
 #[derive(Default)]
 struct AppState {
     client: std::sync::Mutex<Option<proto::client::MumbleClient>>,
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#[tauri::command]
+async fn get_audio_input_devices() -> Result<Vec<audio::AudioDevice>, String> {
+    let devices = audio::get_audio_input_devices()
+        .map_err(|e| e.to_string())?;
+    Ok(devices)
+}
+
 #[tauri::command]
 async fn get_server_stats(server: String, port: u16) -> Result<proto::client::ServerStats, String> {
     proto::client::get_server_stats(server, Some(port))
@@ -628,6 +637,7 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            get_audio_input_devices,
             get_server_stats,
             connect,
             get_users,

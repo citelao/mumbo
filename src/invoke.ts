@@ -9,6 +9,17 @@ export interface GetServerStatsParams {
     port: number;
 }
 
+const AudioDeviceSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    is_default: z.boolean(),
+});
+export type AudioDevice = z.infer<typeof AudioDeviceSchema>;
+export async function getAudioInputDevices(): Promise<AudioDevice[]> {
+    const raw = await invoke("get_audio_input_devices");
+    return z.array(AudioDeviceSchema).parse(raw);
+}
+
 const ServerStatsSchema = z.object({
     server_version_v2: z.number(),
     user_count: z.number(),
