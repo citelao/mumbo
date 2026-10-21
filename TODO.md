@@ -39,3 +39,11 @@ Work tracker.
 - [ ] Channels visualization
 - [ ] Switching channels
 - [ ] Creating channels
+
+## Home page
+
+- [ ] Refresh the members list every few sec.
+- [ ] Show latency stats (like iOS!)
+- [ ] Allow saving favorites?
+- [ ] Show common public servers?
+- [ ] Include a help link
