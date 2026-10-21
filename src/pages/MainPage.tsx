@@ -95,7 +95,7 @@ export function MainPage(props: MainPageProps) {
                             if (message.type === "ServerTextMessage") {
                                 return (
                                     <li key={index}>
-                                        <span className="date">[{new Date(message.timestamp).toLocaleTimeString()}]</span>
+                                        <span className={styles.date}>[{new Date(message.timestamp).toLocaleTimeString()}]</span>
                                         <span className="content" dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                     </li>
                                 );
@@ -104,8 +104,8 @@ export function MainPage(props: MainPageProps) {
                             const user = users.find(u => u.session === message.user_session);
                             return (
                                 <li key={index}>
-                                    <span className="date">[{new Date(message.timestamp).toLocaleTimeString()}]</span>
-                                    <span className="user">{user ? user.name : "Unknown"}:</span>
+                                    <span className={styles.date}>[{new Date(message.timestamp).toLocaleTimeString()}]</span>
+                                    <span className={styles.user}>{user ? user.name : "Unknown"}:</span>
                                     <span className="content" dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                 </li>
                             );
