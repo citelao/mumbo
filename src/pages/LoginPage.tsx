@@ -89,24 +89,12 @@ export default function LoginPage(props: LoginPageProps) {
                     <h3>Recent Servers</h3>
                     <ul>
                         {props.recentServers.map((s, index) => (
-                            <li key={index}>
-                                <button onClick={async (e) => {
-                                    e.preventDefault();
-                                    await connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! });
-                                }}>
-                                    {s.name} @ <strong>{s.server}</strong>:{s.port}
-                                </button>
-                                <button
-                                    className="remove"
-                                    onClick={async (e) => {
-                                        e.preventDefault();
-                                        await props.onRemoveRecentServer(s);
-                                    }}
-                                    aria-label={`Remove ${s.name} @ ${s.server}:${s.port} from recent servers`}
-                                    title={`Remove ${s.name} @ ${s.server}:${s.port} from recent servers`}>
-                                    &times;
-                                </button>
-                            </li>
+                            <RecentServerButton
+                                key={index}
+                                server={s}
+                                onConnect={(s) => connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! })}
+                                onRemove={props.onRemoveRecentServer}
+                            />
                         ))}
                     </ul>
                 </div>
@@ -118,7 +106,7 @@ export default function LoginPage(props: LoginPageProps) {
                     e.preventDefault();
                     await connectToServer({ name, server, port, password });
                 }}>
-                <h3>Connect to Server</h3>
+                <h3>Connect to new server</h3>
                 <label htmlFor="server">
                     Server
                 </label>
@@ -164,5 +152,51 @@ export default function LoginPage(props: LoginPageProps) {
                 </div>
             </form>
         </main>
+    );
+}
+
+interface RecentServerButtonProps {
+    server: Server;
+    onConnect: (server: Server) => Promise<void>;
+    onRemove: (server: Server) => Promise<void>;
+}
+
+function RecentServerButton(props: RecentServerButtonProps) {
+    const { server, onRemove, onConnect } = props;
+
+    const [serverStats, setServerStats] = useState<ServerStats | null>(null);
+    useEffect(() => {
+        const fetchServerStats = async () => {
+            try {
+                const stats = await getServerStats({ server: server.server!, port: server.port! });
+                setServerStats(stats);
+            } catch (error) {
+                setServerStats(null);
+            }
+        };
+
+        fetchServerStats();
+    }, [server.server, server.port]);
+
+    return (
+        <li>
+            <button onClick={async (e) => {
+                e.preventDefault();
+                    await onConnect(server);
+                }}>
+                {server.name} @ <strong>{server.server}</strong>:{server.port} <br />
+                {serverStats ? `${serverStats.user_count} / ${serverStats.max_user_count}` : "Fetching..."}
+            </button>
+            <button
+                className="remove"
+                onClick={async (e) => {
+                    e.preventDefault();
+                    await onRemove(server);
+                }}
+                aria-label={`Remove ${server.name} @ ${server.server}:${server.port} from recent servers`}
+                title={`Remove ${server.name} @ ${server.server}:${server.port} from recent servers`}>
+                &times;
+            </button>
+        </li>
     );
 }
