@@ -2,7 +2,7 @@ use std::io;
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
-use tokio::{net::unix::SocketAddr, sync::{broadcast, mpsc}};
+use tokio::{sync::{broadcast, mpsc}};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
 use tokio::io::{AsyncRead, AsyncWrite};
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
@@ -89,7 +89,7 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
     let addr = tokio::net::lookup_host((server.as_str(), port))
         .await?
         .next()
-        .ok_or(MumbleConnectionError::IoError(io::Error::new(io::ErrorKind::Other, "No address found")))?;
+        .ok_or(MumbleConnectionError::IoError(io::Error::other("No address found")))?;
     let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
 
     log::info!("Pinging server {} on port {}", server, port);
@@ -413,10 +413,10 @@ impl MumbleClient {
     /// server (and so other users) that we are self-muted.
     pub fn set_self_mute(&self, muted: bool) -> Result<(), MumbleConnectionError> {
         self.self_muted.store(muted, Ordering::Relaxed);
-        self.send(crate::ClientToServerMessage::UserState(crate::raw::UserState {
+        self.send(crate::ClientToServerMessage::UserState(Box::new(crate::raw::UserState {
             self_mute: Some(muted),
             ..Default::default()
-        }))
+        })))
     }
 
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {

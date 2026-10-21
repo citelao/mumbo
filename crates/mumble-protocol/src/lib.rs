@@ -127,7 +127,7 @@ pub enum ClientToServerMessage {
     Authenticate(raw::Authenticate),
     Ping(raw::Ping),
     TextMessage(raw::TextMessage),
-    UserState(raw::UserState),
+    UserState(Box<raw::UserState>),
 }
 
 impl ClientToServerMessage {
