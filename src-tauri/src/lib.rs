@@ -36,11 +36,15 @@ fn get_audio_output_devices() -> Result<Vec<audio::AudioDevice>, String> {
     Ok(devices)
 }
 
+// Unimplemented; keep `device_id` named as the frontend's IPC arg.
+#[allow(unused_variables)]
 #[tauri::command]
 fn set_audio_input_device(device_id: String) -> Result<(), String> {
     todo!()
 }
 
+// Unimplemented; keep `device_id` named as the frontend's IPC arg.
+#[allow(unused_variables)]
 #[tauri::command]
 fn set_audio_output_device(device_id: String) -> Result<(), String> {
     todo!()

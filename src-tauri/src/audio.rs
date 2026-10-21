@@ -69,8 +69,9 @@ mod tests {
         assert_eq!(ids.len(), devices.len(), "device ids must be unique");
         assert!(devices.iter().all(|d| !d.id.is_empty() && !d.name.is_empty()));
         let defaults = devices.iter().filter(|d| d.is_default).count();
-        // Headless machines may have no devices, but any that do must have a default.
-        assert_eq!(defaults, if devices.is_empty() { 0 } else { 1 }, "exactly one default when any device exists");
+        // Not "exactly one when any exist": ALSA on headless Linux lists devices
+        // but reports a default that isn't among them.
+        assert!(defaults <= 1, "at most one device may be the default");
     }
 
     #[test]
