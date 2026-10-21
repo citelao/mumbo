@@ -13,6 +13,12 @@ const SettingsSchema = z.object({
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
+type Server = z.infer<typeof ServerSchema>;
+
+// Password is not considered when determining if a server is the same as another.
+function isSameServer(a: Server, b: Server): boolean {
+    return a.server === b.server && a.port === b.port && a.name === b.name;
+}
 
 export default class SettingsStore {
     private store: Store;
@@ -48,20 +54,28 @@ export default class SettingsStore {
         await this.store.save();
     }
 
-    async addRecentServer(server: { name?: string; server?: string; port?: number; password?: string }): Promise<void> {
+    async addRecentServer(server: Server): Promise<void> {
         const settings = await this.getSettings();
         const recentServers = settings.recentServers ?? [];
 
         // Remove any existing entry that matches the new server
-        //
-        // Password is not considered when determining if a server already exists in the recent list.
-        const index = recentServers.findIndex(s => s.server === server.server && s.port === server.port && s.name === server.name);
+        const index = recentServers.findIndex(s => isSameServer(s, server));
         if (index !== -1) {
             recentServers.splice(index, 1);
         }
 
         recentServers.unshift(server);
         settings.recentServers = recentServers.slice(0, 5); // Keep only the 5 most recent servers
+        await this.saveSettings(settings);
+    }
+
+    async removeRecentServer(server: Server): Promise<void> {
+        const settings = await this.getSettings();
+        if (!settings.recentServers) {
+            return;
+        }
+
+        settings.recentServers = settings.recentServers.filter(s => !isSameServer(s, server));
         await this.saveSettings(settings);
     }
 }
