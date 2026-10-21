@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::{net::unix::SocketAddr, sync::{broadcast, mpsc}};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
 use tokio::io::{AsyncRead, AsyncWrite};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use futures_util::{Sink, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 
 mod accept_any_cert;
@@ -19,6 +19,10 @@ pub struct MumbleClient {
     cancel: CancellationToken,
 
     outgoing: mpsc::UnboundedSender<crate::ClientToServerMessage>,
+
+    // Shared across clones so the audio loop sees mute changes immediately,
+    // without waiting for the server to echo our UserState back.
+    self_muted: Arc<AtomicBool>,
 }
 
 pub struct Connection {
@@ -249,6 +253,7 @@ async fn connect_over(
             state,
             cancel: cancellation_token,
             outgoing: server_tx,
+            self_muted: Arc::new(AtomicBool::new(false)),
         },
         events: events_rx,
         debug: debug_rx,
@@ -365,6 +370,9 @@ impl MumbleClient {
     /// Sends one Opus packet. Set `is_terminator` on the last packet of a
     /// burst so listeners know the speaker stopped rather than lost packets.
     pub fn send_audio(&self, audio: &[u8], frame_counter: u64, is_terminator: bool) -> Result<(), MumbleConnectionError> {
+        if self.self_muted.load(Ordering::Relaxed) {
+            return Ok(());
+        }
         let packet = crate::ClientToServerMessage::UdpTunnel(
             crate::ClientToServerUdpMessage::Audio(
             crate::raw_udp::Audio {
@@ -399,6 +407,16 @@ impl MumbleClient {
             ..Default::default()
         }))?;
         Ok(())
+    }
+
+    /// Mutes or unmutes the microphone: stops sending audio and tells the
+    /// server (and so other users) that we are self-muted.
+    pub fn set_self_mute(&self, muted: bool) -> Result<(), MumbleConnectionError> {
+        self.self_muted.store(muted, Ordering::Relaxed);
+        self.send(crate::ClientToServerMessage::UserState(crate::raw::UserState {
+            self_mute: Some(muted),
+            ..Default::default()
+        }))
     }
 
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {
