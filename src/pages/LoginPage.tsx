@@ -87,73 +87,75 @@ export default function LoginPage(props: LoginPageProps) {
 
     return (
         <main className="container">
-            {props.recentServers && props.recentServers.length > 0 && (
-                <div className="recent-servers">
-                    <h3>Recent Servers</h3>
-                    <ul>
-                        {props.recentServers.map((s, index) => (
-                            <RecentServerButton
-                                key={index}
-                                server={s}
-                                onConnect={(s) => connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! })}
-                                onRemove={props.onRemoveRecentServer}
-                            />
-                        ))}
-                    </ul>
-                </div>
-            )}
+            <div className="sub-container">
+                {props.recentServers && props.recentServers.length > 0 && (
+                    <div className="recent-servers">
+                        <h3>Recent servers</h3>
+                        <ul>
+                            {props.recentServers.map((s, index) => (
+                                <RecentServerButton
+                                    key={index}
+                                    server={s}
+                                    onConnect={(s) => connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! })}
+                                    onRemove={props.onRemoveRecentServer}
+                                />
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
-            {/* Form for connection */}
-            <form className="connection-form"
-                onSubmit={async (e) => {
-                    e.preventDefault();
-                    await connectToServer({ name, server, port, password });
-                }}>
-                <h3>Connect to new server</h3>
-                <label htmlFor="server">
-                    Server
-                </label>
-                <input
-                    id="server"
-                    placeholder="Server"
-                    value={server}
-                    onChange={(e) => setServer(e.target.value)}
-                    onBlur={refreshServerStats} />
-                <label htmlFor="port">
-                    Port
-                </label>
-                <input
-                    id="port"
-                    placeholder="Port"
-                    value={port}
-                    onChange={(e) => setPort(Number(e.target.value))}
-                    onBlur={refreshServerStats} />
-                <label htmlFor="password">
-                    Password
-                </label>
-                <input id="password" placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                <label htmlFor="name">
-                    Name
-                </label>
-                <input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+                {/* Form for connection */}
+                <form className="connection-form"
+                    onSubmit={async (e) => {
+                        e.preventDefault();
+                        await connectToServer({ name, server, port, password });
+                    }}>
+                    <h3>Connect to new server</h3>
+                    <label htmlFor="server">
+                        Server
+                    </label>
+                    <input
+                        id="server"
+                        placeholder="Server"
+                        value={server}
+                        onChange={(e) => setServer(e.target.value)}
+                        onBlur={refreshServerStats} />
+                    <label htmlFor="port">
+                        Port
+                    </label>
+                    <input
+                        id="port"
+                        placeholder="Port"
+                        value={port}
+                        onChange={(e) => setPort(Number(e.target.value))}
+                        onBlur={refreshServerStats} />
+                    <label htmlFor="password">
+                        Password
+                    </label>
+                    <input id="password" placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                    <label htmlFor="name">
+                        Name
+                    </label>
+                    <input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
-                {/* TODO: prevent brief flicker */}
-                <div className="footer">
-                    {serverStats && serverStats.stats && (
-                        <div  className={["user-count", error ? "error" : ""].join(" ")}>
-                            {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count}
-                        </div>
-                    ) || (
-                        <div className={["user-count", error ? "error" : ""].join(" ")}>
-                            {error ?? "Fetching..."}
-                        </div>
-                    )}
+                    {/* TODO: prevent brief flicker */}
+                    <div className="footer">
+                        {serverStats && serverStats.stats && (
+                            <div  className={["user-count", error ? "error" : ""].join(" ")}>
+                                {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count}
+                            </div>
+                        ) || (
+                            <div className={["user-count", error ? "error" : ""].join(" ")}>
+                                {error ?? "Fetching..."}
+                            </div>
+                        )}
 
-                    <button type="submit" disabled={isConnecting}>
-                        {isConnecting ? "Connecting..." : "Connect"}
-                    </button>
-                </div>
-            </form>
+                        <button type="submit" disabled={isConnecting}>
+                            {isConnecting ? "Connecting..." : "Connect"}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </main>
     );
 }
