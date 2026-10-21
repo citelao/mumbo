@@ -1,11 +1,15 @@
 import { load, Store } from '@tauri-apps/plugin-store';
 import z from 'zod';
 
-const SettingsSchema = z.object({
+const ServerSchema = z.object({
     name: z.string().optional(),
     server: z.string().optional(),
     port: z.number().optional(),
     password: z.string().optional(),
+});
+
+const SettingsSchema = z.object({
+    recentServers: z.array(ServerSchema).optional()
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -42,5 +46,22 @@ export default class SettingsStore {
     async saveSettings(settings: Settings): Promise<void> {
         await this.store.set("settings", settings);
         await this.store.save();
+    }
+
+    async addRecentServer(server: { name?: string; server?: string; port?: number; password?: string }): Promise<void> {
+        const settings = await this.getSettings();
+        const recentServers = settings.recentServers ?? [];
+
+        // Remove any existing entry that matches the new server
+        //
+        // Password is not considered when determining if a server already exists in the recent list.
+        const index = recentServers.findIndex(s => s.server === server.server && s.port === server.port && s.name === server.name);
+        if (index !== -1) {
+            recentServers.splice(index, 1);
+        }
+
+        recentServers.unshift(server);
+        settings.recentServers = recentServers.slice(0, 5); // Keep only the 5 most recent servers
+        await this.saveSettings(settings);
     }
 }

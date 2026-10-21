@@ -24,8 +24,9 @@ export interface LoginPageProps {
     port?: number;
     password?: string;
 
+    recentServers?: { name?: string; server?: string; port?: number; password?: string }[];
+
     onConnect: (params: OnConnectParams) => Promise<OnConnectResult>;
-    onSaveSettings: (settings: OnConnectParams) => Promise<void>;
 }
 
 export default function LoginPage(props: LoginPageProps) {
@@ -50,8 +51,10 @@ export default function LoginPage(props: LoginPageProps) {
             setServerStats({ stats: undefined, server, port });
             const stats = await getServerStats({ server, port });
             setServerStats({ stats, server, port });
+            setError(null);
         } catch (err) {
             console.error("Failed to fetch server stats:", err);
+            setError("Failed to fetch server stats");
         }
     };
 
@@ -61,21 +64,50 @@ export default function LoginPage(props: LoginPageProps) {
         port: number;
     } | null>(null);
 
+    const connectToServer = async (s: { name?: string; server?: string; port?: number; password?: string }) => {
+        setIsConnecting(true);
+        const result = await props.onConnect({ server, port, password, name });
+        setIsConnecting(false);
+        if (!result.succeeded) {
+            setError(result.error);
+        } else {
+            setError(null);
+        }
+    };
+
     return (
         <main className="container">
             {/* Form for connection */}
+            {props.recentServers && props.recentServers.length > 0 && (
+                <div className="recent-servers">
+                    <h3>Recent Servers</h3>
+                    <ul>
+                        {props.recentServers.map((s, index) => (
+                            // <li key={index} onClick={() => {
+                            //     setName(s.name);
+                            //     setServer(s.server);
+                            //     setPort(s.port);
+                            //     setPassword(s.password);
+                            // }}>
+                            //     {s.name} ({s.server}:{s.port})
+                            // </li>
+                            <li key={index}>
+                                <button onClick={async (e) => {
+                                    e.preventDefault();
+                                    await connectToServer({ name: s.name, server: s.server, port: s.port, password: s.password });
+                                }}>
+                                    {s.name} ({s.server}:{s.port})
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             <form className="connection-form"
                 onSubmit={async (e) => {
                     e.preventDefault();
-                    setIsConnecting(true);
-                    const result = await props.onConnect({ server, port, password, name });
-                    setIsConnecting(false);
-                    if (!result.succeeded) {
-                        setError(result.error);
-                    } else {
-                        await props.onSaveSettings({ server, port, password, name });
-                        setError(null);
-                    }
+                    await connectToServer({ name, server, port, password });
                 }}>
                 <label htmlFor="server">
                     Server
@@ -104,19 +136,22 @@ export default function LoginPage(props: LoginPageProps) {
                 </label>
                 <input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
-                {serverStats && serverStats.stats && (
-                    <div className="server-stats">
-                        <p>Server Version: {serverStats.stats.server_version_v2}</p>
-                        <p>User Count: {serverStats.stats.user_count}</p>
-                        <p>Max User Count: {serverStats.stats.max_user_count}</p>
-                        <p>Max Bandwidth per User: {serverStats.stats.max_bandwidth_per_user}</p>
-                    </div>
-                )}
-                <br />
-                <button type="submit" disabled={isConnecting}>
-                    {isConnecting ? "Connecting..." : "Connect"}
-                </button>
-                {error && <p className="error">{error}</p>}
+                {/* TODO: prevent brief flicker */}
+                <div className="footer">
+                    {serverStats && serverStats.stats && (
+                        <div  className={["user-count", error ? "error" : ""].join(" ")}>
+                            {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count}
+                        </div>
+                    ) || (
+                        <div className={["user-count", error ? "error" : ""].join(" ")}>
+                            {error ?? "Fetching..."}
+                        </div>
+                    )}
+
+                    <button type="submit" disabled={isConnecting}>
+                        {isConnecting ? "Connecting..." : "Connect"}
+                    </button>
+                </div>
             </form>
         </main>
     );

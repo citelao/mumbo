@@ -11,12 +11,30 @@ form {
 
     // 2 template columns, then everything flows in rows
     grid-template-columns: auto auto;
+
+    min-width: 25rem;
 }
 
 label {
     text-align: right;
 }
 
-.server-stats {
+.footer {
     grid-column: span 2;
+
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+
+    button {
+        min-width: 10rem;
+    }
 }
+
+.user-count.error {
+    color: red;
+}
+
+// .server-stats {
+//     grid-column: span 2;
+// }
