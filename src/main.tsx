@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import SettingsStore, { Settings } from "./settings";
+import SettingsStore from "./settings";
 
 const settingsStore = await SettingsStore.create();
 

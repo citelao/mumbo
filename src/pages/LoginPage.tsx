@@ -39,13 +39,13 @@ export default function LoginPage(props: LoginPageProps) {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        refreshServerStatsIfNeeded();
+        refreshServerStats();
     }, []);
 
-    const refreshServerStatsIfNeeded = async () => {
-        if (serverStats && serverStats.server === server && serverStats.port === port) {
-            return;
-        }
+    const refreshServerStats = async () => {
+        // if (serverStats && serverStats.server === server && serverStats.port === port) {
+        //     return;
+        // }
 
         try {
             setServerStats({ stats: undefined, server, port });
@@ -64,9 +64,14 @@ export default function LoginPage(props: LoginPageProps) {
         port: number;
     } | null>(null);
 
-    const connectToServer = async (s: { name?: string; server?: string; port?: number; password?: string }) => {
+    const connectToServer = async (s: { name: string; server: string; port: number; password: string }) => {
         setIsConnecting(true);
-        const result = await props.onConnect({ server, port, password, name });
+        const result = await props.onConnect({
+            server: s.server,
+            port: s.port,
+            password: s.password,
+            name: s.name
+        });
         setIsConnecting(false);
         if (!result.succeeded) {
             setError(result.error);
@@ -83,18 +88,10 @@ export default function LoginPage(props: LoginPageProps) {
                     <h3>Recent Servers</h3>
                     <ul>
                         {props.recentServers.map((s, index) => (
-                            // <li key={index} onClick={() => {
-                            //     setName(s.name);
-                            //     setServer(s.server);
-                            //     setPort(s.port);
-                            //     setPassword(s.password);
-                            // }}>
-                            //     {s.name} ({s.server}:{s.port})
-                            // </li>
                             <li key={index}>
                                 <button onClick={async (e) => {
                                     e.preventDefault();
-                                    await connectToServer({ name: s.name, server: s.server, port: s.port, password: s.password });
+                                    await connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! });
                                 }}>
                                     {s.name} ({s.server}:{s.port})
                                 </button>
@@ -117,7 +114,7 @@ export default function LoginPage(props: LoginPageProps) {
                     placeholder="Server"
                     value={server}
                     onChange={(e) => setServer(e.target.value)}
-                    onBlur={refreshServerStatsIfNeeded} />
+                    onBlur={refreshServerStats} />
                 <label htmlFor="port">
                     Port
                 </label>
@@ -126,7 +123,7 @@ export default function LoginPage(props: LoginPageProps) {
                     placeholder="Port"
                     value={port}
                     onChange={(e) => setPort(Number(e.target.value))}
-                    onBlur={refreshServerStatsIfNeeded} />
+                    onBlur={refreshServerStats} />
                 <label htmlFor="password">
                     Password
                 </label>

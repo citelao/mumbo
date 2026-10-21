@@ -4,6 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import App from "./App";
+import type SettingsStore from "./settings";
 import users from "../crates/mumble-protocol/fixtures/users.json";
 import messages from "../crates/mumble-protocol/fixtures/server_to_client_messages.json";
 
@@ -45,8 +46,17 @@ async function connect(user: ReturnType<typeof userEvent.setup>) {
     await screen.findByRole("button", { name: "Disconnect" });
 }
 
+/** In-memory stand-in; the real store needs the Tauri runtime. */
+function fakeSettings(): SettingsStore {
+    return {
+        getSettings: async () => ({}),
+        saveSettings: async () => {},
+        addRecentServer: async () => {},
+    } as unknown as SettingsStore;
+}
+
 function renderApp() {
-    return render(<App settings={{}} onSaveSettings={async () => {}} />);
+    return render(<App settings={fakeSettings()} />);
 }
 
 describe("App", () => {
