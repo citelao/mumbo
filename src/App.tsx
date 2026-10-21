@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
@@ -6,7 +6,7 @@ import type { ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
-import { Settings } from "./settings";
+import SettingsStore, { Settings } from "./settings";
 import { connect, disconnect, sendChannelMessage } from "./invoke";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
@@ -28,14 +28,21 @@ function toLogEntry(event: ServerToClientMessage): ProtocolLogEntry {
 }
 
 interface AppProps {
-    settings: Settings;
-    onSaveSettings: (settings: Settings) => Promise<void>;
+    settings: SettingsStore;
 }
 
 function App(props: AppProps) {
     const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
 
     const [isConnected, setIsConnected] = useState(false);
+
+    const [settings, setSettings] = useState<Settings | null>(null);
+    useEffect(() => {
+        (async () => {
+            const s = await props.settings.getSettings();
+            setSettings(s);
+        })();
+    }, [props.settings]);
 
     const onConnect = async (params: OnConnectParams): Promise<OnConnectResult> => {
         // A channel can't be reused: when the Rust side drops it (the
@@ -60,6 +67,10 @@ function App(props: AppProps) {
         }
 
         setIsConnected(true);
+
+        // If connected successfully, update the recent servers in the settings.
+        await props.settings.addRecentServer({ name: params.name, server: params.server, port: params.port, password: params.password });
+
         return { succeeded: true };
     };
 
@@ -73,14 +84,16 @@ function App(props: AppProps) {
         }
     };
 
+    const mostRecentServer = settings?.recentServers?.[0];
+
     if (!isConnected) {
         return <LoginPage
-            name={props.settings.name}
-            server={props.settings.server}
-            port={props.settings.port}
-            password={props.settings.password}
-            onConnect={onConnect}
-            onSaveSettings={props.onSaveSettings} />;
+            recentServers={settings?.recentServers}
+            name={mostRecentServer?.name}
+            server={mostRecentServer?.server}
+            port={mostRecentServer?.port}
+            password={mostRecentServer?.password}
+            onConnect={onConnect} />;
     } else {
         return <MainPage
             protocolLog={protocolLog}

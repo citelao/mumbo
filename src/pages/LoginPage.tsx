@@ -24,8 +24,9 @@ export interface LoginPageProps {
     port?: number;
     password?: string;
 
+    recentServers?: { name?: string; server?: string; port?: number; password?: string }[];
+
     onConnect: (params: OnConnectParams) => Promise<OnConnectResult>;
-    onSaveSettings: (settings: OnConnectParams) => Promise<void>;
 }
 
 export default function LoginPage(props: LoginPageProps) {
@@ -66,6 +67,27 @@ export default function LoginPage(props: LoginPageProps) {
     return (
         <main className="container">
             {/* Form for connection */}
+            {props.recentServers && props.recentServers.length > 0 && (
+                <div className="recent-servers">
+                    <h3>Recent Servers</h3>
+                    <ul>
+                        {props.recentServers.map((s, index) => (
+                            // <li key={index} onClick={() => {
+                            //     setName(s.name);
+                            //     setServer(s.server);
+                            //     setPort(s.port);
+                            //     setPassword(s.password);
+                            // }}>
+                            //     {s.name} ({s.server}:{s.port})
+                            // </li>
+                            <li key={index}>
+                                {s.name} ({s.server}:{s.port})
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             <form className="connection-form"
                 onSubmit={async (e) => {
                     e.preventDefault();
@@ -75,7 +97,6 @@ export default function LoginPage(props: LoginPageProps) {
                     if (!result.succeeded) {
                         setError(result.error);
                     } else {
-                        await props.onSaveSettings({ server, port, password, name });
                         setError(null);
                     }
                 }}>
