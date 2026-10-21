@@ -1,13 +1,23 @@
-#container {
+.container {
     overflow: hidden;
+
+    // TODO: resizable
+    display: grid;
+    grid-template-columns: 1fr 4fr;
+    align-items: stretch;
 }
 
 .chat {
     /* min-width: 80ch; */
     text-align: left;
-    overflow: scroll;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    display: flex;
+    flex-direction: column;
 
     ol {
+        flex-grow: 1;
         margin: 0;
         padding: 0;
 
@@ -29,6 +39,8 @@
     }
 
     form {
+        width: 100%;
+
         input {
             width: 100%;
         }
@@ -41,7 +53,8 @@ pre {
 
 .user-list {
     text-align: left;
-    overflow: scroll;
+    overflow-y: auto;
+    overflow-x: hidden;
 
     ul {
         margin: 0;

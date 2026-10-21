@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
-import "./MainPage.scss";
+import styles from "./MainPage.module.scss";
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -63,8 +63,8 @@ export function MainPage(props: MainPageProps) {
 
     return (
         <>
-            <main className="container">
-                <section className="user-list">
+            <main className={[styles.container, "container"].join(" ")}>
+                <section className={styles["user-list"]}>
                     Users
                     <ul>
                         {users.map((user) => (
@@ -87,7 +87,7 @@ export function MainPage(props: MainPageProps) {
                         Disconnect
                     </button>
                 </section>
-                <section className="chat">
+                <section className={styles.chat}>
                     Chat
 
                     <ol onClick={openChatLink} onAuxClick={openChatLink}>
