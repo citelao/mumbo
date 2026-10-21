@@ -80,3 +80,13 @@
 // .server-stats {
 //     grid-column: span 2;
 // }
+
+.settingsForm {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: auto auto;
+
+    label {
+        text-align: right;
+    }
+}

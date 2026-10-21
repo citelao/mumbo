@@ -23,10 +23,27 @@ struct AppState {
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn get_audio_input_devices() -> Result<Vec<audio::AudioDevice>, String> {
+fn get_audio_input_devices() -> Result<Vec<audio::AudioDevice>, String> {
     let devices = audio::get_audio_input_devices()
         .map_err(|e| e.to_string())?;
     Ok(devices)
+}
+
+#[tauri::command]
+fn get_audio_output_devices() -> Result<Vec<audio::AudioDevice>, String> {
+    let devices = audio::get_audio_output_devices()
+        .map_err(|e| e.to_string())?;
+    Ok(devices)
+}
+
+#[tauri::command]
+fn set_audio_input_device(device_id: String) -> Result<(), String> {
+    todo!()
+}
+
+#[tauri::command]
+fn set_audio_output_device(device_id: String) -> Result<(), String> {
+    todo!()
 }
 
 #[tauri::command]
@@ -638,6 +655,9 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             get_audio_input_devices,
+            set_audio_input_device,
+            get_audio_output_devices,
+            set_audio_output_device,
             get_server_stats,
             connect,
             get_users,

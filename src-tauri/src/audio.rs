@@ -34,3 +34,25 @@ pub fn get_audio_input_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
     }).collect();
     Ok(device_names)
 }
+
+pub fn get_audio_output_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
+    let host = cpal::default_host();
+
+    let default_device = host.default_output_device();
+    let default_device_id = default_device.and_then(|d| d.id().ok());
+
+    let devices = host.output_devices()?;
+    let device_names = devices.filter_map(|d| {
+        let desc = d.description().ok()?;
+        let name = desc.name();
+        let id = d.id().ok()?;
+        let id_str = id.to_string();
+
+        Some(AudioDevice {
+            id: id_str,
+            name: name.to_string(),
+            is_default: Some(&id) == default_device_id.as_ref(),
+        })
+    }).collect();
+    Ok(device_names)
+}
