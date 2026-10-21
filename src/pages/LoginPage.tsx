@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
-import "./LoginPage.scss";
+import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
 import { throttled, useThrottledEffect } from "../helpers/throttle";
 
@@ -86,10 +86,10 @@ export default function LoginPage(props: LoginPageProps) {
     };
 
     return (
-        <main className="container">
-            <div className="sub-container">
+        <main className={[styles.container, "container"].join(" ")}>
+            <div className={styles["sub-container"]}>
                 {props.recentServers && props.recentServers.length > 0 && (
-                    <div className="recent-servers">
+                    <div className={styles["recent-servers"]}>
                         <h3>Recent servers</h3>
                         <ul>
                             {props.recentServers.map((s, index) => (
@@ -105,7 +105,7 @@ export default function LoginPage(props: LoginPageProps) {
                 )}
 
                 {/* Form for connection */}
-                <form className="connection-form"
+                <form className={styles["connection-form"]}
                     onSubmit={async (e) => {
                         e.preventDefault();
                         await connectToServer({ name, server, port, password });
@@ -139,13 +139,13 @@ export default function LoginPage(props: LoginPageProps) {
                     <input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
                     {/* TODO: prevent brief flicker */}
-                    <div className="footer">
+                    <div className={styles.footer}>
                         {serverStats && serverStats.stats && (
-                            <div  className={["user-count", error ? "error" : ""].join(" ")}>
+                            <div  className={[styles["user-count"], error ? styles.error : ""].join(" ")}>
                                 {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count}
                             </div>
                         ) || (
-                            <div className={["user-count", error ? "error" : ""].join(" ")}>
+                            <div className={[styles["user-count"], error ? styles.error : ""].join(" ")}>
                                 {error ?? "Fetching..."}
                             </div>
                         )}
@@ -194,7 +194,7 @@ function RecentServerButton(props: RecentServerButtonProps) {
                 {serverStats ? `${serverStats.user_count} / ${serverStats.max_user_count}` : "Fetching..."}
             </button>
             <button
-                className="remove"
+                className={styles.remove}
                 onClick={async (e) => {
                     e.preventDefault();
                     await onRemove(server);

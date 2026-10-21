@@ -45,7 +45,7 @@
     }
 }
 
-form {
+.connection-form {
     display: grid;
     gap: 1rem;
 
@@ -57,10 +57,10 @@ form {
     h3 {
         grid-column: span 2;
     }
-}
 
-label {
-    text-align: right;
+    label {
+        text-align: right;
+    }
 }
 
 .footer {
