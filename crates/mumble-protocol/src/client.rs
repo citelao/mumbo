@@ -2,7 +2,7 @@ use std::io;
 use prost::Message;
 use serde::Serialize;
 use thiserror::Error;
-use tokio::{net::unix::SocketAddr, sync::{broadcast, mpsc}};
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
 use tokio::io::{AsyncRead, AsyncWrite};
 use std::sync::{Arc, Mutex};
@@ -85,7 +85,7 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
     let addr = tokio::net::lookup_host((server.as_str(), port))
         .await?
         .next()
-        .ok_or(MumbleConnectionError::IoError(io::Error::new(io::ErrorKind::Other, "No address found")))?;
+        .ok_or(MumbleConnectionError::IoError(io::Error::other("No address found")))?;
     let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
 
     log::info!("Pinging server {} on port {}", server, port);

@@ -86,7 +86,7 @@ export default function LoginPage(props: LoginPageProps) {
                     value={server}
                     onChange={(e) => setServer(e.target.value)}
                     onBlur={refreshServerStatsIfNeeded} />
-                <label>
+                <label htmlFor="port">
                     Port
                 </label>
                 <input
