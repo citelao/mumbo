@@ -84,8 +84,30 @@ jobs:
           path: staged/*
           if-no-files-found: error
 
-  publish:
+  # Tauri can't emit a flatpak, so wrap the Linux .deb from the build job.
+  flatpak:
     needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x64
+          path: linux
+      - run: cp linux/mumbo-linux-x64.deb packaging/flatpak/mumbo.deb
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: mumbo-linux-x64.flatpak
+          manifest-path: packaging/flatpak/com.citelao.mumbo.yml
+          cache-key: flatpak-builder-${{ github.event.workflow_run.head_sha }}
+
+  publish:
+    needs: [build, flatpak]
     runs-on: ubuntu-latest
     permissions:
       contents: write
