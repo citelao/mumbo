@@ -50,8 +50,10 @@ export default function LoginPage(props: LoginPageProps) {
             setServerStats({ stats: undefined, server, port });
             const stats = await getServerStats({ server, port });
             setServerStats({ stats, server, port });
+            setError(null);
         } catch (err) {
             console.error("Failed to fetch server stats:", err);
+            setError("Failed to fetch server stats");
         }
     };
 
@@ -104,19 +106,22 @@ export default function LoginPage(props: LoginPageProps) {
                 </label>
                 <input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
-                {serverStats && serverStats.stats && (
-                    <div className="server-stats">
-                        <p>Server Version: {serverStats.stats.server_version_v2}</p>
-                        <p>User Count: {serverStats.stats.user_count}</p>
-                        <p>Max User Count: {serverStats.stats.max_user_count}</p>
-                        <p>Max Bandwidth per User: {serverStats.stats.max_bandwidth_per_user}</p>
-                    </div>
-                )}
-                <br />
-                <button type="submit" disabled={isConnecting}>
-                    {isConnecting ? "Connecting..." : "Connect"}
-                </button>
-                {error && <p className="error">{error}</p>}
+                {/* TODO: prevent brief flicker */}
+                <div className="footer">
+                    {serverStats && serverStats.stats && (
+                        <div  className={["user-count", error ? "error" : ""].join(" ")}>
+                            {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count}
+                        </div>
+                    ) || (
+                        <div className={["user-count", error ? "error" : ""].join(" ")}>
+                            {error ?? "Fetching..."}
+                        </div>
+                    )}
+
+                    <button type="submit" disabled={isConnecting}>
+                        {isConnecting ? "Connecting..." : "Connect"}
+                    </button>
+                </div>
             </form>
         </main>
     );
