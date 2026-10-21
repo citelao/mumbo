@@ -63,11 +63,16 @@ export default function LoginPage(props: LoginPageProps) {
         }
     }, THROTTLE_MS), [server, port]);
 
+    // TODO: refresh audio devices whenever the list changes.
+    const [selectedAudioDevice, setSelectedAudioDevice] = useState<AudioDevice | null>(null);
     const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
     const refreshAudioDevices = useCallback(throttled(async () => {
         try {
             const audioDevices = await getAudioInputDevices();
             setAudioDevices(audioDevices);
+
+            const defaultDevice = audioDevices.find(device => device.is_default);
+            setSelectedAudioDevice(defaultDevice ?? null);
         } catch (err) {
             console.error("Failed to fetch audio input devices:", err);
         }
@@ -168,8 +173,13 @@ export default function LoginPage(props: LoginPageProps) {
             </div>
             <div>
                 <h3>Settings</h3>
-                <select>
-                    {audioDevices.sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0)).map((device) => {
+
+                <label htmlFor="audio-device">Audio input</label>
+                <select id="audio-device" value={selectedAudioDevice?.id ?? ""} onChange={(e) => {
+                    const device = audioDevices.find(d => d.id === e.target.value);
+                    setSelectedAudioDevice(device ?? null);
+                }}>
+                    {audioDevices.map((device) => {
                         const isDefault = device.is_default;
                         return (
                             <option key={device.id} value={device.id}>
