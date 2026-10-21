@@ -1,0 +1,22 @@
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+form {
+    display: grid;
+    gap: 1rem;
+
+    // 2 template columns, then everything flows in rows
+    grid-template-columns: auto auto;
+}
+
+label {
+    text-align: right;
+}
+
+.server-stats {
+    grid-column: span 2;
+}

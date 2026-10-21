@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
+import "./LoginPage.scss";
 
 export interface OnConnectParams {
     server: string;
@@ -76,22 +77,33 @@ export default function LoginPage(props: LoginPageProps) {
                         setError(null);
                     }
                 }}>
-                <label>
+                <label htmlFor="server">
                     Server
-                    <input
-                        placeholder="Server"
-                        value={server}
-                        onChange={(e) => setServer(e.target.value)}
-                        onBlur={refreshServerStatsIfNeeded} />
                 </label>
+                <input
+                    id="server"
+                    placeholder="Server"
+                    value={server}
+                    onChange={(e) => setServer(e.target.value)}
+                    onBlur={refreshServerStatsIfNeeded} />
                 <label>
                     Port
-                    <input
-                        placeholder="Port"
-                        value={port}
-                        onChange={(e) => setPort(Number(e.target.value))}
-                        onBlur={refreshServerStatsIfNeeded} />
                 </label>
+                <input
+                    id="port"
+                    placeholder="Port"
+                    value={port}
+                    onChange={(e) => setPort(Number(e.target.value))}
+                    onBlur={refreshServerStatsIfNeeded} />
+                <label htmlFor="password">
+                    Password
+                </label>
+                <input id="password" placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <label htmlFor="name">
+                    Name
+                </label>
+                <input id="name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+
                 {serverStats && serverStats.stats && (
                     <div className="server-stats">
                         <p>Server Version: {serverStats.stats.server_version_v2}</p>
@@ -100,14 +112,6 @@ export default function LoginPage(props: LoginPageProps) {
                         <p>Max Bandwidth per User: {serverStats.stats.max_bandwidth_per_user}</p>
                     </div>
                 )}
-                <label>
-                    Password
-                    <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                </label>
-                <label>
-                    Name
-                    <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-                </label>
                 <br />
                 <button type="submit" disabled={isConnecting}>
                     {isConnecting ? "Connecting..." : "Connect"}
