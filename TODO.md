@@ -23,8 +23,9 @@ Work tracker.
 
 ## Audio
 
-- [ ] Input!
+- [x] Input!
 - [ ] Output & input device selection
+- [ ] Hook up audio selectors
 - [ ] Device configuration (e.g. mono/stereo, bitrate resampling)
 - [ ] Per-speaker auto-gain before summing, so one loud mic doesn't dominate
 - [ ] Handle custom speaker gain adjustments
