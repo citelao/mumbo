@@ -64,9 +64,14 @@ export default function LoginPage(props: LoginPageProps) {
         port: number;
     } | null>(null);
 
-    const connectToServer = async (s: { name?: string; server?: string; port?: number; password?: string }) => {
+    const connectToServer = async (s: { name: string; server: string; port: number; password: string }) => {
         setIsConnecting(true);
-        const result = await props.onConnect({ server, port, password, name });
+        const result = await props.onConnect({
+            server: s.server,
+            port: s.port,
+            password: s.password,
+            name: s.name
+        });
         setIsConnecting(false);
         if (!result.succeeded) {
             setError(result.error);
@@ -94,7 +99,7 @@ export default function LoginPage(props: LoginPageProps) {
                             <li key={index}>
                                 <button onClick={async (e) => {
                                     e.preventDefault();
-                                    await connectToServer({ name: s.name, server: s.server, port: s.port, password: s.password });
+                                    await connectToServer({ name: s.name!, server: s.server!, port: s.port!, password: s.password! });
                                 }}>
                                     {s.name} ({s.server}:{s.port})
                                 </button>
