@@ -1,0 +1,4 @@
+[
+  { "id": "built-in-mic", "name": "Built-in Microphone", "is_default": true },
+  { "id": "usb-mic", "name": "USB Microphone", "is_default": false }
+]
