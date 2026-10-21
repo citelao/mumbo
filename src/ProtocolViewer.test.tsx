@@ -41,11 +41,11 @@ function rowLabels(): string[] {
 const mixedEntries = [okEntry("Ping"), okEntry("UdpTunnel/Audio"), okEntry("UdpTunnel/Ping"), okEntry("UdpTunnel/Audio")];
 
 describe("ProtocolViewer", () => {
-    it("renders as an open, collapsible details element", () => {
+    it("renders as a collapsed details element", () => {
         const { container } = render(<ProtocolViewer entries={[]} onClear={vi.fn()} />);
         const details = container.querySelector("details.protocol-viewer") as HTMLDetailsElement;
         expect(details).toBeTruthy();
-        expect(details.open).toBe(true);
+        expect(details.open).toBe(false);
         expect(details.querySelector(":scope > summary")!.textContent).toBe("Protocol log (0)");
     });
 

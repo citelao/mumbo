@@ -35,7 +35,7 @@ export function ProtocolViewer({ entries, onClear }: { entries: ProtocolLogEntry
   }, [lastVisibleId]);
 
   return (
-    <details className="protocol-viewer" open>
+    <details className="protocol-viewer">
       <summary>Protocol log ({visible.length})</summary>
       <div className="protocol-viewer-controls">
         <label>
@@ -57,7 +57,7 @@ export function ProtocolViewer({ entries, onClear }: { entries: ProtocolLogEntry
       >
         {visible.map((entry) => (
           <li key={entry.id} className={entry.ok ? undefined : "protocol-viewer-invalid"}>
-            <details open={false}>
+            <details>
               <summary>
                 <time>{entry.receivedAt.toLocaleTimeString()}</time> {entryLabel(entry)}
               </summary>
