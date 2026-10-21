@@ -64,6 +64,17 @@ export default function LoginPage(props: LoginPageProps) {
         port: number;
     } | null>(null);
 
+    const connectToServer = async (s: { name?: string; server?: string; port?: number; password?: string }) => {
+        setIsConnecting(true);
+        const result = await props.onConnect({ server, port, password, name });
+        setIsConnecting(false);
+        if (!result.succeeded) {
+            setError(result.error);
+        } else {
+            setError(null);
+        }
+    };
+
     return (
         <main className="container">
             {/* Form for connection */}
@@ -81,7 +92,12 @@ export default function LoginPage(props: LoginPageProps) {
                             //     {s.name} ({s.server}:{s.port})
                             // </li>
                             <li key={index}>
-                                {s.name} ({s.server}:{s.port})
+                                <button onClick={async (e) => {
+                                    e.preventDefault();
+                                    await connectToServer({ name: s.name, server: s.server, port: s.port, password: s.password });
+                                }}>
+                                    {s.name} ({s.server}:{s.port})
+                                </button>
                             </li>
                         ))}
                     </ul>
@@ -91,14 +107,7 @@ export default function LoginPage(props: LoginPageProps) {
             <form className="connection-form"
                 onSubmit={async (e) => {
                     e.preventDefault();
-                    setIsConnecting(true);
-                    const result = await props.onConnect({ server, port, password, name });
-                    setIsConnecting(false);
-                    if (!result.succeeded) {
-                        setError(result.error);
-                    } else {
-                        setError(null);
-                    }
+                    await connectToServer({ name, server, port, password });
                 }}>
                 <label htmlFor="server">
                     Server
