@@ -41,3 +41,7 @@ export function disconnect(): Promise<void> {
 export function sendChannelMessage(message: string): Promise<void> {
     return invoke("send_channel_message", { message });
 }
+
+export function setSelfMute(muted: boolean): Promise<void> {
+    return invoke("set_self_mute", { muted });
+}

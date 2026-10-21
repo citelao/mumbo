@@ -127,6 +127,7 @@ pub enum ClientToServerMessage {
     Authenticate(raw::Authenticate),
     Ping(raw::Ping),
     TextMessage(raw::TextMessage),
+    UserState(Box<raw::UserState>),
 }
 
 impl ClientToServerMessage {
@@ -144,6 +145,7 @@ impl ClientToServerMessage {
             ClientToServerMessage::Authenticate(msg) => Ok((raw::Authenticate::TYPE_ID, msg.encode_to_vec())),
             ClientToServerMessage::Ping(msg) => Ok((raw::Ping::TYPE_ID, msg.encode_to_vec())),
             ClientToServerMessage::TextMessage(msg) => Ok((raw::TextMessage::TYPE_ID, msg.encode_to_vec())),
+            ClientToServerMessage::UserState(msg) => Ok((raw::UserState::TYPE_ID, msg.encode_to_vec())),
         }
     }
 }

@@ -11,6 +11,7 @@ export interface MainPageProps {
 
     onDisconnect: () => void;
     onSendMessage: (message: string) => void;
+    onSetSelfMute: (muted: boolean) => void;
 }
 
 // Chat content is server-supplied HTML. Without this, clicking a link would
@@ -27,6 +28,7 @@ function openChatLink(e: React.MouseEvent) {
 export function MainPage(props: MainPageProps) {
     const [users, setUsers] = useState<User[]>([]);
     const [chatMessages, setChatMessages] = useState<TextMessage[]>([]);
+    const [selfMuted, setSelfMuted] = useState(false);
 
     useEffect(() => {
         let stopped = false;
@@ -75,6 +77,12 @@ export function MainPage(props: MainPageProps) {
                         ))}
                     </ul>
 
+                    <button type="button" onClick={() => {
+                        props.onSetSelfMute(!selfMuted);
+                        setSelfMuted(!selfMuted);
+                    }}>
+                        {selfMuted ? "Unmute" : "Mute"}
+                    </button>
                     <button type="button" onClick={props.onDisconnect}>
                         Disconnect
                     </button>

@@ -64,8 +64,8 @@ function chatLine(pattern: RegExp) {
         element?.tagName === "LI" && pattern.test(element.textContent ?? "");
 }
 
-function renderMainPage(onDisconnect = () => {}) {
-    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onDisconnect={onDisconnect} />);
+function renderMainPage(onDisconnect = () => {}, onSetSelfMute: (muted: boolean) => void = () => {}) {
+    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} />);
 }
 
 describe("MainPage", () => {
@@ -166,6 +166,17 @@ describe("MainPage", () => {
         unmount();
 
         await vi.waitFor(() => expect(unlisten).toHaveBeenCalledOnce());
+    });
+
+    it("toggles self mute", async () => {
+        const onSetSelfMute = vi.fn();
+        renderMainPage(() => {}, onSetSelfMute);
+
+        await userEvent.click(screen.getByRole("button", { name: "Mute" }));
+        expect(onSetSelfMute).toHaveBeenLastCalledWith(true);
+
+        await userEvent.click(screen.getByRole("button", { name: "Unmute" }));
+        expect(onSetSelfMute).toHaveBeenLastCalledWith(false);
     });
 
     it("disconnects when asked", async () => {
