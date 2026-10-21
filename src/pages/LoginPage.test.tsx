@@ -20,7 +20,7 @@ function input(label: string): HTMLInputElement {
 
 describe("LoginPage", () => {
     it("renders the default connection settings", () => {
-        render(<LoginPage onConnect={vi.fn()} />);
+        render(<LoginPage onConnect={vi.fn()} onRemoveRecentServer={vi.fn()} />);
         expect(input("Server").value).toBe("localhost");
         expect(input("Port").value).toBe("64738");
         expect(input("Password").value).toBe("");
@@ -31,7 +31,7 @@ describe("LoginPage", () => {
     it("submits the entered settings, with the port as a number", async () => {
         const user = userEvent.setup();
         const onConnect = vi.fn(async (): Promise<OnConnectResult> => ({ succeeded: true }));
-        render(<LoginPage onConnect={onConnect} />);
+        render(<LoginPage onConnect={onConnect} onRemoveRecentServer={vi.fn()} />);
 
         await user.clear(input("Server"));
         await user.type(input("Server"), "example.com");
@@ -54,7 +54,7 @@ describe("LoginPage", () => {
     it("disables the button and shows progress while connecting", async () => {
         const user = userEvent.setup();
         const pending = deferred<OnConnectResult>();
-        render(<LoginPage onConnect={() => pending.promise} />);
+        render(<LoginPage onConnect={() => pending.promise} onRemoveRecentServer={vi.fn()} />);
 
         await user.click(screen.getByRole("button", { name: "Connect" }));
         const button = screen.getByRole("button", { name: "Connecting..." });
@@ -67,7 +67,7 @@ describe("LoginPage", () => {
 
     it("shows the error when connecting fails", async () => {
         const user = userEvent.setup();
-        render(<LoginPage onConnect={async () => ({ succeeded: false, error: "connection refused" })} />);
+        render(<LoginPage onConnect={async () => ({ succeeded: false, error: "connection refused" })} onRemoveRecentServer={vi.fn()} />);
 
         await user.click(screen.getByRole("button", { name: "Connect" }));
 
@@ -80,7 +80,7 @@ describe("LoginPage", () => {
             .fn<() => Promise<OnConnectResult>>()
             .mockResolvedValueOnce({ succeeded: false, error: "connection refused" })
             .mockResolvedValueOnce({ succeeded: true });
-        render(<LoginPage onConnect={onConnect} />);
+        render(<LoginPage onConnect={onConnect} onRemoveRecentServer={vi.fn()} />);
 
         await user.click(screen.getByRole("button", { name: "Connect" }));
         await screen.findByText("connection refused");

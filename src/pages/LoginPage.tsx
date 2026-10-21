@@ -3,7 +3,7 @@ import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
 import "./LoginPage.scss";
 import { Server } from "../settings";
-import { throttle, throttled, useThrottledEffect } from "../helpers/throttle";
+import { throttled, useThrottledEffect } from "../helpers/throttle";
 
 export interface OnConnectParams {
     server: string;
