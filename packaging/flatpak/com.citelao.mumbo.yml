@@ -1,0 +1,35 @@
+app-id: com.citelao.mumbo
+runtime: org.gnome.Platform
+runtime-version: "48"
+sdk: org.gnome.Sdk
+command: mumbo
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+
+modules:
+  - name: mumbo
+    buildsystem: simple
+    build-commands:
+      # Repackage the .deb that `tauri build` already produced instead of
+      # rebuilding from source; GNOME's runtime supplies webkit2gtk-4.1 and GTK.
+      - ar x mumbo.deb
+      - mkdir deb && tar -xf data.tar.* -C deb
+      - install -Dm755 deb/usr/bin/mumbo /app/bin/mumbo
+      # Flatpak requires desktop/icon files to be named after the app id.
+      - install -Dm644 deb/usr/share/applications/mumbo.desktop /app/share/applications/com.citelao.mumbo.desktop
+      - sed -i 's/^Icon=.*/Icon=com.citelao.mumbo/' /app/share/applications/com.citelao.mumbo.desktop
+      - |
+        for icon in deb/usr/share/icons/hicolor/*/apps/mumbo.png; do
+          dest=/app/share/icons/hicolor/${icon#deb/usr/share/icons/hicolor/}
+          install -Dm644 "$icon" "${dest%mumbo.png}com.citelao.mumbo.png"
+        done
+    sources:
+      # CI downloads the Linux build artifact into this directory as mumbo.deb.
+      - type: file
+        path: mumbo.deb

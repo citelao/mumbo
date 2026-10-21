@@ -1,0 +1,132 @@
+name: Release
+
+# Publishes installers to a GitHub Release for every commit on main whose CI
+# run succeeded. Runs off `workflow_run` so builds only happen after CI is green.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# Never cancel an in-flight publish; queue instead so tags stay ordered.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # `workflow_run` also fires for failed and PR-triggered runs.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            bundles: app
+          - name: macos-x64
+            os: macos-15-intel
+            bundles: app
+          - name: linux-x64
+            os: ubuntu-latest
+            bundles: deb,rpm
+          - name: windows-x64
+            os: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - if: runner.os == 'Linux'
+        uses: ./.github/actions/linux-deps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Bash on every OS: Windows' default PowerShell can swallow the `--`.
+      - run: npx tauri build --bundles ${{ matrix.bundles }} -- --locked
+        shell: bash
+
+      # Collect installers under a flat, arch-tagged name so the release job
+      # can upload them without clashing (e.g. two macOS builds).
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir staged
+          bundle=target/release/bundle
+          case "${{ runner.os }}" in
+            macOS)
+              # A .dmg would need Finder scripting, which is unreliable on CI.
+              ditto -c -k --keepParent "$bundle/macos/mumbo.app" "staged/mumbo-${{ matrix.name }}.app.zip"
+              ;;
+            Linux)
+              for f in "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm; do
+                cp "$f" "staged/mumbo-${{ matrix.name }}.${f##*.}"
+              done
+              ;;
+            Windows)
+              cp "$bundle"/nsis/*-setup.exe "staged/mumbo-${{ matrix.name }}-setup.exe"
+              ;;
+          esac
+          ls -l staged
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: staged/*
+          if-no-files-found: error
+
+  # Tauri can't emit a flatpak, so wrap the Linux .deb from the build job.
+  flatpak:
+    needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x64
+          path: linux
+      - run: cp linux/mumbo-linux-x64.deb packaging/flatpak/mumbo.deb
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: mumbo-linux-x64.flatpak
+          manifest-path: packaging/flatpak/com.citelao.mumbo.yml
+          cache-key: flatpak-builder-${{ github.event.workflow_run.head_sha }}
+
+  publish:
+    needs: [build, flatpak]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          merge-multiple: true
+
+      # Not checked out, so point gh at the repo explicitly.
+      - name: Create release
+        run: |
+          tag="build-${{ github.event.workflow_run.run_number }}"
+          gh release create "$tag" staged/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "mumbo ${SHA:0:7}" \
+            --generate-notes \
+            --latest
