@@ -57,7 +57,7 @@ export function ProtocolViewer({ entries, onClear }: { entries: ProtocolLogEntry
       >
         {visible.map((entry) => (
           <li key={entry.id} className={entry.ok ? undefined : "protocol-viewer-invalid"}>
-            <details>
+            <details open={false}>
               <summary>
                 <time>{entry.receivedAt.toLocaleTimeString()}</time> {entryLabel(entry)}
               </summary>
