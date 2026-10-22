@@ -3,7 +3,7 @@ import { getAudioInputDevices, getAudioOutputDevices, getServerStats } from "../
 import type { AudioDevice, ServerStats } from "../invoke";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
-import { throttled, useThrottledEffect, useTimeout } from "../helpers/throttle";
+import { throttled, useInterval, useThrottledEffect } from "../helpers/throttle";
 
 export interface OnConnectParams {
     server: string;
@@ -64,7 +64,7 @@ export default function LoginPage(props: LoginPageProps) {
     }, THROTTLE_MS), [server, port]);
 
     const REFRESH_STATS_MS = 10_000;
-    useTimeout(refreshServerStats, REFRESH_STATS_MS);
+    useInterval(refreshServerStats, REFRESH_STATS_MS);
 
     // TODO: refresh audio devices whenever the list changes.
     const [selectedAudioInputDevice, setSelectedAudioInputDevice] = useState<AudioDevice | null>(null);
@@ -166,7 +166,7 @@ export default function LoginPage(props: LoginPageProps) {
                     <div className={styles.footer}>
                         {serverStats && serverStats.stats && (
                             <div  className={[styles["user-count"], error ? styles.error : ""].join(" ")}>
-                                {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count}
+                                {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count} ({serverStats.stats.round_trip_time}ms)
                             </div>
                         ) || (
                             <div className={[styles["user-count"], error ? styles.error : ""].join(" ")}>
@@ -228,34 +228,25 @@ interface RecentServerButtonProps {
 function RecentServerButton(props: RecentServerButtonProps) {
     const { server, onRemove, onConnect } = props;
 
+    const fetchServerStats = async () => {
+        try {
+            const stats = await getServerStats({ server: server.server!, port: server.port! });
+            setServerStats(stats);
+        } catch (error) {
+            setServerStats(null);
+        }
+    };
+
     // Limit checking status to every 2s, worst-case (even though this should not refire).
     const [serverStats, setServerStats] = useState<ServerStats | null>(null);
     useThrottledEffect(() => {
-        const fetchServerStats = async () => {
-            try {
-                const stats = await getServerStats({ server: server.server!, port: server.port! });
-                setServerStats(stats);
-            } catch (error) {
-                setServerStats(null);
-            }
-        };
-
         fetchServerStats();
     }, [server.server, server.port], 2000);
 
-    // Also refresh server stats every 10s, regardless of throttling.
-    useTimeout(() => {
-        const fetchServerStats = async () => {
-            try {
-                const stats = await getServerStats({ server: server.server!, port: server.port! });
-                setServerStats(stats);
-            } catch (error) {
-                setServerStats(null);
-            }
-        };
-
+    // Also refresh server stats every few s, regardless of throttling.
+    useInterval(() => {
         fetchServerStats();
-    }, 10000);
+    }, 5_000);
 
     return (
         <li>
@@ -264,7 +255,8 @@ function RecentServerButton(props: RecentServerButtonProps) {
                     await onConnect(server);
                 }}>
                 {server.name} @ <strong>{server.server}</strong>:{server.port} <br />
-                {serverStats ? `${serverStats.user_count} / ${serverStats.max_user_count}` : "Fetching..."}
+                {serverStats ? `${serverStats.user_count} / ${serverStats.max_user_count}` : "Fetching..."}{" "}
+                {serverStats ? `(${serverStats.round_trip_time}ms)` : ""}
             </button>
             <button
                 className={styles.remove}

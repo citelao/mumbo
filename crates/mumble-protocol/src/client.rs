@@ -78,6 +78,7 @@ pub struct ConnectionOptions {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerStats {
+    pub round_trip_time: u64,
     pub server_version_v2: u64,
     pub user_count: u32,
     pub max_user_count: u32,
@@ -115,7 +116,10 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
         // Should be a ping message in response
         let response = crate::raw_udp::Ping::decode(&buf[1..len])?;
         if response.timestamp == timestamp {
+            let round_trip_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 - timestamp;
             return Ok(ServerStats {
+                round_trip_time,
                 server_version_v2: response.server_version_v2,
                 user_count: response.user_count,
                 max_user_count: response.max_user_count,

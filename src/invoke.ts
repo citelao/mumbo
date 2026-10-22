@@ -31,6 +31,7 @@ export async function setAudioOutputDevice(deviceId: string): Promise<void> {
 }
 
 const ServerStatsSchema = z.object({
+    round_trip_time: z.number(),
     server_version_v2: z.number(),
     user_count: z.number(),
     max_user_count: z.number(),

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook } from "@testing-library/react";
-import { throttled, useThrottledEffect, useTimeout } from "./throttle";
+import { throttled, useThrottledEffect, useInterval } from "./throttle";
 
 beforeEach(() => {
     vi.useFakeTimers();
@@ -145,10 +145,10 @@ describe("throttled", () => {
     });
 });
 
-describe("useTimeout", () => {
-    it("fires the callback once after the delay", () => {
+describe("useInterval", () => {
+    it("fires the callback every interval", () => {
         const callback = vi.fn();
-        renderHook(() => useTimeout(callback, 500));
+        renderHook(() => useInterval(callback, 500));
 
         vi.advanceTimersByTime(499);
         expect(callback).not.toHaveBeenCalled();
@@ -156,15 +156,15 @@ describe("useTimeout", () => {
         vi.advanceTimersByTime(1);
         expect(callback).toHaveBeenCalledTimes(1);
 
-        vi.advanceTimersByTime(5000);
-        expect(callback).toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(1500);
+        expect(callback).toHaveBeenCalledTimes(4);
     });
 
     it("calls the latest callback without restarting the timer", () => {
         const first = vi.fn();
         const second = vi.fn();
         const { rerender } = renderHook(
-            ({ callback }) => useTimeout(callback, 500),
+            ({ callback }) => useInterval(callback, 500),
             { initialProps: { callback: first } },
         );
 
@@ -177,12 +177,15 @@ describe("useTimeout", () => {
         vi.advanceTimersByTime(1);
         expect(first).not.toHaveBeenCalled();
         expect(second).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(500);
+        expect(second).toHaveBeenCalledTimes(2);
     });
 
     it("restarts the timer when the delay changes", () => {
         const callback = vi.fn();
         const { rerender } = renderHook(
-            ({ delay }) => useTimeout(callback, delay),
+            ({ delay }) => useInterval(callback, delay),
             { initialProps: { delay: 500 } },
         );
 
@@ -194,22 +197,28 @@ describe("useTimeout", () => {
 
         vi.advanceTimersByTime(1);
         expect(callback).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(1000);
+        expect(callback).toHaveBeenCalledTimes(2);
     });
 
-    it("does not fire after unmount", () => {
+    it("stops firing after unmount", () => {
         const callback = vi.fn();
-        const { unmount } = renderHook(() => useTimeout(callback, 500));
+        const { unmount } = renderHook(() => useInterval(callback, 500));
+
+        vi.advanceTimersByTime(500);
+        expect(callback).toHaveBeenCalledTimes(1);
 
         unmount();
-        vi.advanceTimersByTime(1000);
+        vi.advanceTimersByTime(2000);
 
-        expect(callback).not.toHaveBeenCalled();
+        expect(callback).toHaveBeenCalledTimes(1);
     });
 
     it("does not schedule when delay is null", () => {
         const callback = vi.fn();
         // The signature says `number`, but the implementation guards on null.
-        renderHook(() => useTimeout(callback, null as unknown as number));
+        renderHook(() => useInterval(callback, null as unknown as number));
 
         vi.advanceTimersByTime(10_000);
 
