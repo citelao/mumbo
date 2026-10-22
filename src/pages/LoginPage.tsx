@@ -243,6 +243,20 @@ function RecentServerButton(props: RecentServerButtonProps) {
         fetchServerStats();
     }, [server.server, server.port], 2000);
 
+    // Also refresh server stats every 10s, regardless of throttling.
+    useTimeout(() => {
+        const fetchServerStats = async () => {
+            try {
+                const stats = await getServerStats({ server: server.server!, port: server.port! });
+                setServerStats(stats);
+            } catch (error) {
+                setServerStats(null);
+            }
+        };
+
+        fetchServerStats();
+    }, 10000);
+
     return (
         <li>
             <button onClick={async (e) => {
