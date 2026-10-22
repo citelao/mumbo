@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook } from "@testing-library/react";
-import { throttled, useThrottledEffect } from "./throttle";
+import { throttled, useThrottledEffect, useTimeout } from "./throttle";
 
 beforeEach(() => {
     vi.useFakeTimers();
@@ -142,5 +142,77 @@ describe("throttled", () => {
         const run = throttled(async () => { throw new Error("boom"); }, 1000);
 
         await expect(run()).rejects.toThrow("boom");
+    });
+});
+
+describe("useTimeout", () => {
+    it("fires the callback once after the delay", () => {
+        const callback = vi.fn();
+        renderHook(() => useTimeout(callback, 500));
+
+        vi.advanceTimersByTime(499);
+        expect(callback).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(1);
+        expect(callback).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(5000);
+        expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it("calls the latest callback without restarting the timer", () => {
+        const first = vi.fn();
+        const second = vi.fn();
+        const { rerender } = renderHook(
+            ({ callback }) => useTimeout(callback, 500),
+            { initialProps: { callback: first } },
+        );
+
+        vi.advanceTimersByTime(300);
+        rerender({ callback: second });
+
+        vi.advanceTimersByTime(199);
+        expect(second).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(1);
+        expect(first).not.toHaveBeenCalled();
+        expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it("restarts the timer when the delay changes", () => {
+        const callback = vi.fn();
+        const { rerender } = renderHook(
+            ({ delay }) => useTimeout(callback, delay),
+            { initialProps: { delay: 500 } },
+        );
+
+        vi.advanceTimersByTime(300);
+        rerender({ delay: 1000 });
+
+        vi.advanceTimersByTime(999);
+        expect(callback).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(1);
+        expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not fire after unmount", () => {
+        const callback = vi.fn();
+        const { unmount } = renderHook(() => useTimeout(callback, 500));
+
+        unmount();
+        vi.advanceTimersByTime(1000);
+
+        expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("does not schedule when delay is null", () => {
+        const callback = vi.fn();
+        // The signature says `number`, but the implementation guards on null.
+        renderHook(() => useTimeout(callback, null as unknown as number));
+
+        vi.advanceTimersByTime(10_000);
+
+        expect(callback).not.toHaveBeenCalled();
     });
 });

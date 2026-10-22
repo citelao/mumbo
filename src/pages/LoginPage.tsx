@@ -3,7 +3,7 @@ import { getAudioInputDevices, getAudioOutputDevices, getServerStats } from "../
 import type { AudioDevice, ServerStats } from "../invoke";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
-import { throttled, useThrottledEffect } from "../helpers/throttle";
+import { throttled, useThrottledEffect, useTimeout } from "../helpers/throttle";
 
 export interface OnConnectParams {
     server: string;
@@ -45,8 +45,8 @@ export default function LoginPage(props: LoginPageProps) {
         refreshAudioDevices();
     }, []);
 
-    // Refresh server stats, throttled to at most once every 500ms.
-    const THROTTLE_MS = 500;
+    // Refresh server stats, throttled to avoid server load.
+    const THROTTLE_MS = 2000;
     const refreshServerStats = useCallback(throttled(async () => {
         // if (serverStats && serverStats.server === server && serverStats.port === port) {
         //     return;
@@ -62,6 +62,9 @@ export default function LoginPage(props: LoginPageProps) {
             setError("Failed to fetch server stats");
         }
     }, THROTTLE_MS), [server, port]);
+
+    const REFRESH_STATS_MS = 10_000;
+    useTimeout(refreshServerStats, REFRESH_STATS_MS);
 
     // TODO: refresh audio devices whenever the list changes.
     const [selectedAudioInputDevice, setSelectedAudioInputDevice] = useState<AudioDevice | null>(null);

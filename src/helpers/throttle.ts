@@ -64,3 +64,17 @@ export function throttled<T>(fn: () => Promise<T>, intervalMs: number): () => Pr
     };
     return run;
 }
+
+export function useTimeout(callback: () => void, delay: number) {
+    const savedCallback = useRef(callback);
+
+    useEffect(() => {
+        savedCallback.current = callback;
+    }, [callback]);
+
+    useEffect(() => {
+        if (delay === null) return;
+        const id = setTimeout(() => savedCallback.current(), delay);
+        return () => clearTimeout(id);
+    }, [delay]);
+}
