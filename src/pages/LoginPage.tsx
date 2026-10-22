@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { getAudioInputDevices, getAudioOutputDevices, getServerStats } from "../invoke";
-import type { AudioDevice, ServerStats } from "../invoke";
+import { getServerStats } from "../invoke";
+import type { ServerStats } from "../invoke";
+import { getAudioInputDevices, getAudioOutputDevices } from "../invoke/audio";
+import type { AudioDevice } from "../invoke/audio";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
 import { throttled, useInterval, useThrottledEffect } from "../helpers/throttle";

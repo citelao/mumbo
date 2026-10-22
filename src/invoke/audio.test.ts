@@ -2,13 +2,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import fixture from "../src-tauri/fixtures/audio_devices.json";
+import fixture from "../../src-tauri/fixtures/audio_devices.json";
 import {
     getAudioInputDevices,
     getAudioOutputDevices,
     setAudioInputDevice,
     setAudioOutputDevice,
-} from "./invoke";
+} from "./audio";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);

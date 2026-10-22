@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../mumbleState";
+import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
 

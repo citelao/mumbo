@@ -3,11 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import LoginPage from "./LoginPage";
-import * as api from "../invoke";
+import * as audio from "../invoke/audio";
 
 vi.mock("../invoke", async (orig) => ({
     ...(await orig<typeof import("../invoke")>()),
     getServerStats: vi.fn(async () => { throw new Error("offline"); }),
+}));
+vi.mock("../invoke/audio", async (orig) => ({
+    ...(await orig<typeof import("../invoke/audio")>()),
     getAudioInputDevices: vi.fn(),
     getAudioOutputDevices: vi.fn(),
     setAudioInputDevice: vi.fn(),
@@ -25,8 +28,8 @@ const outputs = [
 
 beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(api.getAudioInputDevices).mockResolvedValue(inputs);
-    vi.mocked(api.getAudioOutputDevices).mockResolvedValue(outputs);
+    vi.mocked(audio.getAudioInputDevices).mockResolvedValue(inputs);
+    vi.mocked(audio.getAudioOutputDevices).mockResolvedValue(outputs);
 });
 afterEach(() => {
     cleanup();
@@ -64,16 +67,16 @@ describe("LoginPage audio settings", () => {
     it.todo("tells the backend when the user picks a device (setters are still todo!() in Rust)");
 
     it("handles no devices without crashing", async () => {
-        vi.mocked(api.getAudioInputDevices).mockResolvedValue([]);
-        vi.mocked(api.getAudioOutputDevices).mockResolvedValue([]);
+        vi.mocked(audio.getAudioInputDevices).mockResolvedValue([]);
+        vi.mocked(audio.getAudioOutputDevices).mockResolvedValue([]);
         renderPage();
-        await waitFor(() => expect(api.getAudioOutputDevices).toHaveBeenCalled());
+        await waitFor(() => expect(audio.getAudioOutputDevices).toHaveBeenCalled());
         expect(select("Audio input").options).toHaveLength(0);
         expect(select("Audio input").value).toBe("");
     });
 
     it("selects nothing when no device is flagged default", async () => {
-        vi.mocked(api.getAudioInputDevices).mockResolvedValue(
+        vi.mocked(audio.getAudioInputDevices).mockResolvedValue(
             inputs.map((d) => ({ ...d, is_default: false })),
         );
         renderPage();
@@ -83,7 +86,7 @@ describe("LoginPage audio settings", () => {
     });
 
     it("shows empty selects and logs when device listing fails", async () => {
-        vi.mocked(api.getAudioInputDevices).mockRejectedValue("boom");
+        vi.mocked(audio.getAudioInputDevices).mockRejectedValue("boom");
         renderPage();
         await waitFor(() => expect(console.error).toHaveBeenCalled());
         expect(select("Audio input").options).toHaveLength(0);
