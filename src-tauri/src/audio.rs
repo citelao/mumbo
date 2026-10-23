@@ -250,17 +250,19 @@ impl AudioModule {
         // TODO: rebuild the stream if audio is already running.
     }
 
-    /// Prefers the listed input device with this `id` the next time audio starts.
-    pub fn select_input_device(&self, id: &str) -> Result<(), AudioError> {
-        let device = find_device(&self.input_devices.borrow(), id)?;
-        self.set_preferred_input_device(Some(device));
+    /// Prefers the listed input device with this `id` the next time audio
+    /// starts. `None` goes back to following the system default.
+    pub fn select_input_device(&self, id: Option<&str>) -> Result<(), AudioError> {
+        let device = id.map(|id| find_device(&self.input_devices.borrow(), id)).transpose()?;
+        self.set_preferred_input_device(device);
         Ok(())
     }
 
-    /// Prefers the listed output device with this `id`.
-    pub fn select_output_device(&self, id: &str) -> Result<(), AudioError> {
-        let device = find_device(&self.output_devices.borrow(), id)?;
-        self.set_preferred_output_device(Some(device));
+    /// Prefers the listed output device with this `id`. `None` goes back to
+    /// following the system default.
+    pub fn select_output_device(&self, id: Option<&str>) -> Result<(), AudioError> {
+        let device = id.map(|id| find_device(&self.output_devices.borrow(), id)).transpose()?;
+        self.set_preferred_output_device(device);
         Ok(())
     }
 
@@ -726,7 +728,7 @@ mod tests {
     fn selecting_a_listed_input_device_makes_it_the_preference() {
         let module = module_with(vec![device("a"), device("b")], vec![]);
 
-        module.select_input_device("b").unwrap();
+        module.select_input_device(Some("b")).unwrap();
 
         assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
     }
@@ -735,7 +737,7 @@ mod tests {
     fn selecting_a_listed_output_device_makes_it_the_preference() {
         let module = module_with(vec![], vec![device("x"), device("y")]);
 
-        module.select_output_device("y").unwrap();
+        module.select_output_device(Some("y")).unwrap();
 
         assert_eq!(preferred_id(&module.preferred_output_device).as_deref(), Some("y"));
         assert_eq!(preferred_id(&module.preferred_input_device), None);
@@ -744,12 +746,32 @@ mod tests {
     #[test]
     fn selecting_an_unlisted_device_fails_and_keeps_the_preference() {
         let module = module_with(vec![device("a")], vec![device("x")]);
-        module.select_input_device("a").unwrap();
+        module.select_input_device(Some("a")).unwrap();
 
-        assert!(matches!(module.select_input_device("nope"), Err(AudioError::UnknownDevice(id)) if id == "nope"));
-        assert!(matches!(module.select_output_device("a"), Err(AudioError::UnknownDevice(_))), "inputs are not outputs");
+        assert!(matches!(module.select_input_device(Some("nope")), Err(AudioError::UnknownDevice(id)) if id == "nope"));
+        assert!(matches!(module.select_output_device(Some("a")), Err(AudioError::UnknownDevice(_))), "inputs are not outputs");
 
         assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("a"));
+        assert_eq!(preferred_id(&module.preferred_output_device), None);
+    }
+
+    #[test]
+    fn selecting_no_input_device_goes_back_to_the_default() {
+        let module = module_with(vec![device("a")], vec![]);
+        module.select_input_device(Some("a")).unwrap();
+
+        module.select_input_device(None).unwrap();
+
+        assert_eq!(preferred_id(&module.preferred_input_device), None);
+    }
+
+    #[test]
+    fn selecting_no_output_device_goes_back_to_the_default() {
+        let module = module_with(vec![], vec![device("x")]);
+        module.select_output_device(Some("x")).unwrap();
+
+        module.select_output_device(None).unwrap();
+
         assert_eq!(preferred_id(&module.preferred_output_device), None);
     }
 
@@ -757,8 +779,8 @@ mod tests {
     fn the_preference_can_change_again() {
         let module = module_with(vec![device("a"), device("b")], vec![]);
 
-        module.select_input_device("a").unwrap();
-        module.select_input_device("b").unwrap();
+        module.select_input_device(Some("a")).unwrap();
+        module.select_input_device(Some("b")).unwrap();
 
         assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
     }

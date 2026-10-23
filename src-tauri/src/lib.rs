@@ -18,15 +18,15 @@ struct AppState {
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-// `device_id` is the frontend's IPC arg name.
+// `device_id` is the frontend's IPC arg name. `None` means the system default.
 #[tauri::command]
-fn set_audio_input_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
-    state.audio_module.select_input_device(&device_id).map_err(|e| e.to_string())
+fn set_audio_input_device(state: tauri::State<'_, AppState>, device_id: Option<String>) -> Result<(), String> {
+    state.audio_module.select_input_device(device_id.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn set_audio_output_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
-    state.audio_module.select_output_device(&device_id).map_err(|e| e.to_string())
+fn set_audio_output_device(state: tauri::State<'_, AppState>, device_id: Option<String>) -> Result<(), String> {
+    state.audio_module.select_output_device(device_id.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

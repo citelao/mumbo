@@ -46,9 +46,11 @@ export async function subscribeAudioDevices(handlers: AudioDeviceHandlers): Prom
         stopOutputs();
     };
 }
-export async function setAudioInputDevice(deviceId: string): Promise<void> {
+/** `null` goes back to the system default. */
+export async function setAudioInputDevice(deviceId: string | null): Promise<void> {
     return invoke("set_audio_input_device", { deviceId });
 }
-export async function setAudioOutputDevice(deviceId: string): Promise<void> {
+/** `null` goes back to the system default. */
+export async function setAudioOutputDevice(deviceId: string | null): Promise<void> {
     return invoke("set_audio_output_device", { deviceId });
 }

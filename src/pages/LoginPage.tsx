@@ -72,20 +72,18 @@ export default function LoginPage(props: LoginPageProps) {
     const [audioInputDevices, setAudioInputDevices] = useState<AudioDevice[]>([]);
     const [audioOutputDevices, setAudioOutputDevices] = useState<AudioDevice[]>([]);
     useEffect(() => {
-        // Keep the user's pick while it is still plugged in; otherwise use the default.
-        const keepOrDefault = (devices: AudioDevice[]) => (current: AudioDevice | null) =>
-            devices.find(device => device.id === current?.id)
-            ?? devices.find(device => device.is_default)
-            ?? null;
+        // Keep the user's pick while it is still plugged in; otherwise follow the default.
+        const keepIfPresent = (devices: AudioDevice[]) => (current: AudioDevice | null) =>
+            devices.find(device => device.id === current?.id) ?? null;
 
         const subscription = subscribeAudioDevices({
             onInputs: (devices) => {
                 setAudioInputDevices(devices);
-                setSelectedAudioInputDevice(keepOrDefault(devices));
+                setSelectedAudioInputDevice(keepIfPresent(devices));
             },
             onOutputs: (devices) => {
                 setAudioOutputDevices(devices);
-                setSelectedAudioOutputDevice(keepOrDefault(devices));
+                setSelectedAudioOutputDevice(keepIfPresent(devices));
             },
         });
         subscription.catch((err) => console.error("Failed to subscribe to audio devices:", err));
@@ -195,11 +193,10 @@ export default function LoginPage(props: LoginPageProps) {
                     <select id="audio-input" value={selectedAudioInputDevice?.id ?? ""} onChange={(e) => {
                         const device = audioInputDevices.find(d => d.id === e.target.value);
                         setSelectedAudioInputDevice(device ?? null);
-                        if (device) {
-                            setAudioInputDevice(device.id)
-                                .catch((err) => console.error("Failed to set audio input device:", err));
-                        }
+                        setAudioInputDevice(device?.id ?? null)
+                            .catch((err) => console.error("Failed to set audio input device:", err));
                     }}>
+                        <option value="">Default device</option>
                         {audioInputDevices.map((device) => {
                             const isDefault = device.is_default;
                             return (
@@ -214,11 +211,10 @@ export default function LoginPage(props: LoginPageProps) {
                     <select id="audio-output" value={selectedAudioOutputDevice?.id ?? ""} onChange={(e) => {
                         const device = audioOutputDevices.find(d => d.id === e.target.value);
                         setSelectedAudioOutputDevice(device ?? null);
-                        if (device) {
-                            setAudioOutputDevice(device.id)
-                                .catch((err) => console.error("Failed to set audio output device:", err));
-                        }
+                        setAudioOutputDevice(device?.id ?? null)
+                            .catch((err) => console.error("Failed to set audio output device:", err));
                     }}>
+                        <option value="">Default device</option>
                         {audioOutputDevices.map((device) => {
                             const isDefault = device.is_default;
                             return (

@@ -109,6 +109,12 @@ for (const [kind, fn, command] of [
         expect(mockInvoke).toHaveBeenCalledWith(command, { deviceId: "b" });
     });
 
+    it("passes null when going back to the default device", async () => {
+        mockInvoke.mockResolvedValue(undefined);
+        await fn(null);
+        expect(mockInvoke).toHaveBeenCalledWith(command, { deviceId: null });
+    });
+
     it("propagates backend errors", async () => {
         mockInvoke.mockRejectedValue("unknown device");
         await expect(fn("zzz")).rejects.toBe("unknown device");

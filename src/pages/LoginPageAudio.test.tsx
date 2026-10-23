@@ -60,21 +60,23 @@ describe("LoginPage audio settings", () => {
     it("lists devices and labels the default", async () => {
         await renderWithDevices();
         await screen.findByRole("option", { name: /USB Mic/ });
+        expect(screen.getAllByRole("option", { name: "Default device" })).toHaveLength(2);
         expect(screen.getByRole("option", { name: "USB Mic (Default)" })).toBeTruthy();
         expect(screen.getByRole("option", { name: "Built-in Mic" })).toBeTruthy();
         expect(screen.getByRole("option", { name: "Headphones" })).toBeTruthy();
     });
 
-    it("preselects the default input and output", async () => {
+    it("starts on \"Default device\" for both", async () => {
         await renderWithDevices();
-        await waitFor(() => expect(select("Audio input").value).toBe("in-b"));
-        expect(select("Audio output").value).toBe("out-a");
+        await screen.findByRole("option", { name: "USB Mic (Default)" });
+        expect(select("Audio input").value).toBe("");
+        expect(select("Audio output").value).toBe("");
+        expect(select("Audio input").selectedOptions[0]?.textContent).toBe("Default device");
     });
 
     it("changing the selection updates the select", async () => {
         const user = userEvent.setup();
         await renderWithDevices();
-        await waitFor(() => expect(select("Audio input").value).toBe("in-b"));
         await user.selectOptions(select("Audio input"), "in-a");
         await user.selectOptions(select("Audio output"), "out-b");
         expect(select("Audio input").value).toBe("in-a");
@@ -97,9 +99,9 @@ describe("LoginPage audio settings", () => {
         expect(audio.setAudioInputDevice).not.toHaveBeenCalled();
     });
 
-    it("does not report the automatic default selection as a user choice", async () => {
+    it("does not report the initial selection as a user choice", async () => {
         await renderWithDevices();
-        await waitFor(() => expect(select("Audio input").value).toBe("in-b"));
+        await screen.findByRole("option", { name: "USB Mic (Default)" });
         expect(audio.setAudioInputDevice).not.toHaveBeenCalled();
         expect(audio.setAudioOutputDevice).not.toHaveBeenCalled();
     });
@@ -115,17 +117,41 @@ describe("LoginPage audio settings", () => {
         ));
     });
 
+    it("goes back to the default input when the user picks \"Default device\"", async () => {
+        const user = userEvent.setup();
+        await renderWithDevices();
+        await user.selectOptions(select("Audio input"), "in-a");
+
+        await user.selectOptions(select("Audio input"), "");
+
+        expect(select("Audio input").value).toBe("");
+        expect(audio.setAudioInputDevice).toHaveBeenLastCalledWith(null);
+        expect(audio.setAudioInputDevice).toHaveBeenCalledTimes(2);
+    });
+
+    it("goes back to the default output when the user picks \"Default device\"", async () => {
+        const user = userEvent.setup();
+        await renderWithDevices();
+        await user.selectOptions(select("Audio output"), "out-b");
+
+        await user.selectOptions(select("Audio output"), "");
+
+        expect(select("Audio output").value).toBe("");
+        expect(audio.setAudioOutputDevice).toHaveBeenLastCalledWith(null);
+        expect(audio.setAudioInputDevice).not.toHaveBeenCalled();
+    });
+
     it("handles no devices without crashing", async () => {
         await renderWithDevices([], []);
-        expect(select("Audio input").options).toHaveLength(0);
+        // Only "Default device" is left to choose.
+        expect(select("Audio input").options).toHaveLength(1);
         expect(select("Audio input").value).toBe("");
     });
 
-    it("selects nothing when no device is flagged default", async () => {
+    it("stays on \"Default device\" when no device is flagged default", async () => {
         await renderWithDevices(inputs.map((d) => ({ ...d, is_default: false })));
         await screen.findByRole("option", { name: "USB Mic" });
-        // A controlled <select> with value "" and no matching option shows the first option.
-        expect(select("Audio input").selectedOptions[0]?.value).toBe("in-a");
+        expect(select("Audio input").value).toBe("");
     });
 
     it("keeps the user's pick when the list changes", async () => {
@@ -139,14 +165,14 @@ describe("LoginPage audio settings", () => {
         expect(select("Audio input").value).toBe("in-a");
     });
 
-    it("falls back to the default when the selected device is unplugged", async () => {
+    it("falls back to \"Default device\" when the selected device is unplugged", async () => {
         const user = userEvent.setup();
         await renderWithDevices();
         await user.selectOptions(select("Audio input"), "in-a");
 
         act(() => handlers.onInputs([inputs[1]!]));
 
-        await waitFor(() => expect(select("Audio input").value).toBe("in-b"));
+        await waitFor(() => expect(select("Audio input").value).toBe(""));
         expect(screen.queryByRole("option", { name: "Built-in Mic" })).toBeNull();
     });
 
@@ -154,8 +180,8 @@ describe("LoginPage audio settings", () => {
         vi.mocked(audio.subscribeAudioDevices).mockRejectedValue("boom");
         renderPage();
         await waitFor(() => expect(console.error).toHaveBeenCalled());
-        expect(select("Audio input").options).toHaveLength(0);
-        expect(select("Audio output").options).toHaveLength(0);
+        expect(select("Audio input").options).toHaveLength(1);
+        expect(select("Audio output").options).toHaveLength(1);
         expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
     });
 
