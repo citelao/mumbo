@@ -271,10 +271,10 @@ async fn connect_internal(
                 SelfMuteStatus::Unmuted => Some(false),
                 SelfMuteStatus::Muting | SelfMuteStatus::Unmuting => None,
             };
-            if let (Some(muter), Some(muted)) = (universal_muter.as_mut(), confirmed_mute) {
-                if let Err(e) = muter.confirm(muted) {
-                    log::warn!("Universal mute couldn't update the button: {e}");
-                }
+            if let (Some(muter), Some(muted)) = (universal_muter.as_mut(), confirmed_mute)
+                && let Err(e) = muter.confirm(muted)
+            {
+                log::warn!("Universal mute couldn't update the button: {e}");
             }
         }
         // `recv` only returns `None` once the driver has exited, so the
@@ -667,7 +667,9 @@ mod tests {
         // Judge 100 ms at a time. The level is checked, not the pitch: NetEq's time
         // stretching bends a pure tone when audio arrives in real time (see TODO.md).
         let windows: Vec<(f32, f32)> = mixed
-            .chunks_exact(MIX_FRAME_SAMPLES * 10)
+            .as_chunks::<{ MIX_FRAME_SAMPLES * 10 }>()
+            .0
+            .iter()
             .map(|w| {
                 let rms = (w.iter().map(|s| s * s).sum::<f32>() / w.len() as f32).sqrt();
                 (rms, tone_strength(w, 3000.0))
