@@ -25,6 +25,17 @@ pub struct MumbleClient {
     self_muted: Arc<AtomicBool>,
 }
 
+/// Self-mute as the user sees it: what they asked for, and whether the server
+/// has confirmed it yet. Audio stops as soon as a mute is requested, so
+/// `Muting` is already silent; it just isn't visible to other users yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum SelfMuteStatus {
+    Unmuted,
+    Muting,
+    Muted,
+    Unmuting,
+}
+
 pub struct Connection {
     pub client: MumbleClient,
 
@@ -427,6 +438,19 @@ impl MumbleClient {
         })))
     }
 
+    /// Compares the mute we last requested against the one the server last
+    /// reported for us. Until the server's `UserState` arrives, the two differ.
+    pub fn self_mute_status(&self) -> SelfMuteStatus {
+        let requested = self.self_muted.load(Ordering::Relaxed);
+        let confirmed = self.state.lock().unwrap().current_user().is_some_and(|user| user.self_mute());
+        match (requested, confirmed) {
+            (false, false) => SelfMuteStatus::Unmuted,
+            (true, false) => SelfMuteStatus::Muting,
+            (true, true) => SelfMuteStatus::Muted,
+            (false, true) => SelfMuteStatus::Unmuting,
+        }
+    }
+
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {
         self.outgoing.send(message).map_err(|_| MumbleConnectionError::Disconnected)
     }
@@ -468,9 +492,15 @@ mod tests {
         }
 
         async fn receive_message<M: TcpMessageId>(&mut self) -> M {
-            let frame = self.receive().await.expect("client hung up");
-            assert_eq!(frame.type_id, M::TYPE_ID, "unexpected message type");
-            M::decode(frame.payload).unwrap()
+            loop {
+                let frame = self.receive().await.expect("client hung up");
+                // Keepalives arrive whenever; they're never what a test is waiting for.
+                if frame.type_id == raw::Ping::TYPE_ID && M::TYPE_ID != raw::Ping::TYPE_ID {
+                    continue;
+                }
+                assert_eq!(frame.type_id, M::TYPE_ID, "unexpected message type");
+                return M::decode(frame.payload).unwrap();
+            }
         }
 
         /// The next voice packet the client sent, skipping pings.
@@ -747,6 +777,27 @@ mod tests {
         assert_eq!(server.receive_message::<raw::UserState>().await.self_mute, Some(true));
         let terminator = server.receive_audio().await;
         assert_eq!((terminator.opus_data, terminator.frame_number, terminator.is_terminator), (vec![], 2, true));
+    }
+
+    #[tokio::test]
+    async fn mute_is_pending_until_the_server_confirms() {
+        let (connection, mut server) = connected().await;
+        let client = &connection.client;
+        assert_eq!(client.self_mute_status(), SelfMuteStatus::Unmuted);
+
+        client.set_self_mute(true).unwrap();
+        assert_eq!(client.self_mute_status(), SelfMuteStatus::Muting);
+
+        server.receive_message::<raw::UserState>().await;
+        server.send(raw::UserState { session: Some(2), self_mute: Some(true), ..Default::default() }).await;
+        wait_until(|| client.self_mute_status() == SelfMuteStatus::Muted).await;
+
+        client.set_self_mute(false).unwrap();
+        assert_eq!(client.self_mute_status(), SelfMuteStatus::Unmuting);
+
+        server.receive_message::<raw::UserState>().await;
+        server.send(raw::UserState { session: Some(2), self_mute: Some(false), ..Default::default() }).await;
+        wait_until(|| client.self_mute_status() == SelfMuteStatus::Unmuted).await;
     }
 
     #[tokio::test]
