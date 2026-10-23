@@ -48,4 +48,5 @@ Work tracker.
 - [ ] Show latency stats (like iOS!)
 - [ ] Allow saving favorites?
 - [ ] Show common public servers?
+- [ ] Save passwords for recent servers in the OS keychain (`keyring` crate), not in the plain-JSON store
 - [ ] Include a help link
