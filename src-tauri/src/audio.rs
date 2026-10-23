@@ -104,6 +104,90 @@ pub const DESIRED_INPUT_SAMPLE_RATE: u32 = 48_000;
 /// 10 ms at 48 kHz: the frame size for microphone input.
 const MIC_FRAME_SAMPLES: usize = DESIRED_INPUT_SAMPLE_RATE as usize / 100;
 
+/// Speakers are mixed and played at 48 kHz mono, whatever the output device runs at.
+pub const SPEAKER_SAMPLE_RATE: u32 = 48_000;
+
+/// 10 ms at 48 kHz: the frame size a `SpeakerSource` produces.
+pub const SPEAKER_FRAME_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 100;
+
+/// Room for ~200 ms of queued playback.
+const SPEAKER_HEADROOM_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 1000 * 200;
+
+/// Playback is topped up to this level each tick. NetEq absorbs network jitter,
+/// so this only needs to cover timer slop.
+const SPEAKER_TARGET_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 1000 * 40;
+
+/// What the module plays: the mixed audio of everyone who is talking.
+pub trait SpeakerSource: Send {
+    /// The next 10 ms to play. `None` means there will be no more (e.g. the
+    /// connection closed), which stops the module.
+    fn next_frame(&mut self) -> Result<Option<[i16; SPEAKER_FRAME_SAMPLES]>, Error>;
+}
+
+impl<F> SpeakerSource for F
+where
+    F: FnMut() -> Result<Option<[i16; SPEAKER_FRAME_SAMPLES]>, Error> + Send,
+{
+    fn next_frame(&mut self) -> Result<Option<[i16; SPEAKER_FRAME_SAMPLES]>, Error> {
+        self()
+    }
+}
+
+/// The preferred device if it is connected, otherwise the system default.
+fn resolve_device(
+    host: &cpal::Host,
+    preferred: Option<&AudioDevice>,
+    default: Option<cpal::Device>,
+) -> Option<cpal::Device> {
+    let Some(preferred) = preferred else {
+        return default;
+    };
+    let found = DeviceId::from_str(&preferred.id)
+        .ok()
+        .and_then(|id| host.device_by_id(&id));
+    if found.is_none() {
+        log::warn!("Preferred audio device {:?} is not available; using the default", preferred.name);
+    }
+    found.or(default)
+}
+
+/// Prefers 48 kHz f32, since playback is not resampled.
+fn output_stream_config(device: &cpal::Device) -> Result<cpal::StreamConfig, AudioError> {
+    let preferred = device
+        .supported_output_configs()?
+        .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
+        .find_map(|c| c.try_with_sample_rate(SPEAKER_SAMPLE_RATE));
+    let config = match preferred {
+        Some(supported) => supported.config(),
+        None => device.default_output_config()?.config(),
+    };
+    if config.sample_rate != SPEAKER_SAMPLE_RATE {
+        // TODO: resample playback; at the wrong rate it plays at the wrong speed.
+        log::warn!("Speakers run at {} Hz, not {SPEAKER_SAMPLE_RATE} Hz", config.sample_rate);
+    }
+    Ok(config)
+}
+
+/// Tops `output` up to `target_samples` from `speakers`. Everything played also
+/// goes to the echo canceller as its reference, so the mic can subtract it.
+/// Returns `false` once the source has ended.
+fn top_up_output(
+    output: &mut impl Producer<Item = i16>,
+    target_samples: usize,
+    speakers: &mut impl SpeakerSource,
+    apm: &mut AudioProcessing,
+) -> Result<bool, AudioError> {
+    while output.occupied_len() < target_samples {
+        let Some(frame) = speakers.next_frame()? else {
+            return Ok(false);
+        };
+        let mut played = [0i16; SPEAKER_FRAME_SAMPLES];
+        apm.process_render_i16(&frame, &mut played)?;
+        output.push_slice(&played);
+    }
+    Ok(true)
+}
+
 pub struct AudioModule {
     // The latest audio devices! Eventually we can update the list live, but for
     // now it is loaded once at startup.
@@ -114,11 +198,11 @@ pub struct AudioModule {
     preferred_output_device: tokio::sync::watch::Sender<Option<AudioDevice>>,
 }
 
-pub trait MicFrameSink {
+pub trait MicFrameSink: Send {
     fn on_mic_frame(&mut self, frame: &[u8], frame_counter: u64, is_terminator: bool);
 }
 
-impl<F: FnMut(&[u8], u64, bool)> MicFrameSink for F {
+impl<F: FnMut(&[u8], u64, bool) + Send> MicFrameSink for F {
     fn on_mic_frame(&mut self, frame: &[u8], frame_counter: u64, is_terminator: bool) {
         (self)(frame, frame_counter, is_terminator);
     }
@@ -193,16 +277,15 @@ impl AudioModule {
         // TODO: rebuild the stream if audio is already running.
     }
 
-    pub fn start(&self, mut on_mic_frame: impl MicFrameSink + 'static, _on_speaker_frame: impl Fn(Vec<f32>) + Send + 'static) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
+    pub fn start(&self, mut on_mic_frame: impl MicFrameSink + 'static, mut speakers: impl SpeakerSource + 'static) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
         let host = cpal::default_host();
-        let preferred_input_device_id = self.preferred_input_device.borrow().as_ref().and_then(|d| DeviceId::from_str(&d.id).ok());
-
-        let input_device = if let Some(id) = preferred_input_device_id && let Some(device) = host.device_by_id(&id) {
-            device
-        } else {
-            host.default_input_device()
-                .ok_or_else(|| AudioError::NoAudioDevice)?
-        };
+        let input_device = resolve_device(&host, self.preferred_input_device.borrow().as_ref(), host.default_input_device())
+            .ok_or(AudioError::NoAudioDevice)?;
+        let output_device = resolve_device(&host, self.preferred_output_device.borrow().as_ref(), host.default_output_device())
+            .ok_or(AudioError::NoAudioDevice)?;
+        let output_config = output_stream_config(&output_device)?;
+        let output_channels = output_config.channels as usize;
+        let (mut output_producer, mut output_consumer) = HeapRb::<i16>::new(SPEAKER_HEADROOM_SAMPLES).split();
 
         // TODO: better config detection. e.g. handling arbitrary sample rates & channel counts.
         let input_config = input_device
@@ -237,6 +320,7 @@ impl AudioModule {
         apm.set_stream_delay_ms(50)?;
 
         log::info!("Audio input: {:?}, {input_config:?}", input_device.description()?);
+        log::info!("Audio output: {:?}, {output_config:?}", output_device.description()?);
         log::info!("Audio processing config: {apm_config:?}");
         if input_config.sample_rate != DESIRED_INPUT_SAMPLE_RATE {
             log::warn!("Mic runs at {} Hz; resampling to {DESIRED_INPUT_SAMPLE_RATE} Hz for Opus", input_config.sample_rate);
@@ -255,6 +339,21 @@ impl AudioModule {
                 None,
             )?;
             mic_stream.play()?;
+
+            // Playback stops when `speaker_stream` is dropped, so it lives for the whole loop.
+            let speaker_stream = output_device.build_output_stream(
+                output_config,
+                move |output: &mut [f32], _| {
+                    // same value in every channel
+                    for frame in output.chunks_mut(output_channels) {
+                        let sample = output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                        frame.fill(sample);
+                    }
+                },
+                |err| log::error!("speaker stream error: {err}"),
+                None,
+            )?;
+            speaker_stream.play()?;
 
             let mut encoder = opus::Encoder::new(
                 DESIRED_INPUT_SAMPLE_RATE,
@@ -276,6 +375,14 @@ impl AudioModule {
             loop {
                 tokio::select! {
                     _ = mix_interval.tick() => {
+                        // Top the ring buffer up to a fixed level rather than mixing once per
+                        // tick: the card drains it at its own rate, so this follows the card's
+                        // clock instead of drifting against this timer.
+                        if !top_up_output(&mut output_producer, SPEAKER_TARGET_SAMPLES, &mut speakers, &mut apm)? {
+                            log::info!("Nothing left to play; stopping audio");
+                            break;
+                        }
+
                         // Send complete mic frames, resampled to 48 kHz first.
                         captured.resize(input_consumer.occupied_len(), 0.0);
                         input_consumer.pop_slice(&mut captured);
@@ -461,6 +568,143 @@ mod tests {
         // Not "exactly one when any exist": ALSA on headless Linux lists devices
         // but reports a default that isn't among them.
         assert!(defaults <= 1, "at most one device may be the default");
+    }
+
+    type Frame = [i16; SPEAKER_FRAME_SAMPLES];
+
+    fn ring(capacity: usize) -> (ringbuf::HeapProd<i16>, ringbuf::HeapCons<i16>) {
+        HeapRb::<i16>::new(capacity).split()
+    }
+
+    #[test]
+    fn top_up_fills_the_ring_to_the_target_with_whole_frames() {
+        let (mut producer, mut consumer) = ring(4800);
+        let mut apm = audio_processing(Config::default());
+        let mut speakers = || Ok(Some([1000i16; SPEAKER_FRAME_SAMPLES]));
+
+        let more = top_up_output(&mut producer, 1000, &mut speakers, &mut apm).unwrap();
+
+        assert!(more);
+        // 1000 isn't a whole number of 480-sample frames: it stops at the first level above.
+        assert_eq!(consumer.occupied_len(), 3 * SPEAKER_FRAME_SAMPLES);
+        let mut played = vec![0i16; consumer.occupied_len()];
+        consumer.pop_slice(&mut played);
+        assert!(played.iter().all(|&s| s == 1000), "the speakers' audio should pass through unchanged");
+    }
+
+    #[test]
+    fn top_up_does_nothing_when_the_ring_is_already_full_enough() {
+        let (mut producer, consumer) = ring(4800);
+        producer.push_slice(&[0i16; 2000]);
+        let mut apm = audio_processing(Config::default());
+        let mut asked = 0;
+        let mut speakers = || {
+            asked += 1;
+            Ok(Some([0i16; SPEAKER_FRAME_SAMPLES]))
+        };
+
+        assert!(top_up_output(&mut producer, 1000, &mut speakers, &mut apm).unwrap());
+
+        assert_eq!(asked, 0);
+        assert_eq!(consumer.occupied_len(), 2000);
+    }
+
+    #[test]
+    fn top_up_reports_when_the_speakers_have_ended() {
+        let (mut producer, consumer) = ring(4800);
+        let mut apm = audio_processing(Config::default());
+        let mut frames_left = 2;
+        let mut speakers = || {
+            Ok(if frames_left > 0 {
+                frames_left -= 1;
+                Some([5i16; SPEAKER_FRAME_SAMPLES])
+            } else {
+                None
+            })
+        };
+
+        let more = top_up_output(&mut producer, 4000, &mut speakers, &mut apm).unwrap();
+
+        assert!(!more);
+        assert_eq!(consumer.occupied_len(), 2 * SPEAKER_FRAME_SAMPLES, "frames before the end are still played");
+    }
+
+    #[test]
+    fn top_up_passes_source_errors_on() {
+        let (mut producer, _consumer) = ring(4800);
+        let mut apm = audio_processing(Config::default());
+        let mut speakers = || -> Result<Option<Frame>, Error> { Err(Error::other("decoder broke")) };
+
+        let result = top_up_output(&mut producer, 1000, &mut speakers, &mut apm);
+
+        assert!(matches!(result, Err(AudioError::IoError(_))));
+    }
+
+    /// Plays noise from "the other end" and models the room as a delayed,
+    /// quieter copy of it reaching the mic. Returns how much of that echo is
+    /// left in the processed mic audio over the last second (1.0 = all of it).
+    fn echo_remaining(feed_render_through_top_up: bool) -> f32 {
+        const TICKS: usize = 800; // 8 s: the canceller needs a while to adapt
+        const MEASURED_TICKS: usize = 100;
+        const ROOM_DELAY_FRAMES: usize = 5; // 50 ms from ring to mic
+        const ECHO_GAIN: f32 = 0.5;
+        let energy = |frame: &[f32]| frame.iter().map(|s| s * s).sum::<f32>();
+
+        let mut apm = audio_processing(Config {
+            echo_canceller: Some(EchoCanceller::default()),
+            ..Default::default()
+        });
+        apm.set_stream_delay_ms(50).unwrap();
+
+        let mut seed = 12345u32;
+        let mut far_end = move || {
+            Ok(Some(std::array::from_fn::<i16, SPEAKER_FRAME_SAMPLES, _>(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((seed >> 16) as i16) / 8 // white noise, about 12% of full scale
+            })))
+        };
+
+        let (mut producer, mut consumer) = ring(4800);
+        let mut room = std::collections::VecDeque::from(vec![[0.0f32; SPEAKER_FRAME_SAMPLES]; ROOM_DELAY_FRAMES]);
+        let (mut echo, mut left) = (0.0, 0.0);
+        for tick in 0..TICKS {
+            if feed_render_through_top_up {
+                top_up_output(&mut producer, SPEAKER_FRAME_SAMPLES, &mut far_end, &mut apm).unwrap();
+            } else {
+                let frame: Frame = far_end().unwrap().unwrap();
+                producer.push_slice(&frame);
+            }
+
+            // The sound card plays one frame...
+            let mut played = [0i16; SPEAKER_FRAME_SAMPLES];
+            consumer.pop_slice(&mut played);
+            // ...which reaches the mic a little later and quieter.
+            room.push_back(played.map(|s| s as f32 / i16::MAX as f32 * ECHO_GAIN));
+            let mic = room.pop_front().unwrap();
+
+            let mut processed = [0.0f32; SPEAKER_FRAME_SAMPLES];
+            apm.process_capture_f32(&[&mic], &mut [&mut processed]).unwrap();
+            if tick >= TICKS - MEASURED_TICKS {
+                echo += energy(&mic);
+                left += energy(&processed);
+            }
+        }
+        left / echo
+    }
+
+    #[test]
+    fn the_echo_canceller_removes_what_the_speakers_played() {
+        let remaining = echo_remaining(true);
+        eprintln!("echo remaining with the render reference: {remaining}");
+        assert!(remaining < 0.01, "{remaining} of the echo is still in the mic");
+    }
+
+    #[test]
+    fn without_the_render_reference_the_echo_stays() {
+        // Guards the test above: it only means something if cancelling needs the reference.
+        let remaining = echo_remaining(false);
+        eprintln!("echo remaining without the render reference: {remaining}");
+        assert!(remaining > 0.2, "the echo went away without a reference: {remaining}");
     }
 
     fn device(id: &str) -> AudioDevice {

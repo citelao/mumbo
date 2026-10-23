@@ -34,6 +34,7 @@ Work tracker.
 - [ ] Move mixing (and the `cpal` stream) off the network task to an audio thread, so slow message handling can't starve playback
 - [ ] Use Mumble's `frame_number` for NetEq sequence/timestamps before moving voice to UDP
 - [ ] BUG: tapping the microphone on a mac seems to trigger audio, even though no speech is present.
+- [ ] Streaming a pure tone through NetEq in real time comes out ~2% sharp (450 Hz for 440 Hz): accelerate removes ~23% of the audio to hold a 20 ms target delay. Check speech for artifacts; consider a higher `min_delay_ms` (see the e2e test in lib.rs)
 
 ## Channels
 

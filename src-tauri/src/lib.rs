@@ -1,18 +1,12 @@
 use std::collections::HashMap;
 use std::io::Error;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use mumble_protocol as proto;
 use mumble_protocol::client::{Connection, ConnectionOptions};
-use opus::Channels::Mono;
-use ringbuf::HeapRb;
-use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use tauri::{Emitter, Listener, Manager};
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tokio::sync::{broadcast, watch};
-use sonora::{AudioProcessing, Config, StreamConfig};
-use sonora::config::{EchoCanceller, NoiseSuppression, GainController2};
 
 pub mod audio;
 #[cfg(test)]
@@ -185,7 +179,7 @@ async fn connect_internal(
     let Connection {
         client,
         debug,
-        mut audio,
+        audio,
         mut events,
     } = proto::client::connect(ConnectionOptions {
         server,
@@ -214,108 +208,20 @@ async fn connect_internal(
         log::info!("Connection ended");
     });
 
-    let mut speakers: HashMap<u32, Speaker> = HashMap::new();
-
-    // Match Opus sample rate for output.
-    const HEADROOM_MS: u32 = 200;
-    const HEADROOM_SAMPLES: u32 = (OUTPUT_SAMPLE_RATE * HEADROOM_MS) / 1000;
-
-    let (mut output_producer, mut output_consumer) = HeapRb::<i16>::new(HEADROOM_SAMPLES as usize).split();
-
-    // TODO: allow user to select output device and configure sample rate.
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| Error::other("No audio output device"))?;
-    let preferred = device
-        .supported_output_configs()
-        .map_err(Error::other)?
-        .filter(|c| c.sample_format() == cpal::SampleFormat::F32)
-        .find_map(|c| c.try_with_sample_rate(OUTPUT_SAMPLE_RATE));
-    let config = match preferred {
-        Some(supported) => supported.config(),
-        None => device
-            .default_output_config()
-            .map_err(Error::other)?
-            .config(),
-    };
-
-    log::info!("Audio output: {:?}, {config:?}", device.description().map_err(Error::other)?);
-
     let cloned_client = client.clone();
     let audio_task = state.audio_module
         .start(move |audio: &[u8], frame_counter: u64, is_terminator: bool| {
-            cloned_client.send_audio(audio, frame_counter, is_terminator).unwrap();
-        }, |_audio| {})
+            if let Err(e) = cloned_client.send_audio(audio, frame_counter, is_terminator) {
+                log::warn!("Failed to send mic audio: {e}");
+            }
+        }, Mixer::new(audio))
         .map_err(|e|
             Error::other(format!("Failed to start audio module: {}", e))
         )?;
-    tauri::async_runtime::spawn(audio_task);
-
-    let channels = config.channels as usize;
-
-    // Start the audio loop!
     tauri::async_runtime::spawn(async move {
-        // NetEq absorbs network jitter; this only needs to cover timer slop.
-        const MIX_TARGET_SAMPLES: usize = (OUTPUT_SAMPLE_RATE as usize / 1000) * 40;
-        let mut mix_interval = tokio::time::interval(std::time::Duration::from_millis(5));
-
-        let result = async {
-            // Playback stops when `stream` is dropped, so it lives for the whole loop.
-            let stream = device.build_output_stream(
-                config,
-                move |output: &mut [f32], _| {
-                    // same value in left and right
-                    for frame in output.chunks_mut(channels) {
-                        let sample = output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
-                        frame.fill(sample);
-                    }
-                },
-                |err| log::error!("audio stream error: {err}"),
-                None,
-            ).map_err(Error::other)?;
-            stream.play().map_err(Error::other)?;
-
-            loop {
-                tokio::select! {
-                    audio = audio.recv() => {
-                        // If we disconnect, stop the loop!
-                        let audio = match audio {
-                            Some(audio) => audio,
-                            None => break,
-                        };
-
-                        // TODO: volume adjustment
-                        let sender = audio.sender_session;
-
-                        let speaker = match speakers.entry(sender) {
-                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
-                        };
-                        if let Err(e) = speaker.insert_packet(sender, &audio.opus_data) {
-                            log::warn!("Dropping audio from session {sender}: {e}");
-                        }
-                    }
-                    _ = mix_interval.tick() => {
-                        // Top the ring buffer up to a fixed level rather than mixing once per
-                        // tick: the card drains it at its own rate, so this follows the card's
-                        // clock instead of drifting against this timer.
-                        while output_producer.occupied_len() < MIX_TARGET_SAMPLES {
-                            let frame = mix_frame(&mut speakers)?;
-                            // TODO: feed this frame to the audio module's APM as the echo
-                            // canceller's render reference.
-                            // let mut processed_frame = vec![0i16; frame.len()];
-                            // apm.process_render_i16(&frame, &mut processed_frame).map_err(Error::other)?;
-                            output_producer.push_slice(&frame);
-                        }
-                    }
-                }
-            }
-            Ok::<(), Error>(())
-        }.await;
-        if let Err(e) = result {
+        if let Err(e) = audio_task.await {
             // TODO: better reporting.
-            log::error!("Audio loop ended with error: {e}");
+            log::error!("Audio ended with error: {e}");
         }
     });
 
@@ -325,13 +231,10 @@ async fn connect_internal(
     Ok(())
 }
 
-const OUTPUT_SAMPLE_RATE: u32 = 48_000;
+const OUTPUT_SAMPLE_RATE: u32 = audio::SPEAKER_SAMPLE_RATE;
 
 /// 10 ms at 48 kHz: the frame size `NetEq::get_audio` produces.
-const MIX_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 100;
-
-/// 10 ms at 48 kHz: the frame size for microphone input.
-const MIC_FRAME_SAMPLES: usize = OUTPUT_SAMPLE_RATE as usize / 100;
+const MIX_FRAME_SAMPLES: usize = audio::SPEAKER_FRAME_SAMPLES;
 
 /// NetEq routes packets to decoders by RTP payload type; we only have Opus.
 const OPUS_PAYLOAD_TYPE: u8 = 0;
@@ -409,6 +312,42 @@ impl Speaker {
         self.next_sequence = self.next_sequence.wrapping_add(1);
         self.next_timestamp = self.next_timestamp.wrapping_add(samples as u32);
         Ok(())
+    }
+}
+
+/// Decodes the packets arriving from the server and mixes everyone talking.
+struct Mixer {
+    packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>,
+    speakers: HashMap<u32, Speaker>,
+}
+
+impl Mixer {
+    fn new(packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>) -> Self {
+        Self { packets, speakers: HashMap::new() }
+    }
+}
+
+impl audio::SpeakerSource for Mixer {
+    fn next_frame(&mut self) -> Result<Option<[i16; MIX_FRAME_SAMPLES]>, Error> {
+        loop {
+            match self.packets.try_recv() {
+                Ok(packet) => {
+                    // TODO: volume adjustment
+                    let sender = packet.sender_session;
+                    let speaker = match self.speakers.entry(sender) {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
+                    };
+                    if let Err(e) = speaker.insert_packet(sender, &packet.opus_data) {
+                        log::warn!("Dropping audio from session {sender}: {e}");
+                    }
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                // Only once every queued packet has been taken: we disconnected.
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => return Ok(None),
+            }
+        }
+        mix_frame(&mut self.speakers).map(Some)
     }
 }
 
@@ -567,6 +506,98 @@ mod tests {
         assert!(bob_level > 0.1, "1000 Hz missing from mix: {bob_level}");
         // An unrelated frequency stays near zero, so the levels above are the tones, not noise.
         assert!(tone_strength(&mixed, 3000.0) < 0.02);
+    }
+
+    fn audio_packet(session: u32, opus_data: Vec<u8>) -> proto::raw_udp::Audio {
+        proto::raw_udp::Audio { sender_session: session, opus_data, ..Default::default() }
+    }
+
+    #[test]
+    fn mixer_plays_the_packets_it_receives() {
+        use crate::audio::SpeakerSource;
+        let (sender, receiver) = tokio::sync::mpsc::channel(64);
+        let mut mixer = Mixer::new(receiver);
+        for packet in tone_packets(440.0, 0.5, 25) {
+            sender.try_send(audio_packet(7, packet)).unwrap();
+        }
+
+        let total: f32 = (0..50)
+            .map(|_| energy(&mixer.next_frame().unwrap().expect("still connected")))
+            .sum();
+
+        assert!(total > 500.0, "mix was nearly silent: energy {total}");
+    }
+
+    #[test]
+    fn mixer_ends_when_the_connection_closes() {
+        use crate::audio::SpeakerSource;
+        let (sender, receiver) = tokio::sync::mpsc::channel(8);
+        let mut mixer = Mixer::new(receiver);
+
+        let idle = mixer.next_frame().unwrap().expect("connected, just quiet");
+        assert_eq!(idle, [0; MIX_FRAME_SAMPLES]);
+
+        drop(sender);
+        assert!(mixer.next_frame().unwrap().is_none());
+    }
+
+    /// Needs the dev server from dev/mumble-server (`npm run mumble:up`), on
+    /// localhost:64738 with password "test". Run with `cargo test -- --ignored`.
+    /// Two clients join the root channel; one talks and the other's mixer should
+    /// produce the tone, exercising the network, decoding and mixing together.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn audio_sent_by_one_client_is_mixed_for_another() {
+        use crate::audio::SpeakerSource;
+        let connect = |role: &str| {
+            proto::client::connect(ConnectionOptions {
+                server: "localhost".into(),
+                port: Some(64738),
+                password: Some("test".into()),
+                // Unique names: a duplicate name kicks the earlier session.
+                username: Some(format!("mumbo-e2e-{role}-{}", std::process::id())),
+            })
+        };
+        let listener = connect("listener").await.expect("connecting the listener");
+        let talker = connect("talker").await.expect("connecting the talker");
+
+        let talking = {
+            let client = talker.client.clone();
+            tokio::spawn(async move {
+                let packets = tone_packets(440.0, 0.5, 50); // one second
+                for (i, packet) in packets.iter().enumerate() {
+                    // Frame numbers count 10 ms; a packet is 20 ms.
+                    client.send_audio(packet, i as u64 * 2, i == packets.len() - 1).unwrap();
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+        };
+
+        let mut mixer = Mixer::new(listener.audio);
+        let mut mixed = Vec::new();
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(10));
+        for _ in 0..250 {
+            tick.tick().await;
+            let frame = mixer.next_frame().unwrap().expect("the listener stayed connected");
+            mixed.extend(frame.map(|s| s as f32 / i16::MAX as f32));
+        }
+        talking.await.unwrap();
+        listener.client.disconnect();
+        talker.client.disconnect();
+
+        // Judge 100 ms at a time. The level is checked, not the pitch: NetEq's time
+        // stretching bends a pure tone when audio arrives in real time (see TODO.md).
+        let windows: Vec<(f32, f32)> = mixed
+            .chunks_exact(MIX_FRAME_SAMPLES * 10)
+            .map(|w| {
+                let rms = (w.iter().map(|s| s * s).sum::<f32>() / w.len() as f32).sqrt();
+                (rms, tone_strength(w, 3000.0))
+            })
+            .collect();
+        // A 0.5-amplitude sine has an RMS of about 0.35.
+        let loud = windows.iter().filter(|(rms, _)| *rms > 0.25).count();
+        assert!(loud >= 5, "the talker was heard in only {loud} of {} windows: {windows:.3?}", windows.len());
+        assert!(windows.iter().all(|(_, other)| *other < 0.02), "unrelated frequency in the mix");
     }
 
     #[test]
