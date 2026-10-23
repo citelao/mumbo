@@ -7,10 +7,10 @@ use mumble_protocol::client::{Connection, ConnectionOptions};
 use opus::Channels::Mono;
 use ringbuf::HeapRb;
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
-use tauri::{App, Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use sonora::{AudioProcessing, Config, StreamConfig};
 use sonora::config::{EchoCanceller, NoiseSuppression, GainController2};
 
@@ -24,32 +24,15 @@ struct AppState {
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+// `device_id` is the frontend's IPC arg name.
 #[tauri::command]
-fn get_audio_input_devices() -> Result<Vec<audio::AudioDevice>, String> {
-    let devices = audio::get_audio_input_devices()
-        .map_err(|e| e.to_string())?;
-    Ok(devices)
+fn set_audio_input_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
+    state.audio_module.select_input_device(&device_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn get_audio_output_devices() -> Result<Vec<audio::AudioDevice>, String> {
-    let devices = audio::get_audio_output_devices()
-        .map_err(|e| e.to_string())?;
-    Ok(devices)
-}
-
-// Unimplemented; keep `device_id` named as the frontend's IPC arg.
-#[allow(unused_variables)]
-#[tauri::command]
-fn set_audio_input_device(device_id: String) -> Result<(), String> {
-    todo!()
-}
-
-// Unimplemented; keep `device_id` named as the frontend's IPC arg.
-#[allow(unused_variables)]
-#[tauri::command]
-fn set_audio_output_device(device_id: String) -> Result<(), String> {
-    todo!()
+fn set_audio_output_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
+    state.audio_module.select_output_device(&device_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -141,6 +124,48 @@ async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward:
             Err(broadcast::error::RecvError::Closed) => break,
         }
     }
+}
+
+/// Calls `forward` with the latest value each time `changes` is updated, until
+/// the sender is dropped. Like any `watch` consumer, it sees only the newest
+/// value if several updates land before it runs.
+async fn forward_watch<T: Clone>(mut changes: watch::Receiver<T>, mut forward: impl FnMut(T)) {
+    while changes.changed().await.is_ok() {
+        forward(changes.borrow_and_update().clone());
+    }
+}
+
+const AUDIO_INPUT_DEVICES_EVENT: &str = "audio-input-devices-changed";
+const AUDIO_OUTPUT_DEVICES_EVENT: &str = "audio-output-devices-changed";
+/// Sent by the UI once its device listeners are registered. Events emitted
+/// earlier would be lost, so this is the cue to publish the current lists.
+const AUDIO_DEVICES_SUBSCRIBE_EVENT: &str = "audio-devices-subscribe";
+
+/// Publishes the audio module's device lists to the UI as events: whenever a
+/// list changes, and again (both lists) whenever a listener announces itself.
+fn publish_audio_devices(app: &tauri::AppHandle, audio: &audio::AudioModule) {
+    let lists = [
+        (AUDIO_INPUT_DEVICES_EVENT, audio.input_devices()),
+        (AUDIO_OUTPUT_DEVICES_EVENT, audio.output_devices()),
+    ];
+
+    for (event, changes) in lists.clone() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(forward_watch(changes, move |devices| {
+            if let Err(e) = app.emit(event, devices) {
+                log::warn!("Failed to emit {event}: {e}");
+            }
+        }));
+    }
+
+    let app_for_subscribe = app.clone();
+    app.listen(AUDIO_DEVICES_SUBSCRIBE_EVENT, move |_| {
+        for (event, current) in &lists {
+            if let Err(e) = app_for_subscribe.emit(event, current.borrow().clone()) {
+                log::warn!("Failed to emit {event}: {e}");
+            }
+        }
+    });
 }
 
 async fn connect_internal(
@@ -423,9 +448,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
+            let audio_module = audio::AudioModule::new()?;
+            publish_audio_devices(app.handle(), &audio_module);
             app.manage(AppState {
                 client: Default::default(),
-                audio_module: audio::AudioModule::new()?,
+                audio_module,
             });
             Ok(())
         })
@@ -439,9 +466,7 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
-            get_audio_input_devices,
             set_audio_input_device,
-            get_audio_output_devices,
             set_audio_output_device,
             get_server_stats,
             connect,
@@ -585,6 +610,31 @@ mod tests {
                 pair[1]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn watch_forwarding_sends_the_latest_value_and_ends_when_the_sender_drops() {
+        let (sender, receiver) = tokio::sync::watch::channel(0);
+        // Two updates before the consumer runs: only the newest is seen.
+        sender.send(1).unwrap();
+        sender.send(2).unwrap();
+        drop(sender);
+
+        let mut forwarded = Vec::new();
+        forward_watch(receiver, |value| forwarded.push(value)).await;
+
+        assert_eq!(forwarded, [2]);
+    }
+
+    #[tokio::test]
+    async fn watch_forwarding_ignores_the_value_it_started_with() {
+        let (sender, receiver) = tokio::sync::watch::channel(7);
+        drop(sender);
+
+        let mut forwarded = Vec::new();
+        forward_watch(receiver, |value| forwarded.push(value)).await;
+
+        assert!(forwarded.is_empty());
     }
 
     #[tokio::test]

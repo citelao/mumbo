@@ -82,6 +82,9 @@ pub enum AudioError {
     #[error("No audio device available")]
     NoAudioDevice,
 
+    #[error("Unknown audio device: {0}")]
+    UnknownDevice(String),
+
     #[error("CPAL error: {0}")]
     CpalError(#[from] cpal::Error),
 
@@ -121,6 +124,14 @@ impl<F: FnMut(&[u8], u64, bool)> MicFrameSink for F {
     }
 }
 
+fn find_device(devices: &[AudioDevice], id: &str) -> Result<AudioDevice, AudioError> {
+    devices
+        .iter()
+        .find(|device| device.id == id)
+        .cloned()
+        .ok_or_else(|| AudioError::UnknownDevice(id.to_string()))
+}
+
 impl AudioModule {
     pub fn new() -> Result<Self, AudioError> {
         let input_devices = get_audio_input_devices()?;
@@ -150,9 +161,23 @@ impl AudioModule {
     }
 
     pub fn set_preferred_input_device(&self, device: Option<AudioDevice>) {
-        self.preferred_input_device.send(device).unwrap();
-        // TODO: persist the preferred input device to a saved location.
-        // TODO: build stream.
+        // `send` errors when nothing is subscribed, which is a normal state here.
+        self.preferred_input_device.send_replace(device);
+        // TODO: rebuild the stream if audio is already running.
+    }
+
+    /// Prefers the listed input device with this `id` the next time audio starts.
+    pub fn select_input_device(&self, id: &str) -> Result<(), AudioError> {
+        let device = find_device(&self.input_devices.borrow(), id)?;
+        self.set_preferred_input_device(Some(device));
+        Ok(())
+    }
+
+    /// Prefers the listed output device with this `id`.
+    pub fn select_output_device(&self, id: &str) -> Result<(), AudioError> {
+        let device = find_device(&self.output_devices.borrow(), id)?;
+        self.set_preferred_output_device(Some(device));
+        Ok(())
     }
 
     pub fn output_devices(&self) -> tokio::sync::watch::Receiver<Vec<AudioDevice>> {
@@ -164,9 +189,8 @@ impl AudioModule {
     }
 
     pub fn set_preferred_output_device(&self, device: Option<AudioDevice>) {
-        self.preferred_output_device.send(device).unwrap();
-        // TODO: persist the preferred output device to a saved location.
-        // TODO: build stream.
+        self.preferred_output_device.send_replace(device);
+        // TODO: rebuild the stream if audio is already running.
     }
 
     pub fn start(&self, mut on_mic_frame: impl MicFrameSink + 'static, _on_speaker_frame: impl Fn(Vec<f32>) + Send + 'static) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
@@ -437,6 +461,62 @@ mod tests {
         // Not "exactly one when any exist": ALSA on headless Linux lists devices
         // but reports a default that isn't among them.
         assert!(defaults <= 1, "at most one device may be the default");
+    }
+
+    fn device(id: &str) -> AudioDevice {
+        AudioDevice { id: id.into(), name: id.into(), is_default: false }
+    }
+
+    fn module_with(inputs: Vec<AudioDevice>, outputs: Vec<AudioDevice>) -> AudioModule {
+        let module = AudioModule::new().unwrap();
+        module.input_devices.send_replace(inputs);
+        module.output_devices.send_replace(outputs);
+        module
+    }
+
+    fn preferred_id(preferred: &tokio::sync::watch::Sender<Option<AudioDevice>>) -> Option<String> {
+        preferred.borrow().as_ref().map(|d| d.id.clone())
+    }
+
+    #[test]
+    fn selecting_a_listed_input_device_makes_it_the_preference() {
+        let module = module_with(vec![device("a"), device("b")], vec![]);
+
+        module.select_input_device("b").unwrap();
+
+        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn selecting_a_listed_output_device_makes_it_the_preference() {
+        let module = module_with(vec![], vec![device("x"), device("y")]);
+
+        module.select_output_device("y").unwrap();
+
+        assert_eq!(preferred_id(&module.preferred_output_device).as_deref(), Some("y"));
+        assert_eq!(preferred_id(&module.preferred_input_device), None);
+    }
+
+    #[test]
+    fn selecting_an_unlisted_device_fails_and_keeps_the_preference() {
+        let module = module_with(vec![device("a")], vec![device("x")]);
+        module.select_input_device("a").unwrap();
+
+        assert!(matches!(module.select_input_device("nope"), Err(AudioError::UnknownDevice(id)) if id == "nope"));
+        assert!(matches!(module.select_output_device("a"), Err(AudioError::UnknownDevice(_))), "inputs are not outputs");
+
+        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("a"));
+        assert_eq!(preferred_id(&module.preferred_output_device), None);
+    }
+
+    #[test]
+    fn the_preference_can_change_again() {
+        let module = module_with(vec![device("a"), device("b")], vec![]);
+
+        module.select_input_device("a").unwrap();
+        module.select_input_device("b").unwrap();
+
+        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
     }
 
     #[test]

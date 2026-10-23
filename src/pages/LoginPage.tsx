@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
-import { getAudioInputDevices, getAudioOutputDevices } from "../invoke/audio";
+import { setAudioInputDevice, setAudioOutputDevice, subscribeAudioDevices } from "../invoke/audio";
 import type { AudioDevice } from "../invoke/audio";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
@@ -44,7 +44,6 @@ export default function LoginPage(props: LoginPageProps) {
 
     useEffect(() => {
         refreshServerStats();
-        refreshAudioDevices();
     }, []);
 
     // Refresh server stats, throttled to avoid server load.
@@ -68,26 +67,32 @@ export default function LoginPage(props: LoginPageProps) {
     const REFRESH_STATS_MS = 10_000;
     useInterval(refreshServerStats, REFRESH_STATS_MS);
 
-    // TODO: refresh audio devices whenever the list changes.
     const [selectedAudioInputDevice, setSelectedAudioInputDevice] = useState<AudioDevice | null>(null);
     const [selectedAudioOutputDevice, setSelectedAudioOutputDevice] = useState<AudioDevice | null>(null);
     const [audioInputDevices, setAudioInputDevices] = useState<AudioDevice[]>([]);
     const [audioOutputDevices, setAudioOutputDevices] = useState<AudioDevice[]>([]);
-    const refreshAudioDevices = useCallback(throttled(async () => {
-        try {
-            const audioInputDevices = await getAudioInputDevices();
-            setAudioInputDevices(audioInputDevices);
-            const defaultInputDevice = audioInputDevices.find(device => device.is_default);
-            setSelectedAudioInputDevice(defaultInputDevice ?? null);
+    useEffect(() => {
+        // Keep the user's pick while it is still plugged in; otherwise use the default.
+        const keepOrDefault = (devices: AudioDevice[]) => (current: AudioDevice | null) =>
+            devices.find(device => device.id === current?.id)
+            ?? devices.find(device => device.is_default)
+            ?? null;
 
-            const audioOutputDevices = await getAudioOutputDevices();
-            setAudioOutputDevices(audioOutputDevices);
-            const defaultOutputDevice = audioOutputDevices.find(device => device.is_default);
-            setSelectedAudioOutputDevice(defaultOutputDevice ?? null);
-        } catch (err) {
-            console.error("Failed to fetch audio input devices:", err);
-        }
-    }, THROTTLE_MS), []);
+        const subscription = subscribeAudioDevices({
+            onInputs: (devices) => {
+                setAudioInputDevices(devices);
+                setSelectedAudioInputDevice(keepOrDefault(devices));
+            },
+            onOutputs: (devices) => {
+                setAudioOutputDevices(devices);
+                setSelectedAudioOutputDevice(keepOrDefault(devices));
+            },
+        });
+        subscription.catch((err) => console.error("Failed to subscribe to audio devices:", err));
+        return () => {
+            subscription.then(stop => stop(), () => {});
+        };
+    }, []);
 
     const [serverStats, setServerStats] = useState<{
         stats?: ServerStats,
@@ -190,6 +195,10 @@ export default function LoginPage(props: LoginPageProps) {
                     <select id="audio-input" value={selectedAudioInputDevice?.id ?? ""} onChange={(e) => {
                         const device = audioInputDevices.find(d => d.id === e.target.value);
                         setSelectedAudioInputDevice(device ?? null);
+                        if (device) {
+                            setAudioInputDevice(device.id)
+                                .catch((err) => console.error("Failed to set audio input device:", err));
+                        }
                     }}>
                         {audioInputDevices.map((device) => {
                             const isDefault = device.is_default;
@@ -205,6 +214,10 @@ export default function LoginPage(props: LoginPageProps) {
                     <select id="audio-output" value={selectedAudioOutputDevice?.id ?? ""} onChange={(e) => {
                         const device = audioOutputDevices.find(d => d.id === e.target.value);
                         setSelectedAudioOutputDevice(device ?? null);
+                        if (device) {
+                            setAudioOutputDevice(device.id)
+                                .catch((err) => console.error("Failed to set audio output device:", err));
+                        }
                     }}>
                         {audioOutputDevices.map((device) => {
                             const isDefault = device.is_default;

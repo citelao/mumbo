@@ -3,18 +3,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
 import fixture from "../../src-tauri/fixtures/audio_devices.json";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
-    getAudioInputDevices,
-    getAudioOutputDevices,
     setAudioInputDevice,
     setAudioOutputDevice,
+    subscribeAudioDevices,
 } from "./audio";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(), emit: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
+const mockListen = vi.mocked(listen);
+const mockEmit = vi.mocked(emit);
+
+let listeners: Record<string, (event: { payload: unknown }) => void>;
+const unlisten = vi.fn();
 
 beforeEach(() => {
     mockInvoke.mockReset();
+    unlisten.mockReset();
+    mockEmit.mockReset().mockResolvedValue(undefined);
+    listeners = {};
+    mockListen.mockReset().mockImplementation((async (name: string, callback: (event: { payload: unknown }) => void) => {
+        listeners[name] = callback;
+        return unlisten;
+    }) as unknown as typeof listen);
 });
 
 const devices = [
@@ -22,24 +35,46 @@ const devices = [
     { id: "b", name: "USB", is_default: false },
 ];
 
-for (const [kind, fn, command] of [
-    ["input", getAudioInputDevices, "get_audio_input_devices"],
-    ["output", getAudioOutputDevices, "get_audio_output_devices"],
-] as const) describe(`get audio ${kind} devices`, () => {
-    it("parses the exact JSON Rust emits", async () => {
-        mockInvoke.mockResolvedValue(fixture);
-        expect(await fn()).toEqual(fixture);
+describe("subscribeAudioDevices", () => {
+    const setup = async () => {
+        const onInputs = vi.fn();
+        const onOutputs = vi.fn();
+        const stop = await subscribeAudioDevices({ onInputs, onOutputs });
+        return { onInputs, onOutputs, stop };
+    };
+    const send = (event: string, payload: unknown) => listeners[event]!({ payload });
+
+    it("registers both listeners before announcing itself", async () => {
+        await setup();
+        expect(Object.keys(listeners).sort()).toEqual([
+            "audio-input-devices-changed",
+            "audio-output-devices-changed",
+        ]);
+        // The backend only publishes on announce; an earlier emit would be lost.
+        expect(mockEmit).toHaveBeenCalledWith("audio-devices-subscribe");
+        expect(mockEmit.mock.invocationCallOrder[0]).toBeGreaterThan(
+            Math.max(...mockListen.mock.invocationCallOrder),
+        );
     });
 
-    it("invokes the right command and returns parsed devices", async () => {
-        mockInvoke.mockResolvedValue(devices);
-        expect(await fn()).toEqual(devices);
-        expect(mockInvoke).toHaveBeenCalledWith(command);
+    it("parses the exact JSON Rust emits", async () => {
+        const { onInputs } = await setup();
+        send("audio-input-devices-changed", fixture);
+        expect(onInputs).toHaveBeenCalledWith(fixture);
+    });
+
+    it("sends each list to its own handler", async () => {
+        const { onInputs, onOutputs } = await setup();
+        send("audio-input-devices-changed", devices);
+        send("audio-output-devices-changed", [devices[1]]);
+        expect(onInputs).toHaveBeenCalledExactlyOnceWith(devices);
+        expect(onOutputs).toHaveBeenCalledExactlyOnceWith([devices[1]]);
     });
 
     it("accepts an empty list", async () => {
-        mockInvoke.mockResolvedValue([]);
-        expect(await fn()).toEqual([]);
+        const { onOutputs } = await setup();
+        send("audio-output-devices-changed", []);
+        expect(onOutputs).toHaveBeenCalledWith([]);
     });
 
     it.each([
@@ -47,14 +82,20 @@ for (const [kind, fn, command] of [
         ["non-string id", [{ id: 1, name: "x", is_default: false }]],
         ["non-array payload", { id: "a" }],
         ["null payload", null],
-    ])("rejects malformed payloads: %s", async (_name, payload) => {
-        mockInvoke.mockResolvedValue(payload);
-        await expect(fn()).rejects.toThrow();
+    ])("logs and ignores malformed payloads: %s", async (_name, payload) => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { onInputs } = await setup();
+        send("audio-input-devices-changed", payload);
+        expect(onInputs).not.toHaveBeenCalled();
+        expect(consoleError).toHaveBeenCalled();
+        consoleError.mockRestore();
     });
 
-    it("propagates backend errors", async () => {
-        mockInvoke.mockRejectedValue("no audio host");
-        await expect(fn()).rejects.toBe("no audio host");
+    it("stops both listeners when unsubscribed", async () => {
+        const { stop } = await setup();
+        expect(unlisten).not.toHaveBeenCalled();
+        stop();
+        expect(unlisten).toHaveBeenCalledTimes(2);
     });
 });
 
