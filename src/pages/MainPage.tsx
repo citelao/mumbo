@@ -65,27 +65,30 @@ export function MainPage(props: MainPageProps) {
         <>
             <main className={[styles.container, "container"].join(" ")}>
                 <section className={styles["user-list"]}>
-                    Users
-                    <ul>
-                        {users.map((user) => (
-                            <li key={user.session}>
-                            {user.is_speaking ? "● " : "◯ "}
-                            {user.name} (channel {user.channel_id})
-                            {user.self_mute || user.mute ? " muted" : ""}
-                            {user.self_deaf || user.deaf ? " deafened" : ""}
-                            </li>
-                        ))}
-                    </ul>
-
-                    <button type="button" onClick={() => {
-                        props.onSetSelfMute(!selfMuted);
-                        setSelfMuted(!selfMuted);
-                    }}>
-                        {selfMuted ? "Unmute" : "Mute"}
-                    </button>
-                    <button type="button" onClick={props.onDisconnect}>
-                        Disconnect
-                    </button>
+                    <section>
+                        Users
+                        <ul>
+                            {users.map((user) => (
+                                <li key={user.session}>
+                                {user.is_speaking ? "● " : "◯ "}
+                                {user.name} (channel {user.channel_id})
+                                {user.self_mute || user.mute ? " muted" : ""}
+                                {user.self_deaf || user.deaf ? " deafened" : ""}
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                    <menu>
+                        <button type="button" onClick={() => {
+                            props.onSetSelfMute(!selfMuted);
+                            setSelfMuted(!selfMuted);
+                        }}>
+                            {selfMuted ? "Unmute" : "Mute"}
+                        </button>
+                        <button type="button" onClick={props.onDisconnect}>
+                            Disconnect
+                        </button>
+                    </menu>
                 </section>
                 <section className={styles.chat}>
                     Chat
