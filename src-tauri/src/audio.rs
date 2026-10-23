@@ -3,7 +3,7 @@ use std::{io::Error, str::FromStr};
 use cpal::{DeviceId, traits::{DeviceTrait, HostTrait, StreamTrait}};
 use opus::Channels::Mono;
 use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sonora::{AudioProcessing, Config, StreamConfig, config::{EchoCanceller, GainController2, NoiseSuppression}};
 use thiserror::Error;
 
@@ -188,6 +188,54 @@ fn top_up_output(
     Ok(true)
 }
 
+/// A device the user prefers, as saved between runs. Only what is needed to
+/// find it again (`id`) and to name it while it is unplugged (`name`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedDevice {
+    pub id: String,
+    pub name: String,
+}
+
+impl From<&AudioDevice> for SavedDevice {
+    fn from(device: &AudioDevice) -> Self {
+        Self { id: device.id.clone(), name: device.name.clone() }
+    }
+}
+
+impl From<SavedDevice> for AudioDevice {
+    fn from(saved: SavedDevice) -> Self {
+        // Whether it is the system default is only known by listing devices.
+        Self { id: saved.id, name: saved.name, is_default: false }
+    }
+}
+
+/// The devices the user prefers; `None` follows the system default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SavedPreferences {
+    #[serde(default)]
+    pub input: Option<SavedDevice>,
+    #[serde(default)]
+    pub output: Option<SavedDevice>,
+}
+
+impl SavedPreferences {
+    pub fn of(input: Option<&AudioDevice>, output: Option<&AudioDevice>) -> Self {
+        Self { input: input.map(SavedDevice::from), output: output.map(SavedDevice::from) }
+    }
+
+    /// Reads what an earlier run saved. Anything missing or unreadable counts as
+    /// nothing saved (the system defaults), so a bad settings file never stops startup.
+    pub fn from_stored(value: Option<serde_json::Value>) -> Self {
+        let Some(value) = value else {
+            return Self::default();
+        };
+        serde_json::from_value(value).unwrap_or_else(|e| {
+            log::warn!("Ignoring unreadable saved audio devices: {e}");
+            Self::default()
+        })
+    }
+}
+
 pub struct AudioModule {
     // The latest audio devices! Eventually we can update the list live, but for
     // now it is loaded once at startup.
@@ -217,16 +265,15 @@ fn find_device(devices: &[AudioDevice], id: &str) -> Result<AudioDevice, AudioEr
 }
 
 impl AudioModule {
-    pub fn new() -> Result<Self, AudioError> {
+    pub fn new(saved: SavedPreferences) -> Result<Self, AudioError> {
         let input_devices = get_audio_input_devices()?;
         let output_devices = get_audio_output_devices()?;
 
         let (input_devices_tx, _) = tokio::sync::watch::channel(input_devices);
         let (output_devices_tx, _) = tokio::sync::watch::channel(output_devices);
 
-        // TODO: load from saved location.
-        let (preferred_input_device_tx, _) = tokio::sync::watch::channel(None);
-        let (preferred_output_device_tx, _) = tokio::sync::watch::channel(None);
+        let (preferred_input_device_tx, _) = tokio::sync::watch::channel(saved.input.map(AudioDevice::from));
+        let (preferred_output_device_tx, _) = tokio::sync::watch::channel(saved.output.map(AudioDevice::from));
 
         Ok(AudioModule {
             input_devices: input_devices_tx,
@@ -709,12 +756,58 @@ mod tests {
         assert!(remaining > 0.2, "the echo went away without a reference: {remaining}");
     }
 
+    #[test]
+    fn saved_preferences_round_trip_through_json() {
+        let selected = AudioDevice { id: "mic".into(), name: "Dock Mic".into(), is_default: true };
+        let saved = SavedPreferences::of(Some(&selected), None);
+
+        let json = serde_json::to_value(&saved).unwrap();
+        // is_default describes the moment it was saved, so it is not kept.
+        assert_eq!(json, serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null }));
+
+        assert_eq!(SavedPreferences::from_stored(Some(json)), saved);
+    }
+
+    #[test]
+    fn nothing_saved_means_the_system_default() {
+        assert_eq!(SavedPreferences::from_stored(None), SavedPreferences::default());
+        assert_eq!(SavedPreferences::from_stored(Some(serde_json::json!({}))), SavedPreferences::default());
+    }
+
+    #[test]
+    fn unreadable_saved_preferences_count_as_nothing_saved() {
+        for garbage in [
+            serde_json::json!("nonsense"),
+            serde_json::json!(5),
+            serde_json::json!({ "input": 5 }),
+            serde_json::json!({ "input": { "id": "no name" } }),
+            serde_json::json!({ "input": { "id": 1, "name": "x" } }),
+        ] {
+            assert_eq!(SavedPreferences::from_stored(Some(garbage.clone())), SavedPreferences::default(), "{garbage}");
+        }
+    }
+
+    #[test]
+    fn a_restored_preference_survives_its_device_being_unplugged() {
+        let saved = SavedPreferences {
+            input: Some(SavedDevice { id: "dock-mic".into(), name: "Dock Mic".into() }),
+            output: None,
+        };
+
+        let module = AudioModule::new(saved).unwrap();
+
+        // Not necessarily in the device list (the dock may be unplugged), but still preferred.
+        assert!(module.input_devices.borrow().iter().all(|d| d.id != "dock-mic"));
+        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("dock-mic"));
+        assert_eq!(preferred_id(&module.preferred_output_device), None);
+    }
+
     fn device(id: &str) -> AudioDevice {
         AudioDevice { id: id.into(), name: id.into(), is_default: false }
     }
 
     fn module_with(inputs: Vec<AudioDevice>, outputs: Vec<AudioDevice>) -> AudioModule {
-        let module = AudioModule::new().unwrap();
+        let module = AudioModule::new(SavedPreferences::default()).unwrap();
         module.input_devices.send_replace(inputs);
         module.output_devices.send_replace(outputs);
         module

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::io::Error;
 
 use mumble_protocol as proto;
@@ -6,6 +7,7 @@ use mumble_protocol::client::{Connection, ConnectionOptions};
 use tauri::{Emitter, Listener, Manager};
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
+use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
 
 pub mod audio;
@@ -137,6 +139,27 @@ const AUDIO_OUTPUT_SELECTED_EVENT: &str = "audio-output-device-selected";
 /// Sent by the UI once its device listeners are registered. Events emitted
 /// earlier would be lost, so this is the cue to publish everything current.
 const AUDIO_DEVICES_SUBSCRIBE_EVENT: &str = "audio-devices-subscribe";
+
+const SETTINGS_FILE: &str = "settings.json";
+/// Where the preferred audio devices are saved. The UI's own settings share the
+/// file (under another key); the store plugin keeps one copy per file.
+const AUDIO_SETTINGS_KEY: &str = "audio";
+
+/// Saves the preferred devices each time either one changes.
+fn save_audio_preferences(store: Arc<tauri_plugin_store::Store<tauri::Wry>>, audio: &audio::AudioModule) {
+    let input = audio.preferred_input_device();
+    let output = audio.preferred_output_device();
+    for changes in [input.clone(), output.clone()] {
+        let (store, input, output) = (store.clone(), input.clone(), output.clone());
+        tauri::async_runtime::spawn(forward_watch(changes, move |_| {
+            let saved = audio::SavedPreferences::of(input.borrow().as_ref(), output.borrow().as_ref());
+            store.set(AUDIO_SETTINGS_KEY, serde_json::json!(saved));
+            if let Err(e) = store.save() {
+                log::warn!("Failed to save the preferred audio devices: {e}");
+            }
+        }));
+    }
+}
 
 /// Emits `value` as `event`; the UI may simply not be listening yet.
 fn emit_to_ui<T: Clone + serde::Serialize>(app: &tauri::AppHandle, event: &str, value: T) {
@@ -400,8 +423,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
-            let audio_module = audio::AudioModule::new()?;
+            let store = app.store(SETTINGS_FILE)?;
+            let saved = audio::SavedPreferences::from_stored(store.get(AUDIO_SETTINGS_KEY));
+            let audio_module = audio::AudioModule::new(saved)?;
             publish_audio_devices(app.handle(), &audio_module);
+            save_audio_preferences(store, &audio_module);
             app.manage(AppState {
                 client: Default::default(),
                 audio_module,
