@@ -80,6 +80,17 @@ pub struct Channel {
     // TODO: links, temporary? position, description_hash, max_users, can_enter
 }
 
+impl User {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Whether the server has told us this user is self-muted.
+    pub fn self_mute(&self) -> bool {
+        self.self_mute
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatTextMessage {
     // The time the message was sent
