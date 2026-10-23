@@ -675,7 +675,9 @@ mod tests {
         // Judge 100 ms at a time. The level is checked, not the pitch: NetEq's time
         // stretching bends a pure tone when audio arrives in real time (see TODO.md).
         let windows: Vec<(f32, f32)> = mixed
-            .chunks_exact(MIX_FRAME_SAMPLES * 10)
+            .as_chunks::<{ MIX_FRAME_SAMPLES * 10 }>()
+            .0
+            .iter()
             .map(|w| {
                 let rms = (w.iter().map(|s| s * s).sum::<f32>() / w.len() as f32).sqrt();
                 (rms, tone_strength(w, 3000.0))
