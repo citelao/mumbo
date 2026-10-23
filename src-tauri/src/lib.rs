@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::io::Error;
 
 use mumble_protocol as proto;
-use mumble_protocol::client::{Connection, ConnectionOptions};
+use mumble_protocol::client::{Connection, ConnectionOptions, SelfMuteStatus};
 use tauri::{Emitter, Listener, Manager};
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
@@ -11,8 +11,11 @@ use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
 
 pub mod audio;
+mod universal_mute;
 #[cfg(test)]
 mod test_util;
+
+use universal_mute::UniversalMuter;
 
 struct AppState {
     client: std::sync::Mutex<Option<proto::client::MumbleClient>>,
@@ -278,11 +281,48 @@ async fn connect_internal(
         let _ = channel.send(message);
     }));
 
+    // Owned by the events task below, so the Windows "call" ends with the connection.
+    let mute_client = client.clone();
+    let mut universal_muter = match UniversalMuter::new(move |muted| {
+        // Windows may report a press that matches what we already asked for
+        // (e.g. echoing a confirmation), so only act on real changes.
+        let already_requested = matches!(
+            mute_client.self_mute_status(),
+            SelfMuteStatus::Muting | SelfMuteStatus::Muted
+        );
+        if already_requested == muted {
+            return;
+        }
+        if let Err(e) = mute_client.set_self_mute(muted) {
+            log::warn!("Universal mute couldn't change mute: {e}");
+        }
+    }) {
+        Ok(muter) => Some(muter),
+        Err(e) => {
+            log::warn!("Universal mute unavailable: {e}");
+            None
+        }
+    };
+
     // Send state events to the app.
+    let status_client = client.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
             // TODO: a useful payload.
             let _ = app.emit("session-changed", event);
+
+            // Audio stops the moment a mute is requested, but the system mute
+            // button only follows once the server agrees.
+            let confirmed_mute = match status_client.self_mute_status() {
+                SelfMuteStatus::Muted => Some(true),
+                SelfMuteStatus::Unmuted => Some(false),
+                SelfMuteStatus::Muting | SelfMuteStatus::Unmuting => None,
+            };
+            if let (Some(muter), Some(muted)) = (universal_muter.as_mut(), confirmed_mute)
+                && let Err(e) = muter.confirm(muted)
+            {
+                log::warn!("Universal mute couldn't update the button: {e}");
+            }
         }
         // `recv` only returns `None` once the driver has exited, so the
         // connection is over, however it ended.
@@ -675,7 +715,9 @@ mod tests {
         // Judge 100 ms at a time. The level is checked, not the pitch: NetEq's time
         // stretching bends a pure tone when audio arrives in real time (see TODO.md).
         let windows: Vec<(f32, f32)> = mixed
-            .chunks_exact(MIX_FRAME_SAMPLES * 10)
+            .as_chunks::<{ MIX_FRAME_SAMPLES * 10 }>()
+            .0
+            .iter()
             .map(|w| {
                 let rms = (w.iter().map(|s| s * s).sum::<f32>() / w.len() as f32).sqrt();
                 (rms, tone_strength(w, 3000.0))

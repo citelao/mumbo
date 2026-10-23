@@ -60,6 +60,11 @@ impl User {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    /// Whether the server has told us this user is self-muted.
+    pub fn self_mute(&self) -> bool {
+        self.self_mute
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -139,6 +144,10 @@ impl MumbleState {
     pub fn current_user_channel(&self) -> Option<u32> {
         let current_user_session = self.current_user_session?;
         self.users.get(&current_user_session).map(|user| user.channel_id)
+    }
+
+    pub fn current_user(&self) -> Option<&User> {
+        self.users.get(&self.current_user_session?)
     }
 
     pub fn chat_messages(&self) -> &Vec<TextMessage> {
