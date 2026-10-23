@@ -14,6 +14,7 @@ vi.mock("../invoke/audio", async (orig) => ({
     subscribeAudioDevices: vi.fn(),
     setAudioInputDevice: vi.fn(),
     setAudioOutputDevice: vi.fn(),
+    setNoiseSuppression: vi.fn(),
 }));
 
 const inputs = [
@@ -33,6 +34,7 @@ beforeEach(() => {
     stopListening.mockReset();
     vi.mocked(audio.setAudioInputDevice).mockReset().mockResolvedValue(undefined);
     vi.mocked(audio.setAudioOutputDevice).mockReset().mockResolvedValue(undefined);
+    vi.mocked(audio.setNoiseSuppression).mockReset().mockResolvedValue(undefined);
     vi.mocked(audio.subscribeAudioDevices).mockImplementation(async (h) => {
         handlers = h;
         return stopListening;
@@ -225,5 +227,54 @@ describe("LoginPage audio settings", () => {
         const { unmount } = await renderWithDevices();
         unmount();
         await waitFor(() => expect(stopListening).toHaveBeenCalledOnce());
+    });
+
+    describe("noise suppression", () => {
+        const checkbox = () => screen.getByRole("checkbox", { name: "Noise suppression" }) as HTMLInputElement;
+
+        it("is on until the backend says otherwise", async () => {
+            await renderWithDevices();
+            expect(checkbox().checked).toBe(true);
+        });
+
+        it("shows the backend's setting", async () => {
+            await renderWithDevices();
+            act(() => handlers.onNoiseSuppression(false));
+            await waitFor(() => expect(checkbox().checked).toBe(false));
+
+            act(() => handlers.onNoiseSuppression(true));
+            await waitFor(() => expect(checkbox().checked).toBe(true));
+        });
+
+        it("tells the backend when the user turns it off and on again", async () => {
+            const user = userEvent.setup();
+            await renderWithDevices();
+
+            await user.click(checkbox());
+            expect(checkbox().checked).toBe(false);
+            expect(audio.setNoiseSuppression).toHaveBeenLastCalledWith(false);
+
+            await user.click(checkbox());
+            expect(checkbox().checked).toBe(true);
+            expect(audio.setNoiseSuppression).toHaveBeenLastCalledWith(true);
+            expect(audio.setNoiseSuppression).toHaveBeenCalledTimes(2);
+        });
+
+        it("does not report the initial state as a user choice", async () => {
+            await renderWithDevices();
+            act(() => handlers.onNoiseSuppression(false));
+            await waitFor(() => expect(checkbox().checked).toBe(false));
+            expect(audio.setNoiseSuppression).not.toHaveBeenCalled();
+        });
+
+        it("logs when the backend rejects the change", async () => {
+            vi.mocked(audio.setNoiseSuppression).mockRejectedValue("no audio module");
+            const user = userEvent.setup();
+            await renderWithDevices();
+            await user.click(checkbox());
+            await waitFor(() => expect(console.error).toHaveBeenCalledWith(
+                "Failed to set noise suppression:", "no audio module",
+            ));
+        });
     });
 });

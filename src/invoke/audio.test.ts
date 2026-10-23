@@ -7,6 +7,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import {
     setAudioInputDevice,
     setAudioOutputDevice,
+    setNoiseSuppression,
     subscribeAudioDevices,
 } from "./audio";
 
@@ -41,8 +42,9 @@ describe("subscribeAudioDevices", () => {
         const onOutputs = vi.fn();
         const onInputSelected = vi.fn();
         const onOutputSelected = vi.fn();
-        const stop = await subscribeAudioDevices({ onInputs, onOutputs, onInputSelected, onOutputSelected });
-        return { onInputs, onOutputs, onInputSelected, onOutputSelected, stop };
+        const onNoiseSuppression = vi.fn();
+        const stop = await subscribeAudioDevices({ onInputs, onOutputs, onInputSelected, onOutputSelected, onNoiseSuppression });
+        return { onInputs, onOutputs, onInputSelected, onOutputSelected, onNoiseSuppression, stop };
     };
     const send = (event: string, payload: unknown) => listeners[event]!({ payload });
 
@@ -51,6 +53,7 @@ describe("subscribeAudioDevices", () => {
         expect(Object.keys(listeners).sort()).toEqual([
             "audio-input-device-selected",
             "audio-input-devices-changed",
+            "audio-noise-suppression-changed",
             "audio-output-device-selected",
             "audio-output-devices-changed",
         ]);
@@ -117,11 +120,32 @@ describe("subscribeAudioDevices", () => {
         consoleError.mockRestore();
     });
 
+    it("sends whether noise suppression is on", async () => {
+        const { onNoiseSuppression } = await setup();
+        send("audio-noise-suppression-changed", false);
+        send("audio-noise-suppression-changed", true);
+        expect(onNoiseSuppression.mock.calls).toEqual([[false], [true]]);
+    });
+
+    it.each([
+        ["a string", "yes"],
+        ["a number", 1],
+        ["null", null],
+        ["an object", { enabled: true }],
+    ])("logs and ignores a malformed noise suppression setting: %s", async (_name, payload) => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { onNoiseSuppression } = await setup();
+        send("audio-noise-suppression-changed", payload);
+        expect(onNoiseSuppression).not.toHaveBeenCalled();
+        expect(consoleError).toHaveBeenCalled();
+        consoleError.mockRestore();
+    });
+
     it("stops every listener when unsubscribed", async () => {
         const { stop } = await setup();
         expect(unlisten).not.toHaveBeenCalled();
         stop();
-        expect(unlisten).toHaveBeenCalledTimes(4);
+        expect(unlisten).toHaveBeenCalledTimes(5);
     });
 });
 
@@ -144,5 +168,18 @@ for (const [kind, fn, command] of [
     it("propagates backend errors", async () => {
         mockInvoke.mockRejectedValue("unknown device");
         await expect(fn("zzz")).rejects.toBe("unknown device");
+    });
+});
+
+describe("set noise suppression", () => {
+    it.each([true, false])("tells the backend %s", async (enabled) => {
+        mockInvoke.mockResolvedValue(undefined);
+        await setNoiseSuppression(enabled);
+        expect(mockInvoke).toHaveBeenCalledWith("set_noise_suppression", { enabled });
+    });
+
+    it("propagates backend errors", async () => {
+        mockInvoke.mockRejectedValue("no audio module");
+        await expect(setNoiseSuppression(false)).rejects.toBe("no audio module");
     });
 });

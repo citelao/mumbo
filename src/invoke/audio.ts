@@ -17,6 +17,7 @@ const INPUT_DEVICES_EVENT = "audio-input-devices-changed";
 const OUTPUT_DEVICES_EVENT = "audio-output-devices-changed";
 const INPUT_SELECTED_EVENT = "audio-input-device-selected";
 const OUTPUT_SELECTED_EVENT = "audio-output-device-selected";
+const NOISE_SUPPRESSION_EVENT = "audio-noise-suppression-changed";
 // Backend events sent before a listener registers are lost, so announcing
 // ourselves makes it publish the current lists and selections.
 const SUBSCRIBE_EVENT = "audio-devices-subscribe";
@@ -27,6 +28,8 @@ export interface AudioDeviceHandlers {
     /** The id of the preferred device, or null for the system default. */
     onInputSelected: (deviceId: string | null) => void;
     onOutputSelected: (deviceId: string | null) => void;
+    /** Whether mic noise suppression is on. */
+    onNoiseSuppression: (enabled: boolean) => void;
 }
 
 /**
@@ -52,6 +55,7 @@ export async function subscribeAudioDevices(handlers: AudioDeviceHandlers): Prom
         await listen<unknown>(OUTPUT_DEVICES_EVENT, deliver(AudioDevicesSchema, handlers.onOutputs)),
         await listen<unknown>(INPUT_SELECTED_EVENT, selected(handlers.onInputSelected)),
         await listen<unknown>(OUTPUT_SELECTED_EVENT, selected(handlers.onOutputSelected)),
+        await listen<unknown>(NOISE_SUPPRESSION_EVENT, deliver(z.boolean(), handlers.onNoiseSuppression)),
     ];
     await emit(SUBSCRIBE_EVENT);
     return () => stops.forEach((stop) => stop());
@@ -64,4 +68,7 @@ export async function setAudioInputDevice(deviceId: string | null): Promise<void
 /** `null` goes back to the system default. */
 export async function setAudioOutputDevice(deviceId: string | null): Promise<void> {
     return invoke("set_audio_output_device", { deviceId });
+}
+export async function setNoiseSuppression(enabled: boolean): Promise<void> {
+    return invoke("set_noise_suppression", { enabled });
 }

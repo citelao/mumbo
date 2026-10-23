@@ -32,6 +32,11 @@ fn set_audio_output_device(state: tauri::State<'_, AppState>, device_id: Option<
 }
 
 #[tauri::command]
+fn set_noise_suppression(state: tauri::State<'_, AppState>, enabled: bool) {
+    state.audio_module.set_noise_suppression(enabled);
+}
+
+#[tauri::command]
 async fn get_server_stats(server: String, port: u16) -> Result<proto::client::ServerStats, String> {
     proto::client::get_server_stats(server, Some(port))
         .await
@@ -131,11 +136,46 @@ async fn forward_watch<T: Clone>(mut changes: watch::Receiver<T>, mut forward: i
     }
 }
 
+/// A `watch` channel's changes with the value's type erased, so receivers of
+/// different types can share a list.
+struct Changes(Box<dyn ChangeSource + Send>);
+
+trait ChangeSource {
+    /// Resolves to `false` once the sender is gone.
+    fn next_change<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
+}
+
+impl<T: Send + Sync> ChangeSource for watch::Receiver<T> {
+    fn next_change<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        Box::pin(async move { self.changed().await.is_ok() })
+    }
+}
+
+trait MapChanges {
+    fn map_changes(self) -> Changes;
+}
+
+impl<T: Send + Sync + 'static> MapChanges for watch::Receiver<T> {
+    fn map_changes(self) -> Changes {
+        Changes(Box::new(self))
+    }
+}
+
+/// Calls `forward` each time `changes` changes, until the sender is dropped.
+/// The value itself is not passed on: use this when `forward` re-reads state.
+async fn forward_changes(mut changes: Changes, mut forward: impl FnMut()) {
+    while changes.0.next_change().await {
+        forward();
+    }
+}
+
 const AUDIO_INPUT_DEVICES_EVENT: &str = "audio-input-devices-changed";
 const AUDIO_OUTPUT_DEVICES_EVENT: &str = "audio-output-devices-changed";
 /// The device the user prefers (an `AudioDevice`), or null to follow the system default.
 const AUDIO_INPUT_SELECTED_EVENT: &str = "audio-input-device-selected";
 const AUDIO_OUTPUT_SELECTED_EVENT: &str = "audio-output-device-selected";
+/// Whether mic noise suppression is on (a bool).
+const AUDIO_NOISE_SUPPRESSION_EVENT: &str = "audio-noise-suppression-changed";
 /// Sent by the UI once its device listeners are registered. Events emitted
 /// earlier would be lost, so this is the cue to publish everything current.
 const AUDIO_DEVICES_SUBSCRIBE_EVENT: &str = "audio-devices-subscribe";
@@ -145,14 +185,20 @@ const SETTINGS_FILE: &str = "settings.json";
 /// file (under another key); the store plugin keeps one copy per file.
 const AUDIO_SETTINGS_KEY: &str = "audio";
 
-/// Saves the preferred devices each time either one changes.
+/// Saves the audio preferences each time one changes.
 fn save_audio_preferences(store: Arc<tauri_plugin_store::Store<tauri::Wry>>, audio: &audio::AudioModule) {
     let input = audio.preferred_input_device();
     let output = audio.preferred_output_device();
-    for changes in [input.clone(), output.clone()] {
-        let (store, input, output) = (store.clone(), input.clone(), output.clone());
-        tauri::async_runtime::spawn(forward_watch(changes, move |_| {
-            let saved = audio::SavedPreferences::of(input.borrow().as_ref(), output.borrow().as_ref());
+    let noise_suppression = audio.noise_suppression();
+    let changes = [
+        input.clone().map_changes(),
+        output.clone().map_changes(),
+        noise_suppression.clone().map_changes(),
+    ];
+    for changes in changes {
+        let (store, input, output, noise_suppression) = (store.clone(), input.clone(), output.clone(), noise_suppression.clone());
+        tauri::async_runtime::spawn(forward_changes(changes, move || {
+            let saved = audio::SavedPreferences::of(input.borrow().as_ref(), output.borrow().as_ref(), *noise_suppression.borrow());
             store.set(AUDIO_SETTINGS_KEY, serde_json::json!(saved));
             if let Err(e) = store.save() {
                 log::warn!("Failed to save the preferred audio devices: {e}");
@@ -190,6 +236,7 @@ fn publish_audio_devices(app: &tauri::AppHandle, audio: &audio::AudioModule) {
         publish(app, AUDIO_OUTPUT_DEVICES_EVENT, audio.output_devices()),
         publish(app, AUDIO_INPUT_SELECTED_EVENT, audio.preferred_input_device()),
         publish(app, AUDIO_OUTPUT_SELECTED_EVENT, audio.preferred_output_device()),
+        publish(app, AUDIO_NOISE_SUPPRESSION_EVENT, audio.noise_suppression()),
     ];
     app.listen(AUDIO_DEVICES_SUBSCRIBE_EVENT, move |_| {
         for emit_current in &republish {
@@ -446,6 +493,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_audio_input_device,
             set_audio_output_device,
+            set_noise_suppression,
             get_server_stats,
             connect,
             get_users,
@@ -680,6 +728,36 @@ mod tests {
                 pair[1]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn change_forwarding_runs_once_per_observed_change_for_any_value_type() {
+        let (numbers, number_changes) = tokio::sync::watch::channel(0);
+        let (words, word_changes) = tokio::sync::watch::channel(String::new());
+        numbers.send(1).unwrap();
+        // Two updates before the consumer runs count as one change.
+        words.send("a".into()).unwrap();
+        words.send("b".into()).unwrap();
+        drop((numbers, words));
+
+        let mut calls = 0;
+        // Different value types sit in one list once their type is erased.
+        for changes in [number_changes.map_changes(), word_changes.map_changes()] {
+            forward_changes(changes, || calls += 1).await;
+        }
+
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn change_forwarding_ignores_the_starting_value_and_ends_when_the_sender_drops() {
+        let (sender, receiver) = tokio::sync::watch::channel(7);
+        drop(sender);
+
+        let mut calls = 0;
+        forward_changes(receiver.map_changes(), || calls += 1).await;
+
+        assert_eq!(calls, 0);
     }
 
     #[tokio::test]

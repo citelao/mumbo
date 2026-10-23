@@ -89,4 +89,17 @@
     label {
         text-align: right;
     }
+
+    // A checkbox keeps its natural size in the control column and is centered
+    // against its label. Baseline alignment is not used: browsers place a
+    // native checkbox's baseline differently, and Tauri uses WebKit on macOS.
+    input[type="checkbox"] {
+        justify-self: start;
+        align-self: center;
+        margin: 0;
+    }
+
+    .checkboxLabel {
+        align-self: center;
+    }
 }

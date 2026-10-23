@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
-import { setAudioInputDevice, setAudioOutputDevice, subscribeAudioDevices } from "../invoke/audio";
+import { setAudioInputDevice, setAudioOutputDevice, setNoiseSuppression, subscribeAudioDevices } from "../invoke/audio";
 import type { AudioDevice } from "../invoke/audio";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
@@ -72,12 +72,15 @@ export default function LoginPage(props: LoginPageProps) {
     const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string | null>(null);
     const [audioInputDevices, setAudioInputDevices] = useState<AudioDevice[]>([]);
     const [audioOutputDevices, setAudioOutputDevices] = useState<AudioDevice[]>([]);
+    // On unless the backend says otherwise, like the backend's own default.
+    const [noiseSuppression, setNoiseSuppressionEnabled] = useState(true);
     useEffect(() => {
         const subscription = subscribeAudioDevices({
             onInputs: setAudioInputDevices,
             onOutputs: setAudioOutputDevices,
             onInputSelected: setSelectedAudioInputId,
             onOutputSelected: setSelectedAudioOutputId,
+            onNoiseSuppression: setNoiseSuppressionEnabled,
         });
         subscription.catch((err) => console.error("Failed to subscribe to audio devices:", err));
         return () => {
@@ -217,6 +220,18 @@ export default function LoginPage(props: LoginPageProps) {
                             );
                         })}
                     </select>
+
+                    <label htmlFor="noise-suppression" className={styles.checkboxLabel}>Noise suppression</label>
+                    <input
+                        id="noise-suppression"
+                        type="checkbox"
+                        checked={noiseSuppression}
+                        onChange={(e) => {
+                            setNoiseSuppressionEnabled(e.target.checked);
+                            setNoiseSuppression(e.target.checked)
+                                .catch((err) => console.error("Failed to set noise suppression:", err));
+                        }}
+                    />
                 </form>
             </div>
         </main>
