@@ -39,15 +39,19 @@ describe("subscribeAudioDevices", () => {
     const setup = async () => {
         const onInputs = vi.fn();
         const onOutputs = vi.fn();
-        const stop = await subscribeAudioDevices({ onInputs, onOutputs });
-        return { onInputs, onOutputs, stop };
+        const onInputSelected = vi.fn();
+        const onOutputSelected = vi.fn();
+        const stop = await subscribeAudioDevices({ onInputs, onOutputs, onInputSelected, onOutputSelected });
+        return { onInputs, onOutputs, onInputSelected, onOutputSelected, stop };
     };
     const send = (event: string, payload: unknown) => listeners[event]!({ payload });
 
-    it("registers both listeners before announcing itself", async () => {
+    it("registers every listener before announcing itself", async () => {
         await setup();
         expect(Object.keys(listeners).sort()).toEqual([
+            "audio-input-device-selected",
             "audio-input-devices-changed",
+            "audio-output-device-selected",
             "audio-output-devices-changed",
         ]);
         // The backend only publishes on announce; an earlier emit would be lost.
@@ -91,11 +95,33 @@ describe("subscribeAudioDevices", () => {
         consoleError.mockRestore();
     });
 
-    it("stops both listeners when unsubscribed", async () => {
+    it("sends the selected device's id, or null for the system default", async () => {
+        const { onInputSelected, onOutputSelected } = await setup();
+        send("audio-input-device-selected", devices[1]);
+        send("audio-input-device-selected", null);
+        send("audio-output-device-selected", devices[0]);
+        expect(onInputSelected.mock.calls).toEqual([["b"], [null]]);
+        expect(onOutputSelected.mock.calls).toEqual([["a"]]);
+    });
+
+    it.each([
+        ["missing is_default", { id: "a", name: "x" }],
+        ["a bare id", "a"],
+        ["a list", [devices[0]]],
+    ])("logs and ignores a malformed selection: %s", async (_name, payload) => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { onInputSelected } = await setup();
+        send("audio-input-device-selected", payload);
+        expect(onInputSelected).not.toHaveBeenCalled();
+        expect(consoleError).toHaveBeenCalled();
+        consoleError.mockRestore();
+    });
+
+    it("stops every listener when unsubscribed", async () => {
         const { stop } = await setup();
         expect(unlisten).not.toHaveBeenCalled();
         stop();
-        expect(unlisten).toHaveBeenCalledTimes(2);
+        expect(unlisten).toHaveBeenCalledTimes(4);
     });
 });
 

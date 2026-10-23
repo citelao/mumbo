@@ -131,33 +131,46 @@ async fn forward_watch<T: Clone>(mut changes: watch::Receiver<T>, mut forward: i
 
 const AUDIO_INPUT_DEVICES_EVENT: &str = "audio-input-devices-changed";
 const AUDIO_OUTPUT_DEVICES_EVENT: &str = "audio-output-devices-changed";
+/// The device the user prefers (an `AudioDevice`), or null to follow the system default.
+const AUDIO_INPUT_SELECTED_EVENT: &str = "audio-input-device-selected";
+const AUDIO_OUTPUT_SELECTED_EVENT: &str = "audio-output-device-selected";
 /// Sent by the UI once its device listeners are registered. Events emitted
-/// earlier would be lost, so this is the cue to publish the current lists.
+/// earlier would be lost, so this is the cue to publish everything current.
 const AUDIO_DEVICES_SUBSCRIBE_EVENT: &str = "audio-devices-subscribe";
 
-/// Publishes the audio module's device lists to the UI as events: whenever a
-/// list changes, and again (both lists) whenever a listener announces itself.
-fn publish_audio_devices(app: &tauri::AppHandle, audio: &audio::AudioModule) {
-    let lists = [
-        (AUDIO_INPUT_DEVICES_EVENT, audio.input_devices()),
-        (AUDIO_OUTPUT_DEVICES_EVENT, audio.output_devices()),
-    ];
-
-    for (event, changes) in lists.clone() {
-        let app = app.clone();
-        tauri::async_runtime::spawn(forward_watch(changes, move |devices| {
-            if let Err(e) = app.emit(event, devices) {
-                log::warn!("Failed to emit {event}: {e}");
-            }
-        }));
+/// Emits `value` as `event`; the UI may simply not be listening yet.
+fn emit_to_ui<T: Clone + serde::Serialize>(app: &tauri::AppHandle, event: &str, value: T) {
+    if let Err(e) = app.emit(event, value) {
+        log::warn!("Failed to emit {event}: {e}");
     }
+}
 
-    let app_for_subscribe = app.clone();
+/// Emits each change of `changes` as `event`, and returns a function that emits
+/// the current value on demand.
+fn publish<T>(app: &tauri::AppHandle, event: &'static str, changes: watch::Receiver<T>) -> Box<dyn Fn() + Send>
+where
+    T: Clone + serde::Serialize + Send + Sync + 'static,
+{
+    let current = changes.clone();
+    let on_change = app.clone();
+    tauri::async_runtime::spawn(forward_watch(changes, move |value| emit_to_ui(&on_change, event, value)));
+    let on_demand = app.clone();
+    Box::new(move || emit_to_ui(&on_demand, event, current.borrow().clone()))
+}
+
+/// Publishes the audio module's device lists and the user's selections to the
+/// UI as events: whenever one changes, and again (all of them) whenever a
+/// listener announces itself.
+fn publish_audio_devices(app: &tauri::AppHandle, audio: &audio::AudioModule) {
+    let republish = [
+        publish(app, AUDIO_INPUT_DEVICES_EVENT, audio.input_devices()),
+        publish(app, AUDIO_OUTPUT_DEVICES_EVENT, audio.output_devices()),
+        publish(app, AUDIO_INPUT_SELECTED_EVENT, audio.preferred_input_device()),
+        publish(app, AUDIO_OUTPUT_SELECTED_EVENT, audio.preferred_output_device()),
+    ];
     app.listen(AUDIO_DEVICES_SUBSCRIBE_EVENT, move |_| {
-        for (event, current) in &lists {
-            if let Err(e) = app_for_subscribe.emit(event, current.borrow().clone()) {
-                log::warn!("Failed to emit {event}: {e}");
-            }
+        for emit_current in &republish {
+            emit_current();
         }
     });
 }

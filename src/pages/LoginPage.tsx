@@ -67,24 +67,17 @@ export default function LoginPage(props: LoginPageProps) {
     const REFRESH_STATS_MS = 10_000;
     useInterval(refreshServerStats, REFRESH_STATS_MS);
 
-    const [selectedAudioInputDevice, setSelectedAudioInputDevice] = useState<AudioDevice | null>(null);
-    const [selectedAudioOutputDevice, setSelectedAudioOutputDevice] = useState<AudioDevice | null>(null);
+    // The backend owns the preference (it outlives this page); null follows the system default.
+    const [selectedAudioInputId, setSelectedAudioInputId] = useState<string | null>(null);
+    const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string | null>(null);
     const [audioInputDevices, setAudioInputDevices] = useState<AudioDevice[]>([]);
     const [audioOutputDevices, setAudioOutputDevices] = useState<AudioDevice[]>([]);
     useEffect(() => {
-        // Keep the user's pick while it is still plugged in; otherwise follow the default.
-        const keepIfPresent = (devices: AudioDevice[]) => (current: AudioDevice | null) =>
-            devices.find(device => device.id === current?.id) ?? null;
-
         const subscription = subscribeAudioDevices({
-            onInputs: (devices) => {
-                setAudioInputDevices(devices);
-                setSelectedAudioInputDevice(keepIfPresent(devices));
-            },
-            onOutputs: (devices) => {
-                setAudioOutputDevices(devices);
-                setSelectedAudioOutputDevice(keepIfPresent(devices));
-            },
+            onInputs: setAudioInputDevices,
+            onOutputs: setAudioOutputDevices,
+            onInputSelected: setSelectedAudioInputId,
+            onOutputSelected: setSelectedAudioOutputId,
         });
         subscription.catch((err) => console.error("Failed to subscribe to audio devices:", err));
         return () => {
@@ -190,10 +183,10 @@ export default function LoginPage(props: LoginPageProps) {
 
                 <form className={styles.settingsForm}>
                     <label htmlFor="audio-input">Audio input</label>
-                    <select id="audio-input" value={selectedAudioInputDevice?.id ?? ""} onChange={(e) => {
-                        const device = audioInputDevices.find(d => d.id === e.target.value);
-                        setSelectedAudioInputDevice(device ?? null);
-                        setAudioInputDevice(device?.id ?? null)
+                    <select id="audio-input" value={selectedAudioInputId ?? ""} onChange={(e) => {
+                        const deviceId = e.target.value || null;
+                        setSelectedAudioInputId(deviceId);
+                        setAudioInputDevice(deviceId)
                             .catch((err) => console.error("Failed to set audio input device:", err));
                     }}>
                         <option value="">Default device</option>
@@ -208,10 +201,10 @@ export default function LoginPage(props: LoginPageProps) {
                     </select>
 
                     <label htmlFor="audio-output">Audio output</label>
-                    <select id="audio-output" value={selectedAudioOutputDevice?.id ?? ""} onChange={(e) => {
-                        const device = audioOutputDevices.find(d => d.id === e.target.value);
-                        setSelectedAudioOutputDevice(device ?? null);
-                        setAudioOutputDevice(device?.id ?? null)
+                    <select id="audio-output" value={selectedAudioOutputId ?? ""} onChange={(e) => {
+                        const deviceId = e.target.value || null;
+                        setSelectedAudioOutputId(deviceId);
+                        setAudioOutputDevice(deviceId)
                             .catch((err) => console.error("Failed to set audio output device:", err));
                     }}>
                         <option value="">Default device</option>

@@ -74,6 +74,38 @@ describe("LoginPage audio settings", () => {
         expect(select("Audio input").selectedOptions[0]?.textContent).toBe("Default device");
     });
 
+    it("shows the device the backend already prefers", async () => {
+        await renderWithDevices();
+        act(() => {
+            handlers.onInputSelected("in-a");
+            handlers.onOutputSelected("out-b");
+        });
+        await waitFor(() => expect(select("Audio input").value).toBe("in-a"));
+        expect(select("Audio output").value).toBe("out-b");
+    });
+
+    it("shows the preference again after coming back to the page", async () => {
+        const first = await renderWithDevices();
+        first.unmount();
+
+        // The backend keeps the preference while the page is gone, and republishes it on subscribing.
+        await renderWithDevices();
+        act(() => handlers.onInputSelected("in-a"));
+
+        await waitFor(() => expect(select("Audio input").value).toBe("in-a"));
+        expect(audio.setAudioInputDevice).not.toHaveBeenCalled();
+    });
+
+    it("follows the backend back to the default device", async () => {
+        await renderWithDevices();
+        act(() => handlers.onInputSelected("in-a"));
+        await waitFor(() => expect(select("Audio input").value).toBe("in-a"));
+
+        act(() => handlers.onInputSelected(null));
+
+        await waitFor(() => expect(select("Audio input").value).toBe(""));
+    });
+
     it("changing the selection updates the select", async () => {
         const user = userEvent.setup();
         await renderWithDevices();
@@ -165,15 +197,19 @@ describe("LoginPage audio settings", () => {
         expect(select("Audio input").value).toBe("in-a");
     });
 
-    it("falls back to \"Default device\" when the selected device is unplugged", async () => {
+    it("shows \"Default device\" while the selected device is unplugged, and the device again when it returns", async () => {
         const user = userEvent.setup();
         await renderWithDevices();
         await user.selectOptions(select("Audio input"), "in-a");
 
         act(() => handlers.onInputs([inputs[1]!]));
-
         await waitFor(() => expect(select("Audio input").value).toBe(""));
         expect(screen.queryByRole("option", { name: "Built-in Mic" })).toBeNull();
+        // Unplugging is not a choice: the backend keeps its preference, so the UI tells it nothing.
+        expect(audio.setAudioInputDevice).toHaveBeenCalledExactlyOnceWith("in-a");
+
+        act(() => handlers.onInputs(inputs));
+        await waitFor(() => expect(select("Audio input").value).toBe("in-a"));
     });
 
     it("shows empty selects and logs when subscribing fails", async () => {
