@@ -41,6 +41,7 @@ sonora = "0.2.0"
 # sonora's internal voice detector, which sonora itself doesn't expose.
 sonora-agc2 = "0.2.0"
 sonora-simd = "0.2.0"
+thiserror = "2.0.21"
 
 
 [dev-dependencies]
