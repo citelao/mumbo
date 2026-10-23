@@ -25,8 +25,11 @@
 } */
 
 /* Full-height column: page content scrolls, the protocol viewer docks below it. */
-body {
+html, body {
   margin: 0;
+  overflow: hidden;
+  /* Stop the macOS rubber-band bounce of the whole window. */
+  overscroll-behavior: none;
 }
 
 #root {
@@ -37,7 +40,6 @@ body {
 
 .container {
   flex: 1;
-  overflow: auto;
   margin: 0;
   padding: 8px 8px 0 8px;
   display: flex;
