@@ -10,16 +10,18 @@
 .chat {
     /* min-width: 80ch; */
     text-align: left;
-    overflow-y: auto;
-    overflow-x: hidden;
 
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 
     ol {
         flex-grow: 1;
         margin: 0;
         padding: 0;
+
+        overflow-y: scroll;
+        overflow-x: hidden;
 
         .date {
             color: #888;
