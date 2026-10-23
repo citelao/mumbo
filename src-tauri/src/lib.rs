@@ -277,9 +277,11 @@ async fn connect_internal(
                         // clock instead of drifting against this timer.
                         while output_producer.occupied_len() < MIX_TARGET_SAMPLES {
                             let frame = mix_frame(&mut speakers)?;
-                            let mut processed_frame = vec![0i16; frame.len()];
+                            // TODO: feed this frame to the audio module's APM as the echo
+                            // canceller's render reference.
+                            // let mut processed_frame = vec![0i16; frame.len()];
                             // apm.process_render_i16(&frame, &mut processed_frame).map_err(Error::other)?;
-                            output_producer.push_slice(&processed_frame);
+                            output_producer.push_slice(&frame);
                         }
                     }
                 }
