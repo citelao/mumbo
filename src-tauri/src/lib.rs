@@ -347,10 +347,10 @@ async fn connect_internal(
                 SelfMuteStatus::Unmuted => Some(false),
                 SelfMuteStatus::Muting | SelfMuteStatus::Unmuting => None,
             };
-            if let (Some(muter), Some(muted)) = (universal_muter.as_mut(), confirmed_mute) {
-                if let Err(e) = muter.confirm(muted) {
-                    log::warn!("Universal mute couldn't update the button: {e}");
-                }
+            if let (Some(muter), Some(muted)) = (universal_muter.as_mut(), confirmed_mute)
+                && let Err(e) = muter.confirm(muted)
+            {
+                log::warn!("Universal mute couldn't update the button: {e}");
             }
         }
         // `recv` only returns `None` once the driver has exited, so the
