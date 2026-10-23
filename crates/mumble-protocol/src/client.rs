@@ -374,9 +374,13 @@ impl MumbleClient {
     /// Sends one Opus packet. Set `is_terminator` on the last packet of a
     /// burst so listeners know the speaker stopped rather than lost packets.
     pub fn send_audio(&self, audio: &[u8], frame_counter: u64, is_terminator: bool) -> Result<(), MumbleConnectionError> {
-        if self.self_muted.load(Ordering::Relaxed) {
+        let muted = self.self_muted.load(Ordering::Relaxed);
+        if muted && !is_terminator {
             return Ok(());
         }
+        // Muting mid-burst must still end the burst, or listeners (and our own
+        // state) would keep us marked as speaking; send it without any voice.
+        let audio = if muted { &[] } else { audio };
         let packet = crate::ClientToServerMessage::UdpTunnel(
             crate::ClientToServerUdpMessage::Audio(
             crate::raw_udp::Audio {
@@ -722,6 +726,27 @@ mod tests {
         connection.client.send_audio(&[2], 1, true).unwrap();
         server.receive_audio().await;
         wait_until(|| speaking(&connection.client).is_empty()).await;
+    }
+
+    #[tokio::test]
+    async fn muting_mid_speech_still_ends_speaking() {
+        let (connection, mut server) = connected().await;
+
+        connection.client.send_audio(&[1], 0, false).unwrap();
+        server.receive_audio().await;
+        wait_until(|| speaking(&connection.client) == ["me"]).await;
+
+        connection.client.set_self_mute(true).unwrap();
+        connection.client.send_audio(&[2], 1, false).unwrap();
+        connection.client.send_audio(&[3], 2, true).unwrap();
+
+        wait_until(|| speaking(&connection.client).is_empty()).await;
+
+        // Packets are ordered, so the first audio after the mute is the
+        // terminator only if the ordinary packet was dropped.
+        assert_eq!(server.receive_message::<raw::UserState>().await.self_mute, Some(true));
+        let terminator = server.receive_audio().await;
+        assert_eq!((terminator.opus_data, terminator.frame_number, terminator.is_terminator), (vec![], 2, true));
     }
 
     #[tokio::test]
