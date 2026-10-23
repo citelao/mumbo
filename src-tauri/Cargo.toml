@@ -46,3 +46,6 @@ thiserror = "2.0.21"
 
 [dev-dependencies]
 tokio = { version = "1.53.3", features = ["macros", "rt"] }
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62.2", features = ["ApplicationModel_Calls", "Foundation"] }
