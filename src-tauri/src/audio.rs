@@ -19,8 +19,38 @@ pub struct AudioDevice {
     pub is_default: bool,
 }
 
+/// `cpal::default_host()`, made safe to call from short-lived threads on Windows.
+///
+/// cpal's WASAPI backend creates one process-wide device enumerator inside the
+/// COM apartment of whichever thread asks first, and tears that apartment down
+/// when the thread exits. Any later thread then calls into a dead object and
+/// crashes (STATUS_ACCESS_VIOLATION). Tests hit this because each runs on its
+/// own thread. So create the enumerator on a thread that never exits.
+fn default_host() -> cpal::Host {
+    #[cfg(windows)]
+    {
+        static ENUMERATOR_OWNER: std::sync::Once = std::sync::Once::new();
+        ENUMERATOR_OWNER.call_once(|| {
+            let (ready, wait_until_ready) = std::sync::mpsc::channel();
+            std::thread::Builder::new()
+                .name("cpal-enumerator-owner".into())
+                .spawn(move || {
+                    // Any default-device lookup creates the enumerator.
+                    let _ = cpal::default_host().default_input_device();
+                    let _ = ready.send(());
+                    loop {
+                        std::thread::park();
+                    }
+                })
+                .expect("spawning the enumerator owner thread");
+            let _ = wait_until_ready.recv();
+        });
+    }
+    cpal::default_host()
+}
+
 pub fn get_audio_input_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
-    let host = cpal::default_host();
+    let host = default_host();
 
     let default_device = host.default_input_device();
     let default_device_id = default_device.and_then(|d| d.id().ok());
@@ -42,7 +72,7 @@ pub fn get_audio_input_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
 }
 
 pub fn get_audio_output_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
-    let host = cpal::default_host();
+    let host = default_host();
 
     let default_device = host.default_output_device();
     let default_device_id = default_device.and_then(|d| d.id().ok());
@@ -369,7 +399,7 @@ impl AudioModule {
     }
 
     pub fn start(&self, mut on_mic_frame: impl MicFrameSink + 'static, mut speakers: impl SpeakerSource + 'static) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
-        let host = cpal::default_host();
+        let host = default_host();
         let input_device = resolve_device(&host, self.preferred_input_device.borrow().as_ref(), host.default_input_device())
             .ok_or(AudioError::NoAudioDevice)?;
         let output_device = resolve_device(&host, self.preferred_output_device.borrow().as_ref(), host.default_output_device())
