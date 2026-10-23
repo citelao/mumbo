@@ -4,7 +4,7 @@ use cpal::{DeviceId, traits::{DeviceTrait, HostTrait, StreamTrait}};
 use opus::Channels::Mono;
 use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
 use serde::{Deserialize, Serialize};
-use sonora::{AudioProcessing, Config, StreamConfig, config::{EchoCanceller, GainController2, NoiseSuppression}};
+use sonora::{AudioProcessing, Config, StreamConfig, config::{AdaptiveDigital, EchoCanceller, GainController2, NoiseSuppression}};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,6 +61,21 @@ pub fn get_audio_output_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
         })
     }).collect();
     Ok(device_names)
+}
+
+/// What the mic is cleaned up with before it is sent.
+fn apm_config() -> Config {
+    Config {
+        echo_canceller: Some(EchoCanceller::default()),
+        noise_suppression: Some(NoiseSuppression::default()),
+        // `GainController2::default()` has no adaptive controller and so does nothing but
+        // limit; the adaptive digital gain is what actually raises a quiet mic.
+        gain_controller2: Some(GainController2 {
+            adaptive_digital: Some(AdaptiveDigital::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 /// Builds the echo canceller/noise suppressor. Both streams are declared as
@@ -356,12 +371,7 @@ impl AudioModule {
         let headroom_samples: u32 = (input_rate * HEADROOM_MS) / 1000;
         let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(headroom_samples as usize).split();
 
-        let apm_config = Config {
-            echo_canceller: Some(EchoCanceller::default()),
-            noise_suppression: Some(NoiseSuppression::default()),
-            gain_controller2: Some(GainController2::default()),
-            ..Default::default()
-        };
+        let apm_config = apm_config();
         let mut apm = audio_processing(apm_config.clone());
 
         // A best-guess for the network-induced delay.
@@ -967,6 +977,63 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    /// The voice, scaled by `gain`, through the mic processing for 8 s. Returns
+    /// the RMS level of the input and of the output over the last second, and
+    /// the loudest output sample.
+    fn voice_through_the_mic_processing(gain: f32) -> (f32, f32, f32) {
+        let mut apm = audio_processing(apm_config());
+        let (mut input_energy, mut output_energy, mut peak, mut samples) = (0.0f32, 0.0f32, 0.0f32, 0usize);
+        for (n, frame) in voiced_frames(800).iter().enumerate() {
+            let input: Vec<f32> = frame.iter().map(|s| s * gain).collect();
+            let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
+            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            if n >= 700 {
+                input_energy += input.iter().map(|s| s * s).sum::<f32>();
+                output_energy += output.iter().map(|s| s * s).sum::<f32>();
+                peak = output.iter().fold(peak, |peak, s| peak.max(s.abs()));
+                samples += input.len();
+            }
+        }
+        ((input_energy / samples as f32).sqrt(), (output_energy / samples as f32).sqrt(), peak)
+    }
+
+    #[test]
+    fn a_quiet_voice_is_brought_up_to_a_normal_level() {
+        let (heard, sent, _) = voice_through_the_mic_processing(0.1);
+        eprintln!("quiet voice: in {heard}, out {sent}, boost {:.1} dB", 20.0 * (sent / heard).log10());
+        assert!(sent > 2.0 * heard, "a quiet voice was sent at {sent} from {heard}: barely louder");
+    }
+
+    #[test]
+    fn a_loud_voice_is_not_pushed_into_clipping() {
+        let (_, _, peak) = voice_through_the_mic_processing(4.0);
+        assert!(peak <= 1.0, "peaked at {peak}");
+    }
+
+    #[test]
+    fn quiet_background_noise_is_not_boosted_into_something_audible() {
+        let mut apm = audio_processing(apm_config());
+        let mut seed = 99u32;
+        let mut energy = 0.0f32;
+        for n in 0..800 {
+            // White noise at about -60 dBFS: a quiet room.
+            let input: Vec<f32> = (0..MIC_FRAME_SAMPLES)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    ((seed >> 16) as i16 as f32 / 32768.0) * 0.002
+                })
+                .collect();
+            let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
+            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            if n >= 700 {
+                energy += output.iter().map(|s| s * s).sum::<f32>();
+            }
+        }
+        let rms = (energy / (100 * MIC_FRAME_SAMPLES) as f32).sqrt();
+        eprintln!("room noise out: {rms} ({:.1} dBFS)", 20.0 * rms.log10());
+        assert!(rms < 0.005, "room noise came out at {rms}");
     }
 
     #[test]
