@@ -141,7 +141,7 @@ describe("MainPage", () => {
         renderMainPage();
 
         await screen.findByText(/third$/);
-        const list = screen.getAllByRole("list")[1];
+        const list = screen.getAllByRole("list").find((l) => l.tagName === "OL")!;
         expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
             expect.stringMatching(/first$/),
             expect.stringMatching(/second$/),
