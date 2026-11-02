@@ -84,7 +84,8 @@ pre {
         margin: 0;
     }
 
-    .me {
+    .me,
+    .me-channel {
         font-weight: 700; // Highlight the current user
     }
 }

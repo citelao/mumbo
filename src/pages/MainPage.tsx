@@ -100,19 +100,25 @@ export function MainPage(props: MainPageProps) {
         </li>
     );
 
+    const renderChannel = (channel: MumbleChannel) => {
+        const isMeChannel = channel.channel_id === users.find(u => u.is_me)?.channel_id;
+
+        return (
+            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)}>
+                <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name} (parent {channel.parent ?? "none"})</span>
+
+                {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
+            </li>
+        );
+    };
+
     return (
         <>
             <main className={[styles.container, "container"].join(" ")}>
                 <section className={styles["user-list"]}>
                     <section>
                         <ul>
-                            {channels.map((channel) => (
-                                <li key={channel.channel_id} onClick={() => onSetChannel(channel)}>
-                                    {channel.name} (parent {channel.parent ?? "none"})
-
-                                    {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
-                                </li>
-                            ))}
+                            {channels.map((channel) => renderChannel(channel))}
                         </ul>
                     </section>
                     <menu>
