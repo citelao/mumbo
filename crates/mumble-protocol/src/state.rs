@@ -191,10 +191,18 @@ impl MumbleState {
 
             // Signals the end of the initial server handshake.
             crate::ServerToClientMessage::ServerSync(m) => {
+                // The server sends one ServerSync per connection; a second would
+                // leave two users flagged as us.
+                if self.current_user_session.is_some() {
+                    return Err(Error::new(io::ErrorKind::InvalidData, "Duplicate ServerSync"));
+                }
+
                 self.current_user_session = m.session;
                 if let Some(session) = self.current_user_session {
                     // Set me!
-                    self.users.get_mut(&session).map(|user| user.is_me = true);
+                    if let Some(user) = self.users.get_mut(&session) {
+                        user.is_me = true;
+                    }
                 }
 
                 self.connection_status = ConnectionStatus::Connected;
@@ -225,10 +233,21 @@ impl MumbleState {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Missing session"));
                 };
 
+                // Channels arrive before users in the handshake, so an unknown
+                // channel is a protocol error. Checked before touching state.
+                if let Some(channel_id) = m.channel_id {
+                    if !self.channels.contains_key(&channel_id) {
+                        return Err(Error::new(io::ErrorKind::InvalidData, format!("Unknown channel: {channel_id}")));
+                    }
+                }
+
+                let current_user_session = self.current_user_session;
                 let user = self.users
                     .entry(session)
                     .or_insert_with(|| User {
                         session,
+                        // ServerSync can (in theory) precede our own UserState.
+                        is_me: current_user_session == Some(session),
                         ..Default::default()
                     });
 
@@ -285,7 +304,10 @@ impl MumbleState {
                     });
 
                 merge(&mut channel.name, m.name);
-                channel.parent = m.parent; // Not merged: `None` if root channel
+                // The root channel never has a parent, so `None` only ever means "unchanged".
+                if m.parent.is_some() {
+                    channel.parent = m.parent;
+                }
                 merge(&mut channel.description, m.description);
 
                 log::info!("Updated channel: {} (ID: {})", channel.name, channel.channel_id);
@@ -458,6 +480,7 @@ mod tests {
     #[test]
     fn users_match_shared_fixture() {
         let mut state = MumbleState::default();
+        state.apply(channel_state(3, "Lobby", Some(0))).unwrap();
         state
             .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
                 session: Some(7),
@@ -476,6 +499,8 @@ mod tests {
     #[test]
     fn test_apply() {
         let mut state = MumbleState::default();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+        state.apply(channel_state(2, "Games", Some(0))).unwrap();
 
         // Create a user
         state.apply(crate::ServerToClientMessage::UserState({
@@ -678,9 +703,278 @@ mod tests {
         assert!(events[1..].iter().all(Option::is_none), "{events:?}");
     }
 
-    // TODO: channel
-    //
-    // - does root channel have parent?
-    // - do we handle updates correctly?
-    // - do we handle reparenting correctly?
+    fn channel_state(id: u32, name: &str, parent: Option<u32>) -> crate::ServerToClientMessage {
+        crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+            channel_id: Some(id),
+            name: Some(name.to_string()),
+            parent,
+            ..Default::default()
+        })
+    }
+
+    fn user_in_channel(session: u32, channel_id: u32) -> crate::ServerToClientMessage {
+        crate::ServerToClientMessage::UserState(crate::raw::UserState {
+            session: Some(session),
+            channel_id: Some(channel_id),
+            ..Default::default()
+        })
+    }
+
+    fn server_sync(session: Option<u32>) -> crate::ServerToClientMessage {
+        crate::ServerToClientMessage::ServerSync(crate::raw::ServerSync {
+            session,
+            ..Default::default()
+        })
+    }
+
+    /// Sessions of the users flagged as the current user.
+    fn me(state: &MumbleState) -> Vec<u32> {
+        state.users().iter().filter(|u| u.is_me).map(|u| u.session).collect()
+    }
+
+    // src/invoke/mumbleState.test.ts parses the same fixture with the zod
+    // `Channel` schema.
+    #[test]
+    fn channels_match_shared_fixture() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(0, "Root", None)).unwrap();
+        state
+            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+                channel_id: Some(3),
+                name: Some("Lobby".to_string()),
+                parent: Some(0),
+                description: Some("Say hi".to_string()),
+                ..Default::default()
+            }))
+            .unwrap();
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/channels.json")).unwrap();
+
+        assert_eq!(serde_json::to_value(state.channels()).unwrap(), fixture);
+    }
+
+    #[test]
+    fn the_root_channel_has_no_parent() {
+        let mut state = MumbleState::default();
+
+        state.apply(channel_state(0, "Root", None)).unwrap();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+
+        assert_eq!(state.channels[&0].parent, None);
+        assert_eq!(state.channels[&1].parent, Some(0));
+    }
+
+    #[test]
+    fn channel_updates_are_reported() {
+        let mut state = MumbleState::default();
+
+        let created = state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+        let renamed = state.apply(channel_state(1, "Hall", Some(0))).unwrap();
+
+        for event in [created, renamed] {
+            assert!(matches!(event, Some(MumbleEvent::ChannelsChanged)), "{event:?}");
+        }
+        assert_eq!(state.channels().len(), 1);
+        assert_eq!(state.channels[&1].name, "Hall");
+    }
+
+    // The server only sends the fields that changed, so a rename carries no
+    // `parent`; that must not move the channel to the root.
+    #[test]
+    fn renaming_a_channel_keeps_its_parent_and_description() {
+        let mut state = MumbleState::default();
+        state
+            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+                channel_id: Some(1),
+                name: Some("Lobby".to_string()),
+                parent: Some(0),
+                description: Some("Say hi".to_string()),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        state
+            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+                channel_id: Some(1),
+                name: Some("Hall".to_string()),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        let channel = &state.channels[&1];
+        assert_eq!(channel.name, "Hall");
+        assert_eq!(channel.parent, Some(0));
+        assert_eq!(channel.description, "Say hi");
+    }
+
+    #[test]
+    fn reparenting_a_channel_moves_it() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(0, "Root", None)).unwrap();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+        state.apply(channel_state(2, "Games", Some(0))).unwrap();
+
+        state
+            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+                channel_id: Some(1),
+                parent: Some(2),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        assert_eq!(state.channels[&1].parent, Some(2));
+        assert_eq!(state.channels[&1].name, "Lobby");
+    }
+
+    #[test]
+    fn channel_state_without_an_id_is_an_error() {
+        let mut state = MumbleState::default();
+
+        let error = state
+            .apply(crate::ServerToClientMessage::ChannelState(Default::default()))
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn removing_a_channel_is_reported() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+
+        let event = state
+            .apply(crate::ServerToClientMessage::ChannelRemove(crate::raw::ChannelRemove { channel_id: 1 }))
+            .unwrap();
+
+        assert!(matches!(event, Some(MumbleEvent::ChannelsChanged)), "{event:?}");
+        assert!(state.channels().is_empty());
+    }
+
+    #[test]
+    fn removing_an_unknown_channel_is_an_error() {
+        let mut state = MumbleState::default();
+
+        let error = state
+            .apply(crate::ServerToClientMessage::ChannelRemove(crate::raw::ChannelRemove { channel_id: 9 }))
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn users_can_move_between_known_channels() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+        state.apply(channel_state(2, "Games", Some(0))).unwrap();
+        state.apply(user_in_channel(1, 1)).unwrap();
+
+        let event = state.apply(user_in_channel(1, 2)).unwrap();
+
+        assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+        assert_eq!(state.users[&1].channel_id, 2);
+    }
+
+    #[test]
+    fn putting_a_user_in_an_unknown_channel_is_an_error() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+
+        let error = state.apply(user_in_channel(1, 42)).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("42"), "{error}");
+    }
+
+    #[test]
+    fn moving_a_user_to_an_unknown_channel_leaves_them_where_they_were() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+        state.apply(user_in_channel(1, 1)).unwrap();
+
+        state.apply(user_in_channel(1, 42)).unwrap_err();
+
+        assert_eq!(state.users[&1].channel_id, 1);
+    }
+
+    // The server omits unchanged fields, so most user updates have no channel.
+    #[test]
+    fn user_updates_without_a_channel_are_fine() {
+        let mut state = MumbleState::default();
+
+        state.apply(user_state(1, "Alice")).unwrap();
+    }
+
+    #[test]
+    fn there_is_no_current_user_before_the_server_sync() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+
+        assert!(state.current_user().is_none());
+        assert!(me(&state).is_empty());
+    }
+
+    #[test]
+    fn the_server_sync_picks_out_the_current_user() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(user_state(2, "Bob")).unwrap();
+
+        state.apply(server_sync(Some(2))).unwrap();
+
+        assert_eq!(state.current_user().map(|u| u.name.as_str()), Some("Bob"));
+        assert_eq!(me(&state), [2]);
+    }
+
+    // The server sends our own UserState before the ServerSync, but nothing
+    // in the types guarantees it.
+    #[test]
+    fn the_current_user_is_marked_even_if_they_arrive_after_the_server_sync() {
+        let mut state = MumbleState::default();
+        state.apply(server_sync(Some(2))).unwrap();
+
+        state.apply(user_state(2, "Bob")).unwrap();
+
+        assert_eq!(state.current_user().map(|u| u.name.as_str()), Some("Bob"));
+        assert_eq!(me(&state), [2]);
+    }
+
+    #[test]
+    fn user_updates_keep_the_current_user_marked() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(server_sync(Some(1))).unwrap();
+
+        state.apply(user_state(1, "Alice Cooper")).unwrap();
+
+        assert_eq!(me(&state), [1]);
+    }
+
+    #[test]
+    fn the_current_user_follows_their_channel() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
+        state.apply(channel_state(2, "Games", Some(0))).unwrap();
+        state.apply(user_in_channel(1, 1)).unwrap();
+        state.apply(server_sync(Some(1))).unwrap();
+
+        state.apply(user_in_channel(1, 2)).unwrap();
+
+        assert_eq!(state.current_user().unwrap().channel_id, 2);
+    }
+
+    // Mumble sends one ServerSync per connection, to finish the handshake. A
+    // second one means we've lost track of the protocol, and silently
+    // re-pointing "me" would leave two users flagged.
+    #[test]
+    fn a_second_server_sync_is_an_error() {
+        let mut state = MumbleState::default();
+        state.apply(user_state(1, "Alice")).unwrap();
+        state.apply(user_state(2, "Bob")).unwrap();
+        state.apply(server_sync(Some(1))).unwrap();
+
+        let error = state.apply(server_sync(Some(2))).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(me(&state), [1], "the original identity must survive");
+    }
 }

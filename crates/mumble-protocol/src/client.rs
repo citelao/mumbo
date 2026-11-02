@@ -541,7 +541,7 @@ mod tests {
 
     /// Names of the users the client thinks are speaking.
     fn speaking(client: &MumbleClient) -> Vec<String> {
-        client.state().lock().unwrap().users().iter().filter(|u| u.is_speaking).map(|u| u.name().to_string()).collect()
+        client.state().lock().unwrap().users().iter().filter(|u| u.is_speaking).map(|u| u.name.clone()).collect()
     }
 
     /// Discards the events reported so far, e.g. from the handshake.
@@ -550,7 +550,7 @@ mod tests {
     }
 
     fn user_names(client: &MumbleClient) -> Vec<String> {
-        client.state().lock().unwrap().users().iter().map(|u| u.name().to_string()).collect()
+        client.state().lock().unwrap().users().iter().map(|u| u.name.clone()).collect()
     }
 
     #[tokio::test]

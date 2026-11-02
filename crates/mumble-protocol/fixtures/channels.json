@@ -1,0 +1,14 @@
+[
+  {
+    "channel_id": 0,
+    "parent": null,
+    "name": "Root",
+    "description": ""
+  },
+  {
+    "channel_id": 3,
+    "parent": 0,
+    "name": "Lobby",
+    "description": "Say hi"
+  }
+]
