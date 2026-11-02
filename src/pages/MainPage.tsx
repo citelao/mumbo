@@ -99,18 +99,23 @@ export function MainPage(props: MainPageProps) {
         </li>
     );
 
-    const onChannelContextMenu = async (channel: MumbleChannel, event: React.MouseEvent) => {
+    const onChannelContextMenu = async (
+        channel: MumbleChannel,
+        is_current: boolean,
+        event: React.MouseEvent) => {
         event.preventDefault();
+
+        const joinItem = is_current ? null : await MenuItem.new({
+            id: "join-channel",
+            text: `Join ${channel.name}`,
+            action: () => {
+                onSetChannel(channel);
+            }
+        });
 
         const menu = await Menu.new({
             items: [
-                await MenuItem.new({
-                    id: "join-channel",
-                    text: `Join ${channel.name}`,
-                    action: () => {
-                        onSetChannel(channel);
-                    }
-                })
+                ...(joinItem ? [joinItem] : [])
             ]
         });
         void menu.popup(new LogicalPosition(event.clientX, event.clientY));
@@ -120,7 +125,7 @@ export function MainPage(props: MainPageProps) {
         const isMeChannel = channel.channel_id === users.find(u => u.is_me)?.channel_id;
 
         return (
-            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, e)}>
+            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>
                 <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name} (parent {channel.parent ?? "none"})</span>
 
                 <ul>
