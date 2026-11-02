@@ -5,7 +5,6 @@ import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, typ
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
-import { menu } from "@tauri-apps/api";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 
