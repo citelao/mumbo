@@ -7,7 +7,7 @@ import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 import SettingsStore, { Server, Settings } from "./settings";
-import { connect, disconnect, sendChannelMessage, setSelfMute } from "./invoke";
+import { connect, disconnect, sendChannelMessage, setChannel, setSelfMute } from "./invoke";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
@@ -89,6 +89,14 @@ function App(props: AppProps) {
             alert("Failed to disconnect: " + error);
         }
     };
+    const onSetChannel = async (channel_id: number) => {
+        try {
+            await setChannel(channel_id);
+        } catch (error) {
+            console.error(error);
+            alert("Failed to set channel: " + error);
+        }
+    };
 
     const mostRecentServer = settings?.recentServers?.[0];
 
@@ -107,7 +115,8 @@ function App(props: AppProps) {
             onClearProtocolLog={() => setProtocolLog([])}
             onSendMessage={sendChannelMessage}
             onSetSelfMute={setSelfMute}
-            onDisconnect={onDisconnect} />;
+            onDisconnect={onDisconnect}
+            onSetChannel={onSetChannel} />;
     }
 }
 

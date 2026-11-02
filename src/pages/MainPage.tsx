@@ -15,6 +15,9 @@ export interface MainPageProps {
     onDisconnect: () => void;
     onSendMessage: (message: string) => void;
     onSetSelfMute: (muted: boolean) => void;
+
+    // Temporary
+    onSetChannel: (channel_id: number) => void;
 }
 
 // Chat content is server-supplied HTML. Without this, clicking a link would
@@ -83,6 +86,10 @@ export function MainPage(props: MainPageProps) {
     //     void menu.popup(new LogicalPosition(event.clientX, event.clientY));
     // };
 
+    const onSetChannel = (channel_id: number) => {
+        props.onSetChannel(channel_id);
+    };
+
     return (
         <>
             <main className={[styles.container, "container"].join(" ")}>
@@ -103,7 +110,7 @@ export function MainPage(props: MainPageProps) {
                         Channels
                         <ul>
                             {channels.map((channel) => (
-                                <li key={channel.channel_id}>
+                                <li key={channel.channel_id} onClick={() => onSetChannel(channel.channel_id)}>
                                     {channel.name} (parent {channel.parent ?? "none"})
                                 </li>
                             ))}
