@@ -409,7 +409,7 @@ impl MumbleClient {
         let channel_id = if let Some(channel_id) = channel_id {
             channel_id
         } else {
-            self.state.lock().unwrap().current_user_channel().unwrap()
+            self.state.lock().unwrap().current_user().unwrap().channel_id
         };
         log::trace!("Sending text message: {} to channel: {:?}", message, channel_id);
         self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {

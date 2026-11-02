@@ -8,34 +8,34 @@ use serde::Serialize;
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct User {
     // Unique user ID
-    session: u32,
+    pub session: u32,
 
     // Display name of the user
-    name: String,
+    pub name: String,
 
     // Channel ID the user is in
-    channel_id: u32,
+    pub channel_id: u32,
 
     // Whether the user is muted by the server
-    mute: bool,
+    pub mute: bool,
 
     // Whether the user is deafened by the server
-    deaf: bool,
+    pub deaf: bool,
 
     // Whether the user is suppressed by the server
-    suppress: bool,
+    pub suppress: bool,
 
     // Whether user is self-muted
-    self_mute: bool,
+    pub self_mute: bool,
 
     // Whether user is self-deafened
-    self_deaf: bool,
+    pub self_deaf: bool,
 
     // Whether the user is a priority speaker
-    priority_speaker: bool,
+    pub priority_speaker: bool,
 
     // Whether the user is recording
-    recording: bool,
+    pub recording: bool,
 
     // actor?
     // user_id?
@@ -53,13 +53,8 @@ pub struct User {
     // NOT plugin_identity
 
     // Additional fields
+    pub is_me: bool,
     pub is_speaking: bool,
-}
-
-impl User {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
 }
 
 #[derive(Default, Debug, Clone, Serialize)]
@@ -161,9 +156,9 @@ impl MumbleState {
         self.channels.values().cloned().collect()
     }
 
-    pub fn current_user_channel(&self) -> Option<u32> {
+    pub fn current_user(&self) -> Option<&User> {
         let current_user_session = self.current_user_session?;
-        self.users.get(&current_user_session).map(|user| user.channel_id)
+        self.users.get(&current_user_session)
     }
 
     pub fn chat_messages(&self) -> &Vec<TextMessage> {
@@ -197,6 +192,11 @@ impl MumbleState {
             // Signals the end of the initial server handshake.
             crate::ServerToClientMessage::ServerSync(m) => {
                 self.current_user_session = m.session;
+                if let Some(session) = self.current_user_session {
+                    // Set me!
+                    self.users.get_mut(&session).map(|user| user.is_me = true);
+                }
+
                 self.connection_status = ConnectionStatus::Connected;
                 log::info!("Successfully connected to the server");
 

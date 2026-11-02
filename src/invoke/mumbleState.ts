@@ -17,6 +17,7 @@ export const User = z.strictObject({
   priority_speaker: z.boolean(),
   recording: z.boolean(),
 
+  is_me: z.boolean(),
   is_speaking: z.boolean(),
 });
 
@@ -27,6 +28,7 @@ export async function fetchUsers(): Promise<User[]> {
   return z.array(User).parse(await invoke<unknown>("get_users"));
 }
 
+// Mirrors `mumble_protocol::state::Channel` as serialized by serde.
 export const Channel = z.strictObject({
   channel_id: z.number().int().nonnegative(),
   parent: z.number().int().nonnegative().nullable(),

@@ -91,28 +91,26 @@ export function MainPage(props: MainPageProps) {
         props.onSetChannel(channel);
     };
 
+    const renderUser = (user: User) => (
+        <li key={user.session} className={user.is_me ? styles["me"] : ""}>
+            {user.is_speaking ? "● " : "◯ "}
+            {user.name} (channel {user.channel_id})
+            {user.self_mute || user.mute ? " muted" : ""}
+            {user.self_deaf || user.deaf ? " deafened" : ""}
+        </li>
+    );
+
     return (
         <>
             <main className={[styles.container, "container"].join(" ")}>
                 <section className={styles["user-list"]}>
                     <section>
-                        Users
-                        <ul>
-                            {users.map((user) => (
-                                <li key={user.session}>
-                                {user.is_speaking ? "● " : "◯ "}
-                                {user.name} (channel {user.channel_id})
-                                {user.self_mute || user.mute ? " muted" : ""}
-                                {user.self_deaf || user.deaf ? " deafened" : ""}
-                                </li>
-                            ))}
-                        </ul>
-
-                        Channels
                         <ul>
                             {channels.map((channel) => (
                                 <li key={channel.channel_id} onClick={() => onSetChannel(channel)}>
                                     {channel.name} (parent {channel.parent ?? "none"})
+
+                                    {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
                                 </li>
                             ))}
                         </ul>
