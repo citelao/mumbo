@@ -2,7 +2,7 @@
 
 This is still in development. I wanted to learn Tauri & I wanted a Mumble client that was auto-configured with good audio.
 
-## Usage
+## Development
 
 ```bash
   brew install cmake # needed for opus
@@ -18,6 +18,12 @@ This is still in development. I wanted to learn Tauri & I wanted a Mumble client
 
 # For iOS development, run:
   npm run tauri ios dev
+```
+
+### Distribution
+
+```bash
+npm run tauri build
 ```
 
 ## Recommended IDE Setup
