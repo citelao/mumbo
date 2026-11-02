@@ -83,6 +83,8 @@ jobs:
           name: ${{ matrix.name }}
           path: staged/*
           if-no-files-found: error
+          # Only hand-off to the publish job; the Release holds the durable copy.
+          retention-days: 1
 
   # Tauri can't emit a flatpak, so wrap the Linux .deb from the build job.
   flatpak:
@@ -105,6 +107,15 @@ jobs:
           bundle: mumbo-linux-x64.flatpak
           manifest-path: packaging/flatpak/com.citelao.mumbo.yml
           cache-key: flatpak-builder-${{ github.event.workflow_run.head_sha }}
+          # The action can't set retention, so upload the bundle ourselves.
+          upload-artifact: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mumbo-linux-x64-x86_64.flatpak
+          path: mumbo-linux-x64.flatpak
+          if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: [build, flatpak]
