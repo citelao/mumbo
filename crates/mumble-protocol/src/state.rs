@@ -861,6 +861,42 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
+    fn channel_remove(channel_id: u32) -> crate::ServerToClientMessage {
+        crate::ServerToClientMessage::ChannelRemove(crate::raw::ChannelRemove { channel_id })
+    }
+
+    // Observed from a real server: it moves everyone out of a channel (to its
+    // parent), then sends ChannelRemove last. So the removal never strands users.
+    #[test]
+    fn removing_a_channel_after_the_server_moves_its_users_out() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(0, "Root", None)).unwrap();
+        state.apply(channel_state(1, "Another channel", Some(0))).unwrap();
+        state.apply(user_in_channel(5, 1)).unwrap();
+
+        state.apply(user_in_channel(5, 0)).unwrap();
+        let event = state.apply(channel_remove(1)).unwrap();
+
+        assert!(matches!(event, Some(MumbleEvent::ChannelsChanged)), "{event:?}");
+        assert_eq!(state.channels().iter().map(|c| c.channel_id).collect::<Vec<_>>(), [0]);
+        assert_eq!(state.users[&5].channel_id, 0);
+    }
+
+    #[test]
+    fn the_current_user_follows_their_channel_being_removed() {
+        let mut state = MumbleState::default();
+        state.apply(channel_state(0, "Root", None)).unwrap();
+        state.apply(channel_state(1, "Another channel", Some(0))).unwrap();
+        state.apply(user_in_channel(22, 1)).unwrap();
+        state.apply(server_sync(Some(22))).unwrap();
+
+        state.apply(user_in_channel(22, 0)).unwrap();
+        state.apply(channel_remove(1)).unwrap();
+
+        assert_eq!(state.current_user().unwrap().channel_id, 0);
+        assert_eq!(me(&state), [22]);
+    }
+
     #[test]
     fn users_can_move_between_known_channels() {
         let mut state = MumbleState::default();
