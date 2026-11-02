@@ -167,6 +167,9 @@ async fn connect_over(
                 if let ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) = msg {
                     // Audio messages are noisy.
                     // log::trace!("Received audio message: {:?}", msg);
+                } else if let ServerToClientMessage::Ping(_) = msg {
+                    // Pings are verbose.
+                    log::trace!("Received server message: {:?}", msg);
                 } else {
                     log::debug!("Received server message: {:?}", msg);
                 }
