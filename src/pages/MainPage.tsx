@@ -124,7 +124,9 @@ export function MainPage(props: MainPageProps) {
             <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, e)}>
                 <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name} (parent {channel.parent ?? "none"})</span>
 
-                {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
+                <ul>
+                    {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
+                </ul>
             </li>
         );
     };
