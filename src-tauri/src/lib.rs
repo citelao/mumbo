@@ -85,6 +85,17 @@ fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
 }
 
 #[tauri::command]
+fn get_channels(state: tauri::State<'_, AppState>) -> Vec<proto::state::Channel> {
+    state
+        .client
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|client| client.state().lock().unwrap().channels())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
 fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::TextMessage> {
     state
         .client
@@ -485,8 +496,8 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
-                .level_for("mumbo_lib", log::LevelFilter::Trace)
-                .level_for("mumble_protocol", log::LevelFilter::Trace)
+                .level_for("mumbo_lib", log::LevelFilter::Debug)
+                .level_for("mumble_protocol", log::LevelFilter::Debug)
                 .with_colors(ColoredLevelConfig::default())
                 .build(),
         )
@@ -497,6 +508,7 @@ pub fn run() {
             get_server_stats,
             connect,
             get_users,
+            get_channels,
             get_chat_messages,
             send_channel_message,
             set_self_mute,

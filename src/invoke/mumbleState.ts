@@ -27,6 +27,20 @@ export async function fetchUsers(): Promise<User[]> {
   return z.array(User).parse(await invoke<unknown>("get_users"));
 }
 
+export const Channel = z.strictObject({
+  channel_id: z.number().int().nonnegative(),
+  parent: z.number().int().nonnegative().nullable(),
+
+  name: z.string(),
+  description: z.string().nullable()
+});
+
+export type Channel = z.infer<typeof Channel>; 
+
+export async function fetchChannels(): Promise<Channel[]> {
+  return z.array(Channel).parse(await invoke<unknown>("get_channels"));
+}
+
 // Mirrors `mumble_protocol::state::TextMessage` as serialized by serde: an
 // internally tagged enum, with `Option` fields sent as `null` and `DateTime`s
 // as RFC 3339 strings.

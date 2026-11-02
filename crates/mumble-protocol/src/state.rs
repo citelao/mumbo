@@ -62,6 +62,23 @@ impl User {
     }
 }
 
+#[derive(Default, Debug, Clone, Serialize)]
+pub struct Channel {
+    // Unique channel ID
+    pub channel_id: u32,
+
+    // Parent channel, if any
+    pub parent: Option<u32>,
+
+    // Display name of the channel
+    pub name: String,
+
+    // Description of the channel
+    pub description: String,
+
+    // TODO: links, temporary? position, description_hash, max_users, is_enter_restricted, can_enter
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatTextMessage {
     // The time the message was sent
@@ -111,6 +128,7 @@ pub enum ConnectionStatus {
 pub enum MumbleEvent {
     // TODO: more granular events are probably useful, but let's start with this.
     UsersChanged,
+    ChannelsChanged,
     ChatMessage,
 }
 
@@ -118,6 +136,9 @@ pub enum MumbleEvent {
 pub struct MumbleState {
     // Sorted by session, so snapshots (UI, fixtures) have a stable order.
     pub users: BTreeMap<u32, User>,
+
+    // Sorted by channel ID, so snapshots (UI, fixtures) have a stable order.
+    pub channels: BTreeMap<u32, Channel>,
 
     connection_status: ConnectionStatus,
 
@@ -134,6 +155,10 @@ impl MumbleState {
 
     pub fn users(&self) -> Vec<User> {
         self.users.values().cloned().collect()
+    }
+
+    pub fn channels(&self) -> Vec<Channel> {
+        self.channels.values().cloned().collect()
     }
 
     pub fn current_user_channel(&self) -> Option<u32> {
@@ -217,6 +242,7 @@ impl MumbleState {
                 merge(&mut user.self_deaf, m.self_deaf);
                 merge(&mut user.priority_speaker, m.priority_speaker);
                 merge(&mut user.recording, m.recording);
+                log::info!("Updated user: {} (session: {})", user.name, user.session);
                 return Ok(Some(MumbleEvent::UsersChanged));
             },
             crate::ServerToClientMessage::UserRemove(m) => {
@@ -243,6 +269,35 @@ impl MumbleState {
                     user_session: m.actor,
                 }));
                 return Ok(Some(MumbleEvent::ChatMessage));
+            }
+
+            crate::ServerToClientMessage::ChannelState(m) => {
+                let Some(channel_id) = m.channel_id else {
+                    return Err(Error::new(io::ErrorKind::InvalidData, "Channel ID missing"));
+                };
+
+                let channel = self.channels
+                    .entry(channel_id)
+                    .or_insert_with(|| Channel {
+                        channel_id: channel_id,
+                        ..Default::default()
+                    });
+
+                merge(&mut channel.name, m.name);
+                channel.parent = m.parent; // Not merged: `None` if root channel
+                merge(&mut channel.description, m.description);
+
+                log::info!("Updated channel: {} (ID: {})", channel.name, channel.channel_id);
+                return Ok(Some(MumbleEvent::ChannelsChanged));
+            }
+            crate::ServerToClientMessage::ChannelRemove(m) => {
+                let removed = self.channels.remove(&m.channel_id);
+                if let Some(removed) = removed {
+                    log::info!("Removed channel: {} (ID: {})", removed.name, removed.channel_id);
+                    return Ok(Some(MumbleEvent::ChannelsChanged));
+                } else {
+                    return Err(Error::new(io::ErrorKind::InvalidData, "Channel not found"));
+                }
             }
 
             _ => {
@@ -621,4 +676,10 @@ mod tests {
         assert!(matches!(events[0], Some(MumbleEvent::UsersChanged)), "{events:?}");
         assert!(events[1..].iter().all(Option::is_none), "{events:?}");
     }
+
+    // TODO: channel
+    //
+    // - does root channel have parent?
+    // - do we handle updates correctly?
+    // - do we handle reparenting correctly?
 }

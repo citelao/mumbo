@@ -93,7 +93,7 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
         .ok_or(MumbleConnectionError::IoError(io::Error::other("No address found")))?;
     let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
 
-    log::info!("Pinging server {} on port {}", server, port);
+    log::trace!("Pinging server {} on port {}", server, port);
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;

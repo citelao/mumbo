@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
+import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
 import { menu } from "@tauri-apps/api";
@@ -30,6 +30,7 @@ function openChatLink(e: React.MouseEvent) {
 
 export function MainPage(props: MainPageProps) {
     const [users, setUsers] = useState<User[]>([]);
+    const [channels, setChannels] = useState<Channel[]>([]);
     const [chatMessages, setChatMessages] = useState<TextMessage[]>([]);
     const [selfMuted, setSelfMuted] = useState(false);
 
@@ -38,9 +39,11 @@ export function MainPage(props: MainPageProps) {
         const refresh = async () => {
             try {
                 const users = await fetchUsers();
+                const channels = await fetchChannels();
                 const chatMessages = await fetchChatMessages();
                 if (!stopped) {
                     setUsers(users);
+                    setChannels(channels);
                     setChatMessages(chatMessages);
                 }
             } catch (error) {
@@ -93,6 +96,15 @@ export function MainPage(props: MainPageProps) {
                                 {user.name} (channel {user.channel_id})
                                 {user.self_mute || user.mute ? " muted" : ""}
                                 {user.self_deaf || user.deaf ? " deafened" : ""}
+                                </li>
+                            ))}
+                        </ul>
+
+                        Channels
+                        <ul>
+                            {channels.map((channel) => (
+                                <li key={channel.channel_id}>
+                                    {channel.name} (parent {channel.parent ?? "none"})
                                 </li>
                             ))}
                         </ul>
