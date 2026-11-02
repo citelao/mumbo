@@ -100,11 +100,28 @@ export function MainPage(props: MainPageProps) {
         </li>
     );
 
+    const onChannelContextMenu = async (channel: MumbleChannel, event: React.MouseEvent) => {
+        event.preventDefault();
+
+        const menu = await Menu.new({
+            items: [
+                await MenuItem.new({
+                    id: "join-channel",
+                    text: `Join ${channel.name}`,
+                    action: () => {
+                        onSetChannel(channel);
+                    }
+                })
+            ]
+        });
+        void menu.popup(new LogicalPosition(event.clientX, event.clientY));
+    };
+
     const renderChannel = (channel: MumbleChannel) => {
         const isMeChannel = channel.channel_id === users.find(u => u.is_me)?.channel_id;
 
         return (
-            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)}>
+            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, e)}>
                 <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name} (parent {channel.parent ?? "none"})</span>
 
                 {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
