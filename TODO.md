@@ -36,11 +36,21 @@ Work tracker.
 - [ ] BUG: tapping the microphone on a mac seems to trigger audio, even though no speech is present.
 - [ ] Streaming a pure tone through NetEq in real time comes out ~2% sharp (450 Hz for 440 Hz): accelerate removes ~23% of the audio to hold a 20 ms target delay. Check speech for artifacts; consider a higher `min_delay_ms` (see the e2e test in lib.rs)
 
+## Users
+- [ ] Profile pics
+- [ ] Comments
+- [ ] Signed accounts
+
 ## Channels
 
 - [ ] Channels visualization
 - [ ] Switching channels
 - [ ] Creating channels
+
+## Messages
+
+- [ ] Distinguish DMs vs channel vs global messages
+- [ ] Send DMs
 
 ## Home page
 
