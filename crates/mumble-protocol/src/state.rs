@@ -271,6 +271,7 @@ impl MumbleState {
                 return Ok(Some(MumbleEvent::ChatMessage));
             }
 
+            // Channel state messages
             crate::ServerToClientMessage::ChannelState(m) => {
                 let Some(channel_id) = m.channel_id else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Channel ID missing"));

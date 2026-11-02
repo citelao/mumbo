@@ -46,3 +46,7 @@ export function sendChannelMessage(message: string): Promise<void> {
 export function setSelfMute(muted: boolean): Promise<void> {
     return invoke("set_self_mute", { muted });
 }
+
+export function setChannel(channel_id: number): Promise<void> {
+    return invoke("set_channel", { channelId: channel_id });
+}

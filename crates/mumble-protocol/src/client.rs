@@ -427,6 +427,13 @@ impl MumbleClient {
         })))
     }
 
+    pub fn set_channel(&self, channel_id: u32) -> Result<(), MumbleConnectionError> {
+        self.send(crate::ClientToServerMessage::UserState(Box::new(crate::raw::UserState {
+            channel_id: Some(channel_id),
+            ..Default::default()
+        })))
+    }
+
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {
         self.outgoing.send(message).map_err(|_| MumbleConnectionError::Disconnected)
     }

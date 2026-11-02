@@ -124,6 +124,15 @@ fn set_self_mute(state: tauri::State<'_, AppState>, muted: bool) -> Result<(), S
     }
 }
 
+#[tauri::command]
+fn set_channel(state: tauri::State<'_, AppState>, channel_id: u32) -> Result<(), String> {
+    if let Some(client) = state.client.lock().unwrap().as_ref() {
+        client.set_channel(channel_id).map_err(|e| e.to_string())
+    } else {
+        Err("No active connection".into())
+    }
+}
+
 /// Forwards debug messages until the connection closes. A consumer that falls
 /// behind skips messages instead of stopping the stream.
 async fn forward_debug<T: Clone>(mut debug: broadcast::Receiver<T>, mut forward: impl FnMut(T)) {
@@ -512,6 +521,7 @@ pub fn run() {
             get_chat_messages,
             send_channel_message,
             set_self_mute,
+            set_channel,
             disconnect
         ])
         .run(tauri::generate_context!())
