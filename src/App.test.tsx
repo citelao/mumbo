@@ -127,7 +127,7 @@ describe("App", () => {
 
         await connect(user);
 
-        expect(await screen.findByText(/Alice \(channel 3\) muted/)).toBeTruthy();
+        expect(await screen.findByText(/Alice muted/)).toBeTruthy();
         expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
     });
 

@@ -94,7 +94,7 @@ describe("MainPage", () => {
 
         renderMainPage();
 
-        expect(await screen.findByText(/Alice \(channel 3\) muted/)).toBeTruthy();
+        expect(await screen.findByText(/Alice muted/)).toBeTruthy();
         expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
     });
 
@@ -106,7 +106,7 @@ describe("MainPage", () => {
         backend = { ...backend, users, chat: [chat("hi")] };
         act(() => sessionChanged!());
 
-        expect(await screen.findByText(/Alice \(channel 3\)/)).toBeTruthy();
+        expect(await screen.findByText(/Alice/)).toBeTruthy();
         expect(screen.getByText(/hi$/)).toBeTruthy();
     });
 
@@ -119,7 +119,7 @@ describe("MainPage", () => {
         await vi.waitFor(() => expect(consoleError).toHaveBeenCalled());
         backend.users = users;
         act(() => sessionChanged!());
-        expect(await screen.findByText(/Alice \(channel 3\)/)).toBeTruthy();
+        expect(await screen.findByText(/Alice/)).toBeTruthy();
         consoleError.mockRestore();
     });
 
@@ -296,6 +296,17 @@ describe("MainPage channels", () => {
         menu.items[0].action();
 
         expect(onSetChannel).toHaveBeenCalledExactlyOnceWith(root);
+    });
+
+    it("doesn't offer to join the channel we're already in", async () => {
+        backend.users = [{ ...alice, is_me: true }];
+        renderMainPage();
+        const label = await screen.findByText("Lobby (parent 0)");
+
+        fireEvent.contextMenu(label);
+
+        await vi.waitFor(() => expect(menu.popup).toHaveBeenCalledOnce());
+        expect(menu.items).toEqual([]);
     });
 
     it("suppresses the browser's own context menu", async () => {
