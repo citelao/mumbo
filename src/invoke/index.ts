@@ -2,6 +2,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { ServerToClientMessage } from "../protocol";
+import type { Channel as MumbleChannel } from "./mumbleState";
 import z from "zod";
 
 export interface GetServerStatsParams {
@@ -47,6 +48,14 @@ export function setSelfMute(muted: boolean): Promise<void> {
     return invoke("set_self_mute", { muted });
 }
 
-export function setChannel(channel_id: number): Promise<void> {
+function setChannelRaw(channel_id: number): Promise<void> {
     return invoke("set_channel", { channelId: channel_id });
 }
+
+export function setChannel(channel: MumbleChannel): Promise<void> {
+    return setChannelRaw(channel.channel_id);
+}
+
+// export function setChannel(channel_id: number): Promise<void> {
+//     return invoke("set_channel", { channelId: channel_id });
+// }

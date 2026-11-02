@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
+import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { menu } from "@tauri-apps/api";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
@@ -17,7 +18,7 @@ export interface MainPageProps {
     onSetSelfMute: (muted: boolean) => void;
 
     // Temporary
-    onSetChannel: (channel_id: number) => void;
+    onSetChannel: (channel: MumbleChannel) => void;
 }
 
 // Chat content is server-supplied HTML. Without this, clicking a link would
@@ -86,8 +87,8 @@ export function MainPage(props: MainPageProps) {
     //     void menu.popup(new LogicalPosition(event.clientX, event.clientY));
     // };
 
-    const onSetChannel = (channel_id: number) => {
-        props.onSetChannel(channel_id);
+    const onSetChannel = (channel: MumbleChannel) => {
+        props.onSetChannel(channel);
     };
 
     return (
@@ -110,7 +111,7 @@ export function MainPage(props: MainPageProps) {
                         Channels
                         <ul>
                             {channels.map((channel) => (
-                                <li key={channel.channel_id} onClick={() => onSetChannel(channel.channel_id)}>
+                                <li key={channel.channel_id} onClick={() => onSetChannel(channel)}>
                                     {channel.name} (parent {channel.parent ?? "none"})
                                 </li>
                             ))}
