@@ -6,6 +6,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import type SettingsStore from "./settings";
 import users from "../crates/mumble-protocol/fixtures/users.json";
+import channels from "../crates/mumble-protocol/fixtures/channels.json";
 import messages from "../crates/mumble-protocol/fixtures/server_to_client_messages.json";
 
 // There's no Tauri runtime under vitest. The fake Channel only needs to hold
@@ -21,7 +22,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) })
 
 /** Answers the commands the app makes, like a server with nobody else on it. */
 function fakeBackend(overrides: Partial<Record<string, unknown>> = {}) {
-    const responses: Record<string, unknown> = { get_users: [], get_chat_messages: [], ...overrides };
+    const responses: Record<string, unknown> = { get_users: [], get_channels: [], get_chat_messages: [], ...overrides };
     mockInvoke.mockImplementation(async (command) => responses[command]);
 }
 
@@ -119,6 +120,7 @@ describe("App", () => {
         const user = userEvent.setup();
         fakeBackend({
             get_users: users,
+            get_channels: channels,
             get_chat_messages: [{ type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31Z", content: "Welcome to the server!" }],
         });
         renderApp();
@@ -127,6 +129,33 @@ describe("App", () => {
 
         expect(await screen.findByText(/Alice \(channel 3\) muted/)).toBeTruthy();
         expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
+    });
+
+    it("asks Rust to move us to the channel that was double-clicked", async () => {
+        const user = userEvent.setup();
+        fakeBackend({ get_users: users, get_channels: channels });
+        renderApp();
+        await connect(user);
+
+        await user.dblClick(await screen.findByText("Lobby (parent 0)"));
+
+        expect(mockInvoke).toHaveBeenCalledWith("set_channel", { channelId: 3 });
+    });
+
+    it("tells the user when changing channel fails", async () => {
+        const user = userEvent.setup();
+        fakeBackend({ get_users: users, get_channels: channels });
+        const answer = mockInvoke.getMockImplementation()!;
+        mockInvoke.mockImplementation(async (command, args) => {
+            if (command === "set_channel") throw "No active connection";
+            return answer(command, args);
+        });
+        renderApp();
+        await connect(user);
+
+        await user.dblClick(await screen.findByText("Lobby (parent 0)"));
+
+        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith("Failed to set channel: No active connection"));
     });
 
     it("returns to the login page after disconnecting", async () => {

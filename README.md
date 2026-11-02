@@ -2,7 +2,7 @@
 
 This is still in development. I wanted to learn Tauri & I wanted a Mumble client that was auto-configured with good audio.
 
-## Usage
+## Development
 
 ```bash
   brew install cmake # needed for opus
@@ -18,6 +18,23 @@ This is still in development. I wanted to learn Tauri & I wanted a Mumble client
 
 # For iOS development, run:
   npm run tauri ios dev
+```
+
+Host a local Mumble server with Podman:
+
+```bash
+podman machine start # etc...
+npm run mumble:up
+npm run mumble:logs # for logs
+npm run mumble:down # shut it down later
+```
+
+Connect with `localhost:64738`, password `test` by default. See `dev/mumble-server/compose.yaml`.
+
+### Distribution
+
+```bash
+npm run tauri build
 ```
 
 ## Recommended IDE Setup

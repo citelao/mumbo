@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
+import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
+import type { Channel as MumbleChannel } from "../invoke/mumbleState";
+import { Menu, MenuItem } from "@tauri-apps/api/menu";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -12,6 +15,9 @@ export interface MainPageProps {
     onDisconnect: () => void;
     onSendMessage: (message: string) => void;
     onSetSelfMute: (muted: boolean) => void;
+
+    // Temporary
+    onSetChannel: (channel: MumbleChannel) => void;
 }
 
 // Chat content is server-supplied HTML. Without this, clicking a link would
@@ -27,6 +33,7 @@ function openChatLink(e: React.MouseEvent) {
 
 export function MainPage(props: MainPageProps) {
     const [users, setUsers] = useState<User[]>([]);
+    const [channels, setChannels] = useState<Channel[]>([]);
     const [chatMessages, setChatMessages] = useState<TextMessage[]>([]);
     const [selfMuted, setSelfMuted] = useState(false);
 
@@ -35,9 +42,11 @@ export function MainPage(props: MainPageProps) {
         const refresh = async () => {
             try {
                 const users = await fetchUsers();
+                const channels = await fetchChannels();
                 const chatMessages = await fetchChatMessages();
                 if (!stopped) {
                     setUsers(users);
+                    setChannels(channels);
                     setChatMessages(chatMessages);
                 }
             } catch (error) {
@@ -61,21 +70,78 @@ export function MainPage(props: MainPageProps) {
         };
     }, []);
 
+    // onContextMenu={(e) => onUserContextMenu(user, e)}
+    // const onUserContextMenu = async (user: User, event: React.MouseEvent) => {
+    //     event.preventDefault();
+
+    //     // TODO: real actions.
+    //     const menu = await Menu.new({
+    //         items: [
+    //             await MenuItem.new({
+    //                 id: "kick",
+    //                 text: "Kick"
+    //             })
+    //         ]
+    //     });
+    //     void menu.popup(new LogicalPosition(event.clientX, event.clientY));
+    // };
+
+    const onSetChannel = (channel: MumbleChannel) => {
+        props.onSetChannel(channel);
+    };
+
+    const renderUser = (user: User) => (
+        <li key={user.session} className={user.is_me ? styles["me"] : ""}>
+            {user.is_speaking ? "● " : "◯ "}
+            {user.name}
+            {user.self_mute || user.mute ? " muted" : ""}
+            {user.self_deaf || user.deaf ? " deafened" : ""}
+        </li>
+    );
+
+    const onChannelContextMenu = async (
+        channel: MumbleChannel,
+        is_current: boolean,
+        event: React.MouseEvent) => {
+        event.preventDefault();
+
+        const joinItem = is_current ? null : await MenuItem.new({
+            id: "join-channel",
+            text: `Join ${channel.name}`,
+            action: () => {
+                onSetChannel(channel);
+            }
+        });
+
+        const menu = await Menu.new({
+            items: [
+                ...(joinItem ? [joinItem] : [])
+            ]
+        });
+        void menu.popup(new LogicalPosition(event.clientX, event.clientY));
+    };
+
+    const renderChannel = (channel: MumbleChannel) => {
+        const isMeChannel = channel.channel_id === users.find(u => u.is_me)?.channel_id;
+
+        return (
+            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>
+                <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name} (parent {channel.parent ?? "none"})</span>
+
+                <ul>
+                    {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
+                </ul>
+            </li>
+        );
+    };
+
     return (
         <>
             <main className={[styles.container, "container"].join(" ")}>
                 <section className={styles["user-list"]}>
                     <section>
-                        Users
                         <ul>
-                            {users.map((user) => (
-                                <li key={user.session}>
-                                {user.is_speaking ? "● " : "◯ "}
-                                {user.name} (channel {user.channel_id})
-                                {user.self_mute || user.mute ? " muted" : ""}
-                                {user.self_deaf || user.deaf ? " deafened" : ""}
-                                </li>
-                            ))}
+                            {channels.map((channel) => renderChannel(channel))}
                         </ul>
                     </section>
                     <menu>

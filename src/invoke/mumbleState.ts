@@ -17,6 +17,7 @@ export const User = z.strictObject({
   priority_speaker: z.boolean(),
   recording: z.boolean(),
 
+  is_me: z.boolean(),
   is_speaking: z.boolean(),
 });
 
@@ -25,6 +26,21 @@ export type User = z.infer<typeof User>;
 export async function fetchUsers(): Promise<User[]> {
   // `invoke` returns whatever Rust sent; parse rather than trust the cast.
   return z.array(User).parse(await invoke<unknown>("get_users"));
+}
+
+// Mirrors `mumble_protocol::state::Channel` as serialized by serde.
+export const Channel = z.strictObject({
+  channel_id: z.number().int().nonnegative(),
+  parent: z.number().int().nonnegative().nullable(),
+
+  name: z.string(),
+  description: z.string().nullable()
+});
+
+export type Channel = z.infer<typeof Channel>; 
+
+export async function fetchChannels(): Promise<Channel[]> {
+  return z.array(Channel).parse(await invoke<unknown>("get_channels"));
 }
 
 // Mirrors `mumble_protocol::state::TextMessage` as serialized by serde: an

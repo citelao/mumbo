@@ -4,7 +4,7 @@ use cpal::{DeviceId, traits::{DeviceTrait, HostTrait, StreamTrait}};
 use opus::Channels::Mono;
 use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
 use serde::{Deserialize, Serialize};
-use sonora::{AudioProcessing, Config, StreamConfig, config::{EchoCanceller, GainController2, NoiseSuppression}};
+use sonora::{AudioProcessing, Config, StreamConfig, config::{AdaptiveDigital, EchoCanceller, GainController2}};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +91,21 @@ pub fn get_audio_output_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
         })
     }).collect();
     Ok(device_names)
+}
+
+/// What the mic is cleaned up with before it is sent.
+fn apm_config() -> Config {
+    Config {
+        echo_canceller: Some(EchoCanceller::default()),
+        // No sonora noise suppression: RNNoise (`Denoiser`) does it after echo cancellation.
+        // `GainController2::default()` has no adaptive controller and so does nothing but
+        // limit; the adaptive digital gain is what actually raises a quiet mic.
+        gain_controller2: Some(GainController2 {
+            adaptive_digital: Some(AdaptiveDigital::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 /// Builds the echo canceller/noise suppressor. Both streams are declared as
@@ -240,17 +255,30 @@ impl From<SavedDevice> for AudioDevice {
 }
 
 /// The devices the user prefers; `None` follows the system default.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedPreferences {
     #[serde(default)]
     pub input: Option<SavedDevice>,
     #[serde(default)]
     pub output: Option<SavedDevice>,
+    /// Whether RNNoise cleans up the mic. On unless the user turned it off.
+    #[serde(default = "default_noise_suppression")]
+    pub noise_suppression: bool,
+}
+
+fn default_noise_suppression() -> bool {
+    true
+}
+
+impl Default for SavedPreferences {
+    fn default() -> Self {
+        Self { input: None, output: None, noise_suppression: default_noise_suppression() }
+    }
 }
 
 impl SavedPreferences {
-    pub fn of(input: Option<&AudioDevice>, output: Option<&AudioDevice>) -> Self {
-        Self { input: input.map(SavedDevice::from), output: output.map(SavedDevice::from) }
+    pub fn of(input: Option<&AudioDevice>, output: Option<&AudioDevice>, noise_suppression: bool) -> Self {
+        Self { input: input.map(SavedDevice::from), output: output.map(SavedDevice::from), noise_suppression }
     }
 
     /// Reads what an earlier run saved. Anything missing or unreadable counts as
@@ -274,6 +302,9 @@ pub struct AudioModule {
 
     output_devices: tokio::sync::watch::Sender<Vec<AudioDevice>>,
     preferred_output_device: tokio::sync::watch::Sender<Option<AudioDevice>>,
+
+    /// Read for every mic frame, so toggling it applies to a call in progress.
+    noise_suppression: tokio::sync::watch::Sender<bool>,
 }
 
 pub trait MicFrameSink: Send {
@@ -305,12 +336,23 @@ impl AudioModule {
         let (preferred_input_device_tx, _) = tokio::sync::watch::channel(saved.input.map(AudioDevice::from));
         let (preferred_output_device_tx, _) = tokio::sync::watch::channel(saved.output.map(AudioDevice::from));
 
+        let (noise_suppression_tx, _) = tokio::sync::watch::channel(saved.noise_suppression);
+
         Ok(AudioModule {
             input_devices: input_devices_tx,
             preferred_input_device: preferred_input_device_tx,
             output_devices: output_devices_tx,
             preferred_output_device: preferred_output_device_tx,
+            noise_suppression: noise_suppression_tx,
         })
+    }
+
+    pub fn noise_suppression(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.noise_suppression.subscribe()
+    }
+
+    pub fn set_noise_suppression(&self, enabled: bool) {
+        self.noise_suppression.send_replace(enabled);
     }
 
     pub fn input_devices(&self) -> tokio::sync::watch::Receiver<Vec<AudioDevice>> {
@@ -386,13 +428,9 @@ impl AudioModule {
         let headroom_samples: u32 = (input_rate * HEADROOM_MS) / 1000;
         let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(headroom_samples as usize).split();
 
-        let apm_config = Config {
-            echo_canceller: Some(EchoCanceller::default()),
-            noise_suppression: Some(NoiseSuppression::default()),
-            gain_controller2: Some(GainController2::default()),
-            ..Default::default()
-        };
+        let apm_config = apm_config();
         let mut apm = audio_processing(apm_config.clone());
+        let noise_suppression = self.noise_suppression.subscribe();
 
         // A best-guess for the network-induced delay.
         // TODO: measure actual network delay and update this value accordingly.
@@ -447,6 +485,7 @@ impl AudioModule {
             let mut mic_48k = Vec::new();
             let mut output = vec![0u8; 4000];
             let mut frame_counter: u64 = 0;
+            let mut denoiser = Denoiser::new();
             let mut speech_detector = SpeechDetector::new(DESIRED_INPUT_SAMPLE_RATE);
             let mut voice_gate = VoiceGate::default();
 
@@ -468,10 +507,15 @@ impl AudioModule {
                         mic_resampler.process(&captured, &mut mic_48k)?;
                         while mic_48k.len() >= MIC_FRAME_SAMPLES {
                             // Process audio
-                            let mut processed = vec![0.0f32; MIC_FRAME_SAMPLES];
+                            let mut processed = [0.0f32; MIC_FRAME_SAMPLES];
                             apm.process_capture_f32(&[&mic_48k[..MIC_FRAME_SAMPLES]], &mut [&mut processed]).map_err(Error::other)?;
 
                             mic_48k.drain(..MIC_FRAME_SAMPLES);
+
+                            // After echo cancellation, which needs the mic signal to stay linear.
+                            if *noise_suppression.borrow() {
+                                denoiser.process(&mut processed);
+                            }
 
                             let transmit = voice_gate.update(speech_detector.is_speech(&processed));
                             if transmit == Transmit::Start {
@@ -585,6 +629,24 @@ impl SpeechDetector {
         // [-1, 1]; unscaled audio reads as silence.
         let scaled: [f32; MIC_FRAME_SAMPLES] = std::array::from_fn(|i| frame[i] * 32768.0);
         self.0.analyze(&scaled) > 0.5
+    }
+}
+
+/// Suppresses background noise in 10 ms mic frames with RNNoise.
+struct Denoiser(Box<nnnoiseless::DenoiseState<'static>>);
+
+impl Denoiser {
+    fn new() -> Self {
+        Self(nnnoiseless::DenoiseState::new())
+    }
+
+    fn process(&mut self, frame: &mut [f32; MIC_FRAME_SAMPLES]) {
+        // RNNoise works on 16-bit-scaled samples; one frame is exactly 10 ms at 48 kHz.
+        let scaled: [f32; MIC_FRAME_SAMPLES] = std::array::from_fn(|i| frame[i] * 32768.0);
+        self.0.process_frame(frame, &scaled);
+        for sample in frame.iter_mut() {
+            *sample /= 32768.0;
+        }
     }
 }
 
@@ -789,13 +851,20 @@ mod tests {
     #[test]
     fn saved_preferences_round_trip_through_json() {
         let selected = AudioDevice { id: "mic".into(), name: "Dock Mic".into(), is_default: true };
-        let saved = SavedPreferences::of(Some(&selected), None);
+        let saved = SavedPreferences::of(Some(&selected), None, false);
 
         let json = serde_json::to_value(&saved).unwrap();
         // is_default describes the moment it was saved, so it is not kept.
-        assert_eq!(json, serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null }));
+        assert_eq!(json, serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null, "noise_suppression": false }));
 
         assert_eq!(SavedPreferences::from_stored(Some(json)), saved);
+    }
+
+    #[test]
+    fn noise_suppression_is_on_unless_turned_off() {
+        assert!(SavedPreferences::default().noise_suppression);
+        assert!(SavedPreferences::from_stored(Some(serde_json::json!({ "input": null }))).noise_suppression);
+        assert!(!SavedPreferences::from_stored(Some(serde_json::json!({ "noise_suppression": false }))).noise_suppression);
     }
 
     #[test]
@@ -822,6 +891,7 @@ mod tests {
         let saved = SavedPreferences {
             input: Some(SavedDevice { id: "dock-mic".into(), name: "Dock Mic".into() }),
             output: None,
+            noise_suppression: true,
         };
 
         let module = AudioModule::new(saved).unwrap();
@@ -999,6 +1069,63 @@ mod tests {
             .collect()
     }
 
+    /// The voice, scaled by `gain`, through the mic processing for 8 s. Returns
+    /// the RMS level of the input and of the output over the last second, and
+    /// the loudest output sample.
+    fn voice_through_the_mic_processing(gain: f32) -> (f32, f32, f32) {
+        let mut apm = audio_processing(apm_config());
+        let (mut input_energy, mut output_energy, mut peak, mut samples) = (0.0f32, 0.0f32, 0.0f32, 0usize);
+        for (n, frame) in voiced_frames(800).iter().enumerate() {
+            let input: Vec<f32> = frame.iter().map(|s| s * gain).collect();
+            let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
+            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            if n >= 700 {
+                input_energy += input.iter().map(|s| s * s).sum::<f32>();
+                output_energy += output.iter().map(|s| s * s).sum::<f32>();
+                peak = output.iter().fold(peak, |peak, s| peak.max(s.abs()));
+                samples += input.len();
+            }
+        }
+        ((input_energy / samples as f32).sqrt(), (output_energy / samples as f32).sqrt(), peak)
+    }
+
+    #[test]
+    fn a_quiet_voice_is_brought_up_to_a_normal_level() {
+        let (heard, sent, _) = voice_through_the_mic_processing(0.1);
+        eprintln!("quiet voice: in {heard}, out {sent}, boost {:.1} dB", 20.0 * (sent / heard).log10());
+        assert!(sent > 2.0 * heard, "a quiet voice was sent at {sent} from {heard}: barely louder");
+    }
+
+    #[test]
+    fn a_loud_voice_is_not_pushed_into_clipping() {
+        let (_, _, peak) = voice_through_the_mic_processing(4.0);
+        assert!(peak <= 1.0, "peaked at {peak}");
+    }
+
+    #[test]
+    fn quiet_background_noise_is_not_boosted_into_something_audible() {
+        let mut apm = audio_processing(apm_config());
+        let mut seed = 99u32;
+        let mut energy = 0.0f32;
+        for n in 0..800 {
+            // White noise at about -60 dBFS: a quiet room.
+            let input: Vec<f32> = (0..MIC_FRAME_SAMPLES)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    ((seed >> 16) as i16 as f32 / 32768.0) * 0.002
+                })
+                .collect();
+            let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
+            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            if n >= 700 {
+                energy += output.iter().map(|s| s * s).sum::<f32>();
+            }
+        }
+        let rms = (energy / (100 * MIC_FRAME_SAMPLES) as f32).sqrt();
+        eprintln!("room noise out: {rms} ({:.1} dBFS)", 20.0 * rms.log10());
+        assert!(rms < 0.005, "room noise came out at {rms}");
+    }
+
     #[test]
     fn speech_detector_hears_a_voice() {
         let mut detector = SpeechDetector::new(DESIRED_INPUT_SAMPLE_RATE);
@@ -1007,6 +1134,17 @@ mod tests {
 
         // The detector needs a frame or two to react.
         assert!(speech >= 8, "only {speech} of 10 voiced frames were speech");
+    }
+
+    #[test]
+    fn denoiser_keeps_frames_at_unit_scale() {
+        let mut denoiser = Denoiser::new();
+        let mut frame = [0.0f32; MIC_FRAME_SAMPLES];
+        for _ in 0..20 {
+            frame = std::array::from_fn(|i| 0.3 * (i as f32 * 0.1).sin());
+            denoiser.process(&mut frame);
+        }
+        assert!(frame.iter().all(|s| s.abs() <= 1.0));
     }
 
     #[test]

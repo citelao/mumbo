@@ -104,7 +104,7 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
         .ok_or(MumbleConnectionError::IoError(io::Error::other("No address found")))?;
     let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
 
-    log::info!("Pinging server {} on port {}", server, port);
+    log::trace!("Pinging server {} on port {}", server, port);
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
@@ -178,6 +178,9 @@ async fn connect_over(
                 if let ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) = msg {
                     // Audio messages are noisy.
                     // log::trace!("Received audio message: {:?}", msg);
+                } else if let ServerToClientMessage::Ping(_) = msg {
+                    // Pings are verbose.
+                    log::trace!("Received server message: {:?}", msg);
                 } else {
                     log::debug!("Received server message: {:?}", msg);
                 }
@@ -417,7 +420,7 @@ impl MumbleClient {
         let channel_id = if let Some(channel_id) = channel_id {
             channel_id
         } else {
-            self.state.lock().unwrap().current_user_channel().unwrap()
+            self.state.lock().unwrap().current_user().unwrap().channel_id
         };
         log::trace!("Sending text message: {} to channel: {:?}", message, channel_id);
         self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
@@ -449,6 +452,13 @@ impl MumbleClient {
             (true, true) => SelfMuteStatus::Muted,
             (false, true) => SelfMuteStatus::Unmuting,
         }
+    }
+
+    pub fn set_channel(&self, channel_id: u32) -> Result<(), MumbleConnectionError> {
+        self.send(crate::ClientToServerMessage::UserState(Box::new(crate::raw::UserState {
+            channel_id: Some(channel_id),
+            ..Default::default()
+        })))
     }
 
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {
@@ -561,7 +571,7 @@ mod tests {
 
     /// Names of the users the client thinks are speaking.
     fn speaking(client: &MumbleClient) -> Vec<String> {
-        client.state().lock().unwrap().users().iter().filter(|u| u.is_speaking).map(|u| u.name().to_string()).collect()
+        client.state().lock().unwrap().users().iter().filter(|u| u.is_speaking).map(|u| u.name.clone()).collect()
     }
 
     /// Discards the events reported so far, e.g. from the handshake.
@@ -570,7 +580,7 @@ mod tests {
     }
 
     fn user_names(client: &MumbleClient) -> Vec<String> {
-        client.state().lock().unwrap().users().iter().map(|u| u.name().to_string()).collect()
+        client.state().lock().unwrap().users().iter().map(|u| u.name.clone()).collect()
     }
 
     #[tokio::test]

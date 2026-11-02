@@ -3,7 +3,7 @@
 
     // TODO: resizable
     display: grid;
-    grid-template-columns: 1fr 4fr;
+    grid-template-columns: 1fr 3fr;
     align-items: stretch;
 }
 
@@ -76,10 +76,16 @@ pre {
 
     menu {
         display: flex;
+        flex-wrap: wrap;
         flex-direction: row;
         gap: 0.5rem;
 
         padding: 0.5rem 0;
         margin: 0;
+    }
+
+    .me,
+    .me-channel {
+        font-weight: 700; // Highlight the current user
     }
 }
