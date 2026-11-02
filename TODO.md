@@ -43,9 +43,11 @@ Work tracker.
 
 ## Channels
 
-- [ ] Channels visualization
-- [ ] Switching channels
+- [x] Channels visualization
+- [ ] Nested channel visualizaiton
+- [x] Switching channels
 - [ ] Creating channels
+- [ ] "Listen in" to a channel
 
 ## Messages
 
@@ -60,3 +62,4 @@ Work tracker.
 - [ ] Show common public servers?
 - [ ] Save passwords for recent servers in the OS keychain (`keyring` crate), not in the plain-JSON store
 - [ ] Include a help link
+- [ ] Join URLs (including to channels)
