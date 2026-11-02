@@ -4,6 +4,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
 import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
+import { menu } from "@tauri-apps/api";
+import { Menu, MenuItem } from "@tauri-apps/api/menu";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -60,6 +63,22 @@ export function MainPage(props: MainPageProps) {
             unlisten.then(stop => stop());
         };
     }, []);
+
+    // onContextMenu={(e) => onUserContextMenu(user, e)}
+    // const onUserContextMenu = async (user: User, event: React.MouseEvent) => {
+    //     event.preventDefault();
+
+    //     // TODO: real actions.
+    //     const menu = await Menu.new({
+    //         items: [
+    //             await MenuItem.new({
+    //                 id: "kick",
+    //                 text: "Kick"
+    //             })
+    //         ]
+    //     });
+    //     void menu.popup(new LogicalPosition(event.clientX, event.clientY));
+    // };
 
     return (
         <>
