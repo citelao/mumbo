@@ -57,6 +57,17 @@ pub struct User {
     pub is_speaking: bool,
 }
 
+impl User {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Whether the server has told us this user is self-muted.
+    pub fn self_mute(&self) -> bool {
+        self.self_mute
+    }
+}
+
 #[derive(Default, Debug, Clone, Serialize)]
 pub struct Channel {
     // Unique channel ID
