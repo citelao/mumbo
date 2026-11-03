@@ -137,7 +137,7 @@ describe("App", () => {
         renderApp();
         await connect(user);
 
-        await user.dblClick(await screen.findByText("Lobby (parent 0)"));
+        await user.dblClick(await screen.findByText("Lobby"));
 
         expect(mockInvoke).toHaveBeenCalledWith("set_channel", { channelId: 3 });
     });
@@ -153,7 +153,7 @@ describe("App", () => {
         renderApp();
         await connect(user);
 
-        await user.dblClick(await screen.findByText("Lobby (parent 0)"));
+        await user.dblClick(await screen.findByText("Lobby"));
 
         await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith("Failed to set channel: No active connection"));
     });

@@ -236,9 +236,9 @@ describe("MainPage channels", () => {
     const [root, lobby] = channels;
     const bob = { ...alice, session: 8, name: "Bob", channel_id: 0 };
 
-    /** The list item for a channel, found by its heading text. */
-    async function channelItem(name: string) {
-        return (await screen.findByText(new RegExp(`^${name} \\(parent`))).closest("li")!;
+    /** The users listed directly under a channel (not those of its subchannels). */
+    async function channelUsers(name: string) {
+        return (await screen.findByText(name)).closest("li")!.querySelector(":scope > ul")!;
     }
 
     it("shows each user under their own channel", async () => {
@@ -246,10 +246,10 @@ describe("MainPage channels", () => {
 
         renderMainPage();
 
-        const inLobby = await channelItem("Lobby");
+        const inLobby = await channelUsers("Lobby");
         expect(inLobby.textContent).toContain("Alice");
         expect(inLobby.textContent).not.toContain("Bob");
-        const inRoot = await channelItem("Root");
+        const inRoot = await channelUsers("Root");
         expect(inRoot.textContent).toContain("Bob");
         expect(inRoot.textContent).not.toContain("Alice");
     });
@@ -257,8 +257,8 @@ describe("MainPage channels", () => {
     it("shows where each channel sits in the tree", async () => {
         renderMainPage();
 
-        expect(await screen.findByText("Root (parent none)")).toBeTruthy();
-        expect(screen.getByText("Lobby (parent 0)")).toBeTruthy();
+        expect(await screen.findByText("Root")).toBeTruthy();
+        expect(screen.getByText("Lobby")).toBeTruthy();
     });
 
     it("joins a channel on double click", async () => {
@@ -266,7 +266,7 @@ describe("MainPage channels", () => {
         const onSetChannel = vi.fn();
         renderMainPage(() => {}, () => {}, onSetChannel);
 
-        await user.dblClick(await screen.findByText("Lobby (parent 0)"));
+        await user.dblClick(await screen.findByText("Lobby"));
 
         expect(onSetChannel).toHaveBeenCalledExactlyOnceWith(lobby);
     });
@@ -276,7 +276,7 @@ describe("MainPage channels", () => {
         const onSetChannel = vi.fn();
         renderMainPage(() => {}, () => {}, onSetChannel);
 
-        await user.click(await screen.findByText("Lobby (parent 0)"));
+        await user.click(await screen.findByText("Lobby"));
 
         expect(onSetChannel).not.toHaveBeenCalled();
     });
@@ -284,7 +284,7 @@ describe("MainPage channels", () => {
     it("offers to join a channel from its context menu", async () => {
         const onSetChannel = vi.fn();
         renderMainPage(() => {}, () => {}, onSetChannel);
-        const label = await screen.findByText("Root (parent none)");
+        const label = await screen.findByText("Root");
 
         fireEvent.contextMenu(label, { clientX: 12, clientY: 34 });
 
@@ -301,7 +301,7 @@ describe("MainPage channels", () => {
     it("doesn't offer to join the channel we're already in", async () => {
         backend.users = [{ ...alice, is_me: true }];
         renderMainPage();
-        const label = await screen.findByText("Lobby (parent 0)");
+        const label = await screen.findByText("Lobby");
 
         fireEvent.contextMenu(label);
 
@@ -311,7 +311,7 @@ describe("MainPage channels", () => {
 
     it("suppresses the browser's own context menu", async () => {
         renderMainPage();
-        const label = await screen.findByText("Root (parent none)");
+        const label = await screen.findByText("Root");
 
         const notPrevented = fireEvent.contextMenu(label);
 
@@ -323,8 +323,8 @@ describe("MainPage channels", () => {
 
         renderMainPage();
 
-        const mine = await screen.findByText("Lobby (parent 0)");
-        const other = screen.getByText("Root (parent none)");
+        const mine = await screen.findByText("Lobby");
+        const other = screen.getByText("Root");
         expect(mine.className).not.toBe("");
         expect(other.className).toBe("");
     });
@@ -347,6 +347,6 @@ describe("MainPage channels", () => {
         renderMainPage();
 
         await screen.findByText(/Alice/);
-        expect(screen.getByText("Lobby (parent 0)").className).toBe("");
+        expect(screen.getByText("Lobby").className).toBe("");
     });
 });
