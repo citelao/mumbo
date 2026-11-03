@@ -113,6 +113,15 @@ const TextMessage = z.strictObject({
   message: z.string(),
 });
 
+const PermissionDenied = z.strictObject({
+  permission: u32.nullable(),
+  channel_id: u32.nullable(),
+  session: u32.nullable(),
+  reason: z.string().nullable(),
+  type: i32.nullable(),
+  name: z.string().nullable(),
+});
+
 const CryptSetup = z.strictObject({
   key: bytes.nullable(),
   client_nonce: bytes.nullable(),
@@ -183,6 +192,7 @@ export const ServerToClientMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("UserRemove"), data: UserRemove }),
   z.strictObject({ type: z.literal("UserState"), data: UserState }),
   z.strictObject({ type: z.literal("TextMessage"), data: TextMessage }),
+  z.strictObject({ type: z.literal("PermissionDenied"), data: PermissionDenied }),
   z.strictObject({ type: z.literal("CryptSetup"), data: CryptSetup }),
   z.strictObject({ type: z.literal("PermissionQuery"), data: PermissionQuery }),
   z.strictObject({ type: z.literal("CodecVersion"), data: CodecVersion }),

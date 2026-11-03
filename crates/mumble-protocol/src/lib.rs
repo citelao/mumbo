@@ -205,6 +205,14 @@ mod tests {
                 message: "Testing".to_string(),
                 ..Default::default()
             }),
+            ServerToClientMessage::PermissionDenied(raw::PermissionDenied {
+                permission: Some(0x1),
+                channel_id: Some(3),
+                session: Some(5),
+                reason: Some("No".to_string()),
+                r#type: Some(raw::permission_denied::DenyType::Permission as i32),
+                name: None,
+            }),
             ServerToClientMessage::CryptSetup(Default::default()),
             ServerToClientMessage::PermissionQuery(Default::default()),
             ServerToClientMessage::CodecVersion(Default::default()),
@@ -223,8 +231,8 @@ mod tests {
     /// whose exhaustive match stops compiling when a variant is added.
     const EVERY_VARIANT: &[&str] = &[
         "Version", "UdpTunnel/Audio", "UdpTunnel/Ping", "Ping", "Reject", "ServerSync", "ChannelRemove",
-        "ChannelState", "UserRemove", "UserState", "TextMessage", "CryptSetup", "PermissionQuery",
-        "CodecVersion", "ServerConfig",
+        "ChannelState", "UserRemove", "UserState", "TextMessage", "PermissionDenied", "CryptSetup",
+        "PermissionQuery", "CodecVersion", "ServerConfig",
     ];
 
     // No `_ =>` arm on purpose: adding a variant fails to compile here, as a
@@ -242,6 +250,7 @@ mod tests {
             ServerToClientMessage::UserRemove(_) => "UserRemove",
             ServerToClientMessage::UserState(_) => "UserState",
             ServerToClientMessage::TextMessage(_) => "TextMessage",
+            ServerToClientMessage::PermissionDenied(_) => "PermissionDenied",
             ServerToClientMessage::CryptSetup(_) => "CryptSetup",
             ServerToClientMessage::PermissionQuery(_) => "PermissionQuery",
             ServerToClientMessage::CodecVersion(_) => "CodecVersion",

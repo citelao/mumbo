@@ -156,6 +156,17 @@
     }
   },
   {
+    "type": "PermissionDenied",
+    "data": {
+      "permission": 1,
+      "channel_id": 3,
+      "session": 5,
+      "reason": "No",
+      "type": 1,
+      "name": null
+    }
+  },
+  {
     "type": "CryptSetup",
     "data": {
       "key": null,
