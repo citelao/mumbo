@@ -53,7 +53,8 @@ export const TextMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("ChatTextMessage"),
     timestamp: z.string(),
-    user_session: z.number().int().nonnegative().nullable(),
+    actor: z.number().int().nonnegative().nullable(),
+    session: z.array(z.number().int().nonnegative()),
     content: z.string(),
   }),
   z.strictObject({

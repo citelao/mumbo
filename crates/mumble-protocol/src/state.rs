@@ -86,7 +86,13 @@ pub struct ChatTextMessage {
     pub timestamp: DateTime<Utc>,
 
     // The user who sent the message
-    pub user_session: Option<u32>,
+    pub actor: Option<u32>,
+
+    // The intended recipient(s) of the message, if any.
+    pub session: Vec<u32>,
+
+    // TODO: channel messages
+    // channel_id
 
     // The content of the message; may be HTML.
     pub content: String,
@@ -291,7 +297,8 @@ impl MumbleState {
                 self.chat_messages.push(TextMessage::ChatTextMessage(ChatTextMessage {
                     timestamp: chrono::Utc::now(),
                     content: m.message,
-                    user_session: m.actor,
+                    actor: m.actor,
+                    session: m.session,
                 }));
                 return Ok(Some(MumbleEvent::ChatMessage));
             }
@@ -372,7 +379,7 @@ mod tests {
             .chat_messages()
             .iter()
             .map(|m| match m {
-                TextMessage::ChatTextMessage(m) => (m.user_session, m.content.as_str()),
+                TextMessage::ChatTextMessage(m) => (m.actor, m.content.as_str()),
                 TextMessage::ServerTextMessage(m) => (None, m.content.as_str()),
             })
             .collect()

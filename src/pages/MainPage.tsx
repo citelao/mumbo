@@ -203,11 +203,15 @@ export function MainPage(props: MainPageProps) {
                                 );
                             }
 
-                            const user = users.find(u => u.session === message.user_session);
+                            const user = users.find(u => u.session === message.actor);
+                            const recipients = message.session.map(s => users.find(u => u.session === s));
+                            const recipientsString = recipients.length === 0
+                                ? ""
+                                : ` to ${recipients.map(r => r ? r.name : "Unknown").join(" & ")}`
                             return (
                                 <li key={index}>
                                     <span className={styles.date}>[{new Date(message.timestamp).toLocaleTimeString()}]</span>
-                                    <span className={styles.user}>{user ? user.name : "Unknown"}:</span>
+                                    <span className={styles.user}>{user ? user.name : "Unknown"}{recipientsString}:</span>
                                     <span className="content" dangerouslySetInnerHTML={{ __html: message.content }}></span>
                                 </li>
                             );

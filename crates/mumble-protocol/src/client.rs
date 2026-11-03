@@ -340,7 +340,8 @@ async fn run(
                             let user_id = state.current_user_session;
                             state.chat_messages.push(crate::state::TextMessage::ChatTextMessage(crate::state::ChatTextMessage {
                                 timestamp: chrono::Utc::now(),
-                                user_session: user_id,
+                                actor: user_id,
+                                session: m.session.clone(),
                                 content: m.message.clone(),
                             }));
                             events_tx.send(crate::state::MumbleEvent::ChatMessage).unwrap();
