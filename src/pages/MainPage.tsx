@@ -1,3 +1,4 @@
+import { assembleChannelTree, TreeNode } from "../helpers/tree";
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -121,18 +122,29 @@ export function MainPage(props: MainPageProps) {
         void menu.popup(new LogicalPosition(event.clientX, event.clientY));
     };
 
-    const renderChannel = (channel: MumbleChannel) => {
+    const renderChannel = (channel: MumbleChannel, childChannels: MumbleChannel[]) => {
         const isMeChannel = channel.channel_id === users.find(u => u.is_me)?.channel_id;
 
         return (
             <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>
-                <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name} (parent {channel.parent ?? "none"})</span>
+                <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name}</span>
 
                 <ul>
                     {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
                 </ul>
+
+                {childChannels.length > 0 && (
+                    <ul>
+                        {childChannels.map(child => renderChannel(child, channels.filter(c => c.parent === child.channel_id)))}
+                    </ul>
+                )}
             </li>
         );
+    };
+
+    const channelTree = channels.length > 0 ? assembleChannelTree(channels) : null;
+    const renderChannelTree = (node: TreeNode<MumbleChannel>) => {
+        return renderChannel(node.value, node.children.map(child => child.value));
     };
 
     return (
@@ -141,7 +153,7 @@ export function MainPage(props: MainPageProps) {
                 <section className={styles["user-list"]}>
                     <section>
                         <ul>
-                            {channels.map((channel) => renderChannel(channel))}
+                            {channelTree && renderChannelTree(channelTree)}
                         </ul>
                     </section>
                     <menu>
