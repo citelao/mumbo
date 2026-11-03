@@ -19,9 +19,15 @@ export function assembleChannelTree(channels: Channel[]): TreeNode<Channel> {
         throw new Error("No channels available");
     }
     
-    const rootChannel = channels.find(channel => !channel.parent);
-    if (!rootChannel) {
+    // Compare to null explicitly: the root's id is 0, so its children have
+    // `parent: 0`, which is falsy.
+    const roots = channels.filter(channel => channel.parent === null);
+    if (roots.length === 0) {
         throw new Error("Root channel not found");
     }
+    if (roots.length > 1) {
+        throw new Error("Multiple root channels found");
+    }
+    const rootChannel = roots[0];
     return assembleTree(rootChannel, channel => channels.filter(c => c.parent === channel.channel_id));
 }
