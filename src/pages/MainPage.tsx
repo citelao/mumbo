@@ -147,7 +147,8 @@ export function MainPage(props: MainPageProps) {
                     onDoubleClick={() => onSetChannel(channel)}
                     onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>
                         <span>{channel.name}</span>
-                        <span>{channel.is_enter_restricted ? " 🔒" : ""}</span>
+                        {/* <span>{channel.is_enter_restricted ? " 🔒" : ""}</span> */}
+                        <span>{channel.is_enter_restricted ? " restricted" : ""}</span>
                 </span>
 
                 <ul>
