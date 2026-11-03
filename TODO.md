@@ -60,9 +60,13 @@ Work tracker.
 
 ## Messages
 
-- [ ] Distinguish DMs vs channel vs global messages
-- [ ] Send DMs
+- [x] Distinguish DMs vs global messages
+- [ ] Distinguish channel vs global messages
+- [x] Send DMs
+- [ ] Send actual DMs, with nice UI
 - [ ] Support mrkdwn & wysiwyg chat messages
+- [ ] Notifications?
+- [ ] Notification settings
 
 ## Home page
 
