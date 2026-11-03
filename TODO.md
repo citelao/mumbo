@@ -50,7 +50,7 @@ Work tracker.
 ## Channels
 
 - [x] Channels visualization
-- [ ] Nested channel visualizaiton
+- [x] Nested channel visualizaiton
 - [x] Switching channels
 - [ ] Creating channels (when you have permission)
 - [ ] Editing channels (when you have permission)
