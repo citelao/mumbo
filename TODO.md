@@ -56,6 +56,7 @@ Work tracker.
 - [ ] Editing channels (when you have permission)
 - [ ] "Listen in" to a channel
 - [ ] Actual keyboard navigation of channels; accessible list
+- [ ] Enter password-protected channels
 
 ## Messages
 

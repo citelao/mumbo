@@ -131,9 +131,12 @@ export function MainPage(props: MainPageProps) {
 
         return (
             <li key={channel.channel_id}>
-                <span className={isMeChannel ? styles["me-channel"] : ""}
+                <span className={[styles["channel"], isMeChannel ? styles["me-channel"] : ""].join(" ")}
                     onDoubleClick={() => onSetChannel(channel)}
-                    onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>{channel.name}</span>
+                    onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>
+                        <span>{channel.name}</span>
+                        <span>{channel.is_enter_restricted ? " 🔒" : ""}</span>
+                </span>
 
                 <ul>
                     {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}

@@ -34,7 +34,10 @@ export const Channel = z.strictObject({
   parent: z.number().int().nonnegative().nullable(),
 
   name: z.string(),
-  description: z.string().nullable()
+  description: z.string().nullable(),
+
+  is_enter_restricted: z.boolean(),
+  can_enter: z.boolean()
 });
 
 export type Channel = z.infer<typeof Channel>; 

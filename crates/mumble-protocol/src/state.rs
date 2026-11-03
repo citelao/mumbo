@@ -71,7 +71,13 @@ pub struct Channel {
     // Description of the channel
     pub description: String,
 
-    // TODO: links, temporary? position, description_hash, max_users, is_enter_restricted, can_enter
+    // Does this channel have a password?
+    pub is_enter_restricted: bool,
+
+    // ???
+    pub can_enter: bool,
+
+    // TODO: links, temporary? position, description_hash, max_users, can_enter
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -309,6 +315,8 @@ impl MumbleState {
                     channel.parent = m.parent;
                 }
                 merge(&mut channel.description, m.description);
+                merge(&mut channel.is_enter_restricted, m.is_enter_restricted);
+                merge(&mut channel.can_enter, m.can_enter);
 
                 log::info!("Updated channel: {} (ID: {})", channel.name, channel.channel_id);
                 return Ok(Some(MumbleEvent::ChannelsChanged));

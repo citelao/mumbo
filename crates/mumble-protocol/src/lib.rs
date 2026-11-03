@@ -74,6 +74,7 @@ pub enum ServerToClientMessage {
     UserRemove(raw::UserRemove),
     UserState(raw::UserState),
     TextMessage(raw::TextMessage),
+    PermissionDenied(raw::PermissionDenied),
     CryptSetup(raw::CryptSetup),
     PermissionQuery(raw::PermissionQuery),
     CodecVersion(raw::CodecVersion),
@@ -102,6 +103,7 @@ impl ServerToClientMessage {
             raw::TextMessage::TYPE_ID => ServerToClientMessage::TextMessage(raw::TextMessage::decode(payload)?),
             raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(payload)?),
             raw::PermissionQuery::TYPE_ID => ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(payload)?),
+            raw::PermissionDenied::TYPE_ID => ServerToClientMessage::PermissionDenied(raw::PermissionDenied::decode(payload)?),
             raw::CodecVersion::TYPE_ID => ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(payload)?),
             raw::ServerConfig::TYPE_ID => ServerToClientMessage::ServerConfig(raw::ServerConfig::decode(payload)?),
             _ => {

@@ -78,6 +78,17 @@ pre {
         flex-grow: 1;
     }
 
+    .channel {
+        display: flex;
+        justify-content: space-between;
+
+        // TODO: a legit focus style for accessibility, legit keyboard focus, selection, etc.
+        &:hover,
+        &:focus {
+            background-color: #f0f0f0;
+        }
+    }
+
     .user {
         display: flex;
         justify-content: space-between;
