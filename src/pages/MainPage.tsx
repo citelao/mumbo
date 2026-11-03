@@ -126,8 +126,10 @@ export function MainPage(props: MainPageProps) {
         const isMeChannel = channel.channel_id === users.find(u => u.is_me)?.channel_id;
 
         return (
-            <li key={channel.channel_id} onDoubleClick={() => onSetChannel(channel)} onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>
-                <span className={isMeChannel ? styles["me-channel"] : ""}>{channel.name}</span>
+            <li key={channel.channel_id}>
+                <span className={isMeChannel ? styles["me-channel"] : ""}
+                    onDoubleClick={() => onSetChannel(channel)}
+                    onContextMenu={(e) => onChannelContextMenu(channel, isMeChannel, e)}>{channel.name}</span>
 
                 <ul>
                     {users.filter(u => u.channel_id === channel.channel_id).map(u => renderUser(u))}
