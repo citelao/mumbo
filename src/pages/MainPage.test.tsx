@@ -400,8 +400,8 @@ describe("MainPage channels", () => {
 
         const lobbyLabel = (await screen.findByText("Lobby")).closest("span[class*=channel]")!;
         const rootLabel = screen.getByText("Root").closest("span[class*=channel]")!;
-        expect(lobbyLabel.textContent).toContain("🔒");
-        expect(rootLabel.textContent).not.toContain("🔒");
+        expect(lobbyLabel.textContent).toContain("restricted");
+        expect(rootLabel.textContent).not.toContain("restricted");
     });
 
     it("highlights no channel before we know who we are", async () => {

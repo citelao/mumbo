@@ -247,10 +247,10 @@ impl MumbleState {
 
                 // Channels arrive before users in the handshake, so an unknown
                 // channel is a protocol error. Checked before touching state.
-                if let Some(channel_id) = m.channel_id {
-                    if !self.channels.contains_key(&channel_id) {
-                        return Err(Error::new(io::ErrorKind::InvalidData, format!("Unknown channel: {channel_id}")));
-                    }
+                if let Some(channel_id) = m.channel_id
+                    && !self.channels.contains_key(&channel_id)
+                {
+                    return Err(Error::new(io::ErrorKind::InvalidData, format!("Unknown channel: {channel_id}")));
                 }
 
                 let current_user_session = self.current_user_session;
@@ -312,7 +312,7 @@ impl MumbleState {
                 let channel = self.channels
                     .entry(channel_id)
                     .or_insert_with(|| Channel {
-                        channel_id: channel_id,
+                        channel_id,
                         ..Default::default()
                     });
 
