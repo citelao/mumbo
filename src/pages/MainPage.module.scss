@@ -81,7 +81,8 @@ pre {
         flex-grow: 1;
     }
 
-    .channel {
+    .channel,
+    .user {
         display: flex;
         justify-content: space-between;
 
@@ -90,11 +91,6 @@ pre {
         &:focus {
             background-color: #f0f0f0;
         }
-    }
-
-    .user {
-        display: flex;
-        justify-content: space-between;
     }
 
     menu {
