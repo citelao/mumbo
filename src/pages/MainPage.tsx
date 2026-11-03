@@ -16,9 +16,8 @@ export interface MainPageProps {
     onDisconnect: () => void;
     onSendMessage: (message: string) => void;
     onSetSelfMute: (muted: boolean) => void;
-
-    // Temporary
     onSetChannel: (channel: MumbleChannel) => void;
+    onSendUserMessage: (message: string, session: number[]) => void;
 }
 
 // Chat content is server-supplied HTML. Without this, clicking a link would
@@ -71,28 +70,41 @@ export function MainPage(props: MainPageProps) {
         };
     }, []);
 
-    // onContextMenu={(e) => onUserContextMenu(user, e)}
-    // const onUserContextMenu = async (user: User, event: React.MouseEvent) => {
-    //     event.preventDefault();
-
-    //     // TODO: real actions.
-    //     const menu = await Menu.new({
-    //         items: [
-    //             await MenuItem.new({
-    //                 id: "kick",
-    //                 text: "Kick"
-    //             })
-    //         ]
-    //     });
-    //     void menu.popup(new LogicalPosition(event.clientX, event.clientY));
-    // };
-
     const onSetChannel = (channel: MumbleChannel) => {
         props.onSetChannel(channel);
     };
 
+    const onSendUserMessage = (message: string, session: number[]) => {
+        props.onSendUserMessage(message, session);
+    };
+
+    const onUserContextMenu = async (
+        user: User,
+        event: React.MouseEvent
+    ) => {
+        event.preventDefault();
+
+        // TODO: real actions.
+        const menu = await Menu.new({
+            items: [
+                await MenuItem.new({
+                    id: "annoy",
+                    text: "annoy",
+                    action: () => {
+                        console.log(`Annoying user ${user.name}`);
+                        onSendUserMessage(`Annoying you!`, [user.session]);
+                    }
+                })
+            ]
+        });
+        void menu.popup(new LogicalPosition(event.clientX, event.clientY));
+    };
+
     const renderUser = (user: User) => (
-        <li key={user.session} className={[styles["user"], user.is_me ? styles["me"] : ""].join(" ")}>
+        <li key={user.session}
+            onContextMenu={(e) => onUserContextMenu(user, e)}
+            onDoubleClick={() => onSendUserMessage(`Hello ${user.name}!`, [user.session])}
+            className={[styles["user"], user.is_me ? styles["me"] : ""].join(" ")}>
             <span>
                 {user.is_speaking ? "● " : "◯ "}
                 {user.name}

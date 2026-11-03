@@ -7,7 +7,7 @@ import "./App.css";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 import SettingsStore, { Server, Settings } from "./settings";
-import { connect, disconnect, sendChannelMessage, setChannel, setSelfMute } from "./invoke";
+import { connect, disconnect, sendChannelMessage, setChannel, setSelfMute, sendUserMessage } from "./invoke";
 import type { Channel as MumbleChannel } from "./invoke/mumbleState";
 
 // Keeps the log (and React re-renders) bounded during long sessions.
@@ -48,6 +48,14 @@ function App(props: AppProps) {
     const onRemoveRecentServer = async (server: Server) => {
         await props.settings.removeRecentServer(server);
         setSettings(await props.settings.getSettings());
+    };
+    const onSendUserMessage = async (message: string, session: number[]) => {
+        try {
+            await sendUserMessage(message, session);
+        } catch (error) {
+            console.error(error);
+            alert("Failed to send user message: " + error);
+        }
     };
 
     const onConnect = async (params: OnConnectParams): Promise<OnConnectResult> => {
@@ -117,7 +125,8 @@ function App(props: AppProps) {
             onSendMessage={sendChannelMessage}
             onSetSelfMute={setSelfMute}
             onDisconnect={onDisconnect}
-            onSetChannel={onSetChannel} />;
+            onSetChannel={onSetChannel}
+            onSendUserMessage={onSendUserMessage} />;
     }
 }
 

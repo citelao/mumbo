@@ -44,6 +44,11 @@ export function sendChannelMessage(message: string): Promise<void> {
     return invoke("send_channel_message", { message });
 }
 
+/** Send a direct message to one or more users specified by their session IDs. */
+export function sendUserMessage(message: string, session: number[]): Promise<void> {
+    return invoke("send_user_message", { message, session });
+}
+
 export function setSelfMute(muted: boolean): Promise<void> {
     return invoke("set_self_mute", { muted });
 }

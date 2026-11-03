@@ -116,6 +116,15 @@ fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> R
 }
 
 #[tauri::command]
+fn send_user_message(state: tauri::State<'_, AppState>, message: String, session: Vec<u32>) -> Result<(), String> {
+    if let Some(client) = state.client.lock().unwrap().as_ref() {
+        client.send_user_message(message, session).map_err(|e| e.to_string())
+    } else {
+        Err("No active connection".into())
+    }
+}
+
+#[tauri::command]
 fn set_self_mute(state: tauri::State<'_, AppState>, muted: bool) -> Result<(), String> {
     if let Some(client) = state.client.lock().unwrap().as_ref() {
         client.set_self_mute(muted).map_err(|e| e.to_string())
@@ -520,6 +529,7 @@ pub fn run() {
             get_channels,
             get_chat_messages,
             send_channel_message,
+            send_user_message,
             set_self_mute,
             set_channel,
             disconnect

@@ -420,6 +420,17 @@ impl MumbleClient {
         Ok(())
     }
 
+    /// Send a DM to one or more users specified by their session IDs.
+    pub fn send_user_message(&self, message: String, session: Vec<u32>) -> Result<(), MumbleConnectionError> {
+        log::trace!("Sending text message: {} to user: {:?}", message, session);
+        self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
+            message: message.clone(),
+            session,
+            ..Default::default()
+        }))?;
+        Ok(())
+    }
+
     /// Mutes or unmutes the microphone: stops sending audio and tells the
     /// server (and so other users) that we are self-muted.
     pub fn set_self_mute(&self, muted: bool) -> Result<(), MumbleConnectionError> {
