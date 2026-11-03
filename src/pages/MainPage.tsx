@@ -92,11 +92,15 @@ export function MainPage(props: MainPageProps) {
     };
 
     const renderUser = (user: User) => (
-        <li key={user.session} className={user.is_me ? styles["me"] : ""}>
-            {user.is_speaking ? "● " : "◯ "}
-            {user.name}
-            {user.self_mute || user.mute ? " muted" : ""}
-            {user.self_deaf || user.deaf ? " deafened" : ""}
+        <li key={user.session} className={[styles["user"], user.is_me ? styles["me"] : ""].join(" ")}>
+            <span>
+                {user.is_speaking ? "● " : "◯ "}
+                {user.name}
+            </span>
+            <span>
+                {user.self_mute || user.mute ? " muted" : ""}
+                {user.self_deaf || user.deaf ? " deafened" : ""}
+            </span>
         </li>
     );
 

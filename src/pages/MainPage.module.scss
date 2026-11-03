@@ -78,6 +78,11 @@ pre {
         flex-grow: 1;
     }
 
+    .user {
+        display: flex;
+        justify-content: space-between;
+    }
+
     menu {
         display: flex;
         flex-wrap: wrap;
