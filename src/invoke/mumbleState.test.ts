@@ -22,6 +22,17 @@ describe("Channel", () => {
     expect(Channel.safeParse({ ...channelFixture[1], new_field: 1 }).success).toBe(false);
   });
 
+  it("flags channels that need a password", () => {
+    const [root, lobby] = z.array(Channel).parse(channelFixture);
+    expect(root.is_enter_restricted).toBe(false);
+    expect(lobby.is_enter_restricted).toBe(true);
+  });
+
+  it.each(["is_enter_restricted", "can_enter"])("requires %s", (field) => {
+    const { [field]: _omitted, ...channel } = channelFixture[1] as Record<string, unknown>;
+    expect(Channel.safeParse(channel).success).toBe(false);
+  });
+
   it("rejects a negative channel id", () => {
     expect(Channel.safeParse({ ...channelFixture[1], channel_id: -1 }).success).toBe(false);
   });

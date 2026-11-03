@@ -127,7 +127,8 @@ describe("App", () => {
 
         await connect(user);
 
-        expect(await screen.findByText(/Alice muted/)).toBeTruthy();
+        expect(await screen.findByText(/Alice/)).toBeTruthy();
+        expect(screen.getByText(/muted/)).toBeTruthy();
         expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
     });
 
@@ -156,6 +157,34 @@ describe("App", () => {
         await user.dblClick(await screen.findByText("Lobby"));
 
         await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith("Failed to set channel: No active connection"));
+    });
+
+    it("asks Rust to send a direct message to the user that was double-clicked", async () => {
+        const user = userEvent.setup();
+        fakeBackend({ get_users: users, get_channels: channels });
+        renderApp();
+        await connect(user);
+
+        await user.dblClick(await screen.findByText(/Alice/));
+
+        expect(mockInvoke).toHaveBeenCalledWith("send_user_message", { message: "Hello Alice!", session: [7] });
+    });
+
+    it("tells the user when sending a direct message fails", async () => {
+        const user = userEvent.setup();
+        fakeBackend({ get_users: users, get_channels: channels });
+        const answer = mockInvoke.getMockImplementation()!;
+        mockInvoke.mockImplementation(async (command, args) => {
+            if (command === "send_user_message") throw "No active connection";
+            return answer(command, args);
+        });
+        renderApp();
+        await connect(user);
+
+        await user.dblClick(await screen.findByText(/Alice/));
+
+        await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith("Failed to send user message: No active connection"));
+        expect(console.error).toHaveBeenCalledWith("No active connection");
     });
 
     it("returns to the login page after disconnecting", async () => {

@@ -45,14 +45,27 @@ describe("fetchChatMessages", () => {
   // Shaped like serde's output for `mumble_protocol::state::TextMessage`.
   const messages = [
     { type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31.123456Z", content: "Welcome!" },
-    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:32Z", user_session: 5, content: "hi" },
-    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:33Z", user_session: null, content: "who said this?" },
+    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:32Z", actor: 5, session: [], content: "hi" },
+    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:33Z", actor: null, session: [], content: "who said this?" },
+    { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:34Z", actor: 5, session: [6, 7], content: "psst" },
   ];
 
   it("asks Rust for chat messages and returns them in order", async () => {
     mockInvoke.mockResolvedValue(messages);
     await expect(fetchChatMessages()).resolves.toEqual(messages);
     expect(mockInvoke).toHaveBeenCalledWith("get_chat_messages");
+  });
+
+  it("rejects the old user_session field", async () => {
+    const { actor: _actor, ...rest } = messages[1] as Record<string, unknown>;
+    mockInvoke.mockResolvedValue([{ ...rest, user_session: 5 }]);
+    await expect(fetchChatMessages()).rejects.toThrow();
+  });
+
+  it("requires the recipients list", async () => {
+    const { session: _session, ...rest } = messages[1] as Record<string, unknown>;
+    mockInvoke.mockResolvedValue([rest]);
+    await expect(fetchChatMessages()).rejects.toThrow();
   });
 
   it("rejects messages with fields the schema doesn't know about", async () => {

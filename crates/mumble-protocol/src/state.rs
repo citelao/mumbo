@@ -408,6 +408,26 @@ mod tests {
     }
 
     #[test]
+    fn text_messages_record_who_they_were_sent_to() {
+        let mut state = MumbleState::default();
+
+        state
+            .apply(crate::ServerToClientMessage::TextMessage(crate::raw::TextMessage {
+                actor: Some(1),
+                session: vec![2, 3],
+                message: "psst".to_string(),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        assert!(
+            matches!(&state.chat_messages()[..], [TextMessage::ChatTextMessage(m)] if m.session == [2, 3]),
+            "{:?}",
+            state.chat_messages()
+        );
+    }
+
+    #[test]
     fn server_sync_connects_and_shows_the_welcome_text_in_chat() {
         let mut state = MumbleState::default();
 
@@ -759,6 +779,8 @@ mod tests {
                 name: Some("Lobby".to_string()),
                 parent: Some(0),
                 description: Some("Say hi".to_string()),
+                is_enter_restricted: Some(true),
+                can_enter: Some(true),
                 ..Default::default()
             }))
             .unwrap();
@@ -820,6 +842,33 @@ mod tests {
         assert_eq!(channel.name, "Hall");
         assert_eq!(channel.parent, Some(0));
         assert_eq!(channel.description, "Say hi");
+    }
+
+    #[test]
+    fn a_channel_remembers_that_it_is_enter_restricted() {
+        let mut state = MumbleState::default();
+        state
+            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+                channel_id: Some(1),
+                name: Some("Vault".to_string()),
+                is_enter_restricted: Some(true),
+                can_enter: Some(false),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        // A later update that doesn't mention the flags must not clear them.
+        state
+            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
+                channel_id: Some(1),
+                name: Some("Hall".to_string()),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        let channel = &state.channels[&1];
+        assert!(channel.is_enter_restricted);
+        assert!(!channel.can_enter);
     }
 
     #[test]

@@ -3,7 +3,7 @@ import type { Channel } from "../invoke/mumbleState";
 import { assembleChannelTree, assembleTree } from "./tree";
 
 function channel(channel_id: number, parent: number | null, name = `c${channel_id}`): Channel {
-    return { channel_id, parent, name, description: null };
+    return { channel_id, parent, name, description: null, is_enter_restricted: false, can_enter: true };
 }
 
 describe("assembleTree", () => {

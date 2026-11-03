@@ -3,12 +3,16 @@
     "channel_id": 0,
     "parent": null,
     "name": "Root",
-    "description": ""
+    "description": "",
+    "is_enter_restricted": false,
+    "can_enter": false
   },
   {
     "channel_id": 3,
     "parent": 0,
     "name": "Lobby",
-    "description": "Say hi"
+    "description": "Say hi",
+    "is_enter_restricted": true,
+    "can_enter": true
   }
 ]

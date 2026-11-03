@@ -57,8 +57,8 @@ afterEach(() => {
 });
 
 /** A chat message as Rust serializes it. */
-function chat(content: string, user_session: number | null = null) {
-    return { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:31Z", user_session, content };
+function chat(content: string, actor: number | null = null, session: number[] = []) {
+    return { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:31Z", actor, session, content };
 }
 
 const alice = users[0];
@@ -80,8 +80,9 @@ function renderMainPage(
     onDisconnect = () => {},
     onSetSelfMute: (muted: boolean) => void = () => {},
     onSetChannel: (channel: Channel) => void = () => {},
+    onSendUserMessage: (message: string, session: number[]) => void = () => {},
 ) {
-    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} onSetChannel={onSetChannel} />);
+    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} onSetChannel={onSetChannel} onSendUserMessage={onSendUserMessage} />);
 }
 
 describe("MainPage", () => {
@@ -94,7 +95,8 @@ describe("MainPage", () => {
 
         renderMainPage();
 
-        expect(await screen.findByText(/Alice muted/)).toBeTruthy();
+        expect(await screen.findByText(/Alice/)).toBeTruthy();
+        expect(screen.getByText(/muted/)).toBeTruthy();
         expect(screen.getByText(/Welcome to the server!/)).toBeTruthy();
     });
 
@@ -174,6 +176,58 @@ describe("MainPage", () => {
 
         expect(await screen.findByText(chatLine(/Alice:\s*hello$/))).toBeTruthy();
         expect(screen.getByText(chatLine(/Unknown:\s*anyone\?$/))).toBeTruthy();
+    });
+
+    it("shows who a direct message was sent to", async () => {
+        const bob = { ...alice, session: 8, name: "Bob" };
+        backend = { ...backend, users: [alice, bob], chat: [chat("psst", bob.session, [alice.session])] };
+
+        renderMainPage();
+
+        expect(await screen.findByText(chatLine(/Bob to Alice:\s*psst$/))).toBeTruthy();
+    });
+
+    it("lists every recipient of a message sent to several users", async () => {
+        const bob = { ...alice, session: 8, name: "Bob" };
+        backend = { ...backend, users: [alice, bob], chat: [chat("psst", 99, [alice.session, bob.session])] };
+
+        renderMainPage();
+
+        expect(await screen.findByText(chatLine(/Unknown to Alice & Bob:\s*psst$/))).toBeTruthy();
+    });
+
+    it("shows an unknown recipient as Unknown", async () => {
+        backend = { ...backend, users: [alice], chat: [chat("psst", alice.session, [999])] };
+
+        renderMainPage();
+
+        expect(await screen.findByText(chatLine(/Alice to Unknown:\s*psst$/))).toBeTruthy();
+    });
+
+    it("shows no recipient on a message to the whole channel", async () => {
+        backend = { ...backend, users: [alice], chat: [chat("hello", alice.session)] };
+
+        renderMainPage();
+
+        const line = await screen.findByText(chatLine(/Alice:\s*hello$/));
+        expect(line.textContent).not.toContain(" to ");
+    });
+
+    it("shows muted and deafened users", async () => {
+        backend.users = [
+            { ...alice, self_mute: true, self_deaf: false },
+            { ...alice, session: 8, name: "Bob", self_mute: false, mute: true, deaf: true },
+            { ...alice, session: 9, name: "Carol", self_mute: false },
+        ];
+
+        renderMainPage();
+
+        await screen.findByText(/Carol/);
+        expect(userLines()).toEqual([
+            expect.stringMatching(/^◯ Alice\s+muted$/),
+            expect.stringMatching(/^◯ Bob\s+muted deafened$/),
+            expect.stringMatching(/^◯ Carol$/),
+        ]);
     });
 
     it("stops listening when it goes away", async () => {
@@ -323,10 +377,10 @@ describe("MainPage channels", () => {
 
         renderMainPage();
 
-        const mine = await screen.findByText("Lobby");
-        const other = screen.getByText("Root");
-        expect(mine.className).not.toBe("");
-        expect(other.className).toBe("");
+        const mine = (await screen.findByText("Lobby")).closest("span[class*=channel]")!;
+        const other = screen.getByText("Root").closest("span[class*=channel]")!;
+        expect(mine.className).toContain("me-channel");
+        expect(other.className).not.toContain("me-channel");
     });
 
     it("highlights only the current user", async () => {
@@ -336,9 +390,18 @@ describe("MainPage channels", () => {
 
         await screen.findByText(/Bob/);
         const lines = [...document.querySelectorAll("li")].filter((li) => /^[●◯]/.test(li.textContent ?? ""));
-        const highlighted = lines.filter((li) => li.className !== "");
+        const highlighted = lines.filter((li) => li.className.includes("me"));
         expect(highlighted).toHaveLength(1);
         expect(highlighted[0].textContent).toContain("Alice");
+    });
+
+    it("marks channels that need a password", async () => {
+        renderMainPage();
+
+        const lobbyLabel = (await screen.findByText("Lobby")).closest("span[class*=channel]")!;
+        const rootLabel = screen.getByText("Root").closest("span[class*=channel]")!;
+        expect(lobbyLabel.textContent).toContain("🔒");
+        expect(rootLabel.textContent).not.toContain("🔒");
     });
 
     it("highlights no channel before we know who we are", async () => {
@@ -347,6 +410,58 @@ describe("MainPage channels", () => {
         renderMainPage();
 
         await screen.findByText(/Alice/);
-        expect(screen.getByText("Lobby").className).toBe("");
+        expect(screen.getByText("Lobby").closest("span[class*=channel]")!.className).not.toContain("me-channel");
+    });
+});
+
+describe("MainPage users", () => {
+    it("sends a greeting on double click", async () => {
+        const user = userEvent.setup();
+        backend.users = [alice];
+        const onSendUserMessage = vi.fn();
+        renderMainPage(() => {}, () => {}, () => {}, onSendUserMessage);
+
+        await user.dblClick(await screen.findByText(/Alice/));
+
+        expect(onSendUserMessage).toHaveBeenCalledExactlyOnceWith("Hello Alice!", [alice.session]);
+    });
+
+    it("doesn't send anything on a single click", async () => {
+        const user = userEvent.setup();
+        backend.users = [alice];
+        const onSendUserMessage = vi.fn();
+        renderMainPage(() => {}, () => {}, () => {}, onSendUserMessage);
+
+        await user.click(await screen.findByText(/Alice/));
+
+        expect(onSendUserMessage).not.toHaveBeenCalled();
+    });
+
+    it("offers to annoy a user from their context menu", async () => {
+        backend.users = [alice];
+        const onSendUserMessage = vi.fn();
+        renderMainPage(() => {}, () => {}, () => {}, onSendUserMessage);
+        const label = await screen.findByText(/Alice/);
+
+        fireEvent.contextMenu(label, { clientX: 5, clientY: 6 });
+
+        await vi.waitFor(() => expect(menu.popup).toHaveBeenCalledOnce());
+        expect(menu.items.map((item) => item.text)).toEqual(["annoy"]);
+        expect(menu.popup).toHaveBeenCalledWith(expect.objectContaining({ x: 5, y: 6 }));
+        expect(onSendUserMessage).not.toHaveBeenCalled();
+
+        menu.items[0].action();
+
+        expect(onSendUserMessage).toHaveBeenCalledExactlyOnceWith("Annoying you!", [alice.session]);
+    });
+
+    it("suppresses the browser's own context menu on a user", async () => {
+        backend.users = [alice];
+        renderMainPage();
+        const label = await screen.findByText(/Alice/);
+
+        const notPrevented = fireEvent.contextMenu(label);
+
+        expect(notPrevented).toBe(false);
     });
 });
