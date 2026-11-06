@@ -39,7 +39,7 @@ function getLevelDb(node: AnalyserNode, samples: Float32Array<ArrayBuffer>) {
     return 20 * Math.log10(Math.max(rms, 1e-8));
 }
 
-function addRecording(blob: Blob, label: string) {
+function addRecording(blob: Blob, label: string, slug: string) {
     recordingCount += 1;
     const url = URL.createObjectURL(blob);
 
@@ -53,9 +53,9 @@ function addRecording(blob: Blob, label: string) {
 
     const download = document.createElement("a");
     download.href = url;
-    // The container depends on the browser (Chrome: webm, Safari: mp4).
-    const extension = blob.type.includes("mp4") ? "m4a" : "webm";
-    download.download = `mic-${recordingCount}.${extension}`;
+    // The container depends on the browser (Chrome: webm, Safari: mp4, Firefox: ogg).
+    const extension = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+    download.download = `mic-${recordingCount}-${slug}.${extension}`;
     download.textContent = "download";
     item.append(download);
 
@@ -75,6 +75,11 @@ async function handleStart() {
     const label = `echoCancellation=${applied.echoCancellation} `
         + `noiseSuppression=${applied.noiseSuppression} `
         + `autoGainControl=${applied.autoGainControl}`;
+    // Same settings, short enough for a filename: ec-on-ns-off-agc-on.
+    const onOff = (value: boolean | undefined) => (value ? "on" : "off");
+    const slug = `ec-${onOff(applied.echoCancellation)}`
+        + `-ns-${onOff(applied.noiseSuppression)}`
+        + `-agc-${onOff(applied.autoGainControl)}`;
 
     // Record the stream as the browser delivers it (after any echo cancellation).
     const chunks: Blob[] = [];
@@ -84,7 +89,7 @@ async function handleStart() {
     // Read the type from the local recorder: handleStop() clears `recorder`
     // before this event fires, and a Blob with no type won't play back.
     mediaRecorder.addEventListener("stop", () => {
-        addRecording(new Blob(chunks, { type: mediaRecorder.mimeType }), label);
+        addRecording(new Blob(chunks, { type: mediaRecorder.mimeType }), label, slug);
     });
     recorder.start();
 
