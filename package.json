@@ -11,7 +11,8 @@
     "test": "vitest run",
     "mumble:up": "podman compose -f dev/mumble-server/compose.yaml up -d",
     "mumble:down": "podman compose -f dev/mumble-server/compose.yaml down",
-    "mumble:logs": "podman compose -f dev/mumble-server/compose.yaml logs -f"
+    "mumble:logs": "podman compose -f dev/mumble-server/compose.yaml logs -f",
+    "e2e:latency": "podman compose -f dev/e2e/compose.yaml up --build --abort-on-container-exit --exit-code-from receiver"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -1,0 +1,9 @@
+[package]
+name = "e2e-latency"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+mumble-protocol = { path = "../mumble-protocol" }
+tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }
