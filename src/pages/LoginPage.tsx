@@ -167,7 +167,7 @@ export default function LoginPage(props: LoginPageProps) {
                     <div className={styles.footer}>
                         {serverStats && serverStats.stats && (
                             <div  className={[styles["user-count"], error ? styles.error : ""].join(" ")}>
-                                {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count} ({serverStats.stats.round_trip_time}ms)
+                                {error ?? ""} {serverStats.stats.user_count} / {serverStats.stats.max_user_count} ({Math.round(serverStats.stats.round_trip_time / 2)}ms)
                             </div>
                         ) || (
                             <div className={[styles["user-count"], error ? styles.error : ""].join(" ")}>
@@ -275,7 +275,7 @@ function RecentServerButton(props: RecentServerButtonProps) {
                 }}>
                 {server.name} @ <strong>{server.server}</strong>:{server.port} <br />
                 {serverStats ? `${serverStats.user_count} / ${serverStats.max_user_count}` : "Fetching..."}{" "}
-                {serverStats ? `(${serverStats.round_trip_time}ms)` : ""}
+                {serverStats ? `(${Math.round(serverStats.round_trip_time / 2)}ms)` : ""}
             </button>
             <button
                 className={styles.remove}
