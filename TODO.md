@@ -78,4 +78,5 @@ Work tracker.
 - [ ] Show common public servers?
 - [ ] Save passwords for recent servers in the OS keychain (`keyring` crate), not in the plain-JSON store
 - [ ] Include a help link
+- [ ] BUG: servers that are offline still appear in recents (should show error)
 - [ ] Join URLs (including to channels)
