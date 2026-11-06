@@ -76,7 +76,9 @@ async function handleStart() {
         + `noiseSuppression=${applied.noiseSuppression} `
         + `autoGainControl=${applied.autoGainControl}`;
     // Same settings, short enough for a filename: ec-on-ns-off-agc-on.
-    const onOff = (value: boolean | undefined) => (value ? "on" : "off");
+    // Chrome can report a mode string (e.g. "remote-only") instead of a boolean.
+    const onOff = (value: boolean | string | undefined) =>
+        value === true ? "on" : !value ? "off" : value;
     const slug = `ec-${onOff(applied.echoCancellation)}`
         + `-ns-${onOff(applied.noiseSuppression)}`
         + `-agc-${onOff(applied.autoGainControl)}`;
