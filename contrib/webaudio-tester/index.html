@@ -10,12 +10,21 @@
 
     <!-- Level meter -->
     <progress id="level-meter" max="1" value="0"></progress>
+    <span id="level-text"></span>
 
     <button id="start-stop">Start</button>
 
-    <!-- Audio configuration -->
-    <!-- <select id="audio-input"></select>
-    <select id="audio-output"></select> -->
+    <!-- Capture processing; takes effect on the next Start -->
+    <fieldset>
+        <legend>Processing</legend>
+        <label><input type="checkbox" id="echo-cancellation" checked> echo cancellation</label>
+        <label><input type="checkbox" id="noise-suppression" checked> noise suppression</label>
+        <label><input type="checkbox" id="auto-gain-control" checked> auto gain control</label>
+    </fieldset>
+
+    <!-- One recording per Start/Stop -->
+    <h2>Recordings</h2>
+    <ul id="recordings"></ul>
 
     <script type="module" src="./src/main.ts"></script>
 </body>
