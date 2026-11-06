@@ -35,8 +35,10 @@ pub fn parse(bytes: &[u8]) -> Result<Wav, Box<dyn Error>> {
                 let sample_rate = format.ok_or("data chunk before fmt chunk")?;
                 let body = if len == 0 || len == u32::MAX as usize { &bytes[body_start..] } else { body };
                 let samples = body
-                    .chunks_exact(2)
-                    .map(|s| i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&s| i16::from_le_bytes(s) as f32 / 32768.0)
                     .collect();
                 return Ok(Wav { sample_rate, samples });
             }
