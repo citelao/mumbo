@@ -1,4 +1,4 @@
-# WebRTC tester
+# WebAudio tester
 
 A simple web server for testing the W3C audio APIs.
 
