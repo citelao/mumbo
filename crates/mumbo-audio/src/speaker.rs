@@ -13,6 +13,11 @@ pub const SPEAKER_SAMPLE_RATE: u32 = 48_000;
 /// 10 ms at 48 kHz: the frame size a `SpeakerSource` produces.
 pub const SPEAKER_FRAME_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 100;
 
+/// Playback is topped up to this level each tick. NetEq absorbs network jitter,
+/// so this only needs to cover timer slop. It is also audio queued between the
+/// mixer and the sound card, so it adds directly to playback latency.
+pub const PLAYBACK_QUEUE_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 1000 * 40;
+
 /// What the module plays: the mixed audio of everyone who is talking.
 pub trait SpeakerSource: Send {
     /// The next 10 ms to play. `None` means there will be no more (e.g. the

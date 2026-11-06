@@ -4,7 +4,7 @@ use cpal::{DeviceId, traits::{DeviceTrait, HostTrait, StreamTrait}};
 use mumbo_audio::{
     PipelineError,
     mic::{DESIRED_INPUT_SAMPLE_RATE, MicFrameSink, MicPipeline, apm_config, audio_processing},
-    speaker::{SPEAKER_SAMPLE_RATE, SpeakerSource, top_up_output},
+    speaker::{PLAYBACK_QUEUE_SAMPLES, SPEAKER_SAMPLE_RATE, SpeakerSource, top_up_output},
 };
 use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
 use serde::{Deserialize, Serialize};
@@ -116,10 +116,6 @@ pub enum AudioError {
 
 /// Room for ~200 ms of queued playback.
 const SPEAKER_HEADROOM_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 1000 * 200;
-
-/// Playback is topped up to this level each tick. NetEq absorbs network jitter,
-/// so this only needs to cover timer slop.
-const SPEAKER_TARGET_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 1000 * 40;
 
 /// The preferred device if it is connected, otherwise the system default.
 fn resolve_device(
@@ -398,7 +394,7 @@ impl AudioModule {
                         // Top the ring buffer up to a fixed level rather than mixing once per
                         // tick: the card drains it at its own rate, so this follows the card's
                         // clock instead of drifting against this timer.
-                        if !top_up_output(&mut output_producer, SPEAKER_TARGET_SAMPLES, &mut speakers, &mut apm)? {
+                        if !top_up_output(&mut output_producer, PLAYBACK_QUEUE_SAMPLES, &mut speakers, &mut apm)? {
                             log::info!("Nothing left to play; stopping audio");
                             break;
                         }

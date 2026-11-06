@@ -22,7 +22,7 @@ use std::{
 
 use mumbo_audio::{
     mic::{MicPipeline, apm_config, audio_processing},
-    speaker::{Mixer, SPEAKER_SAMPLE_RATE, top_up_output},
+    speaker::{Mixer, PLAYBACK_QUEUE_SAMPLES, SPEAKER_SAMPLE_RATE, top_up_output},
 };
 use mumble_protocol::{client::Connection, state::{MumbleEvent, TextMessage}};
 use ringbuf::{HeapRb, traits::{Consumer, Split}};
@@ -42,9 +42,6 @@ const TAIL_SILENCE: Duration = Duration::from_secs(2);
 const UTTERANCE_GAP: Duration = Duration::from_secs(2);
 /// Samples quieter than this (as a fraction of full scale) aren't "heard".
 const AUDIBLE: f32 = 0.02;
-
-/// What the app does each 5 ms: top the playback queue up to this much audio.
-const PLAYBACK_QUEUE_SAMPLES: usize = SPEAKER_SAMPLE_RATE as usize / 1000 * 40;
 
 fn nanos_after(base: u64, samples: usize, rate: u32) -> u64 {
     base + (samples as f64 / rate as f64 * 1e9) as u64
