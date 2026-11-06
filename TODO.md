@@ -29,6 +29,7 @@ Work tracker.
 - [x] Output & input device selection
 - [ ] Device selection during a call
 - [x] Hook up audio selectors
+- [ ] BUG: AEC should use full system audio, since that shouldn't be included.
 - [ ] Device configuration (e.g. mono/stereo, bitrate resampling)
 - [ ] Per-speaker auto-gain before summing, so one loud mic doesn't dominate
 - [ ] Other speaker local volume adjustment
