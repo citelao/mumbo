@@ -2458,17 +2458,12 @@ dependencies = [
  "futures-util",
  "log",
  "mumble-protocol",
- "neteq",
- "nnnoiseless",
- "opus",
+ "mumbo-audio",
  "ringbuf 0.5.3",
- "rubato",
  "rustls",
  "serde",
  "serde_json",
  "sonora",
- "sonora-agc2",
- "sonora-simd",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
@@ -2478,6 +2473,24 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
+]
+
+[[package]]
+name = "mumbo-audio"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "mumble-protocol",
+ "neteq",
+ "nnnoiseless",
+ "opus",
+ "ringbuf 0.5.3",
+ "rubato",
+ "sonora",
+ "sonora-agc2",
+ "sonora-simd",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
