@@ -28,14 +28,15 @@ async function handleStart() {
         const level = data.reduce((a, b) => a + b, 0) / data.length;
 
         console.log(level, data);
+        // levelMeter.value = Math.random();
         levelMeter.value = level;
         if (isRunning) {
             requestAnimationFrame(updateLevelMeter);
         }
     }
-    updateLevelMeter();
-    
+
     isRunning = true;
+    updateLevelMeter();
     startStopButton.textContent = "Stop";
 }
 
