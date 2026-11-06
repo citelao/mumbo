@@ -1,34 +1,12 @@
-# Two Mumble clients and a server on one network; the receiver measures how
-# long voice packets from the sender take to arrive.
+# Just the Mumble server. The test clients run natively (see run.sh), so
+# nothing is compiled in the container.
 #
-#   npm run e2e:latency
-#
-# The receiver's exit code is the test result.
-x-probe: &probe
-  build:
-    context: ../..
-    dockerfile: dev/e2e/Dockerfile
-  environment: &probe-env
-    MUMBLE_SERVER: mumble-server
-    MUMBLE_PASSWORD: test
-
+# Uses the same port as dev/mumble-server; stop that one first.
 services:
   mumble-server:
     image: docker.io/mumblevoip/mumble-server:latest
+    ports:
+      - "64738:64738/tcp"
     environment:
       MUMBLE_SUPERUSER_PASSWORD: "superuser"
       MUMBLE_CONFIG_SERVERPASSWORD: "test"
-
-  receiver:
-    <<: *probe
-    command: ["receiver"]
-    depends_on: [mumble-server]
-    environment:
-      <<: *probe-env
-      MAX_P95_MS: "50"
-      MAX_LOSS_PCT: "1"
-
-  sender:
-    <<: *probe
-    command: ["sender"]
-    depends_on: [mumble-server, receiver]
