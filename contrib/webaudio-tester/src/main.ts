@@ -14,6 +14,16 @@ startStopButton.addEventListener("click", () => {
     }
 });
 
+/** Gets RMS level from [0-256) */
+function getRmsLevel(node: AnalyserNode) {
+    const data = new Uint8Array(node.frequencyBinCount);
+    node.getByteFrequencyData(data);
+    const rms = Math.sqrt(data.reduce((a, b) => a + (b * b), 0) / data.length);
+    console.log(rms, data);
+
+    return rms;
+}
+
 async function handleStart() {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -23,11 +33,7 @@ async function handleStart() {
     source.connect(analyser);
 
     function updateLevelMeter() {
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(data);
-        const level = data.reduce((a, b) => a + b, 0) / data.length;
-
-        console.log(level, data);
+        const level = getRmsLevel(analyser) / 256;
         // levelMeter.value = Math.random();
         levelMeter.value = level;
         if (isRunning) {
