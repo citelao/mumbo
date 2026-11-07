@@ -31,8 +31,8 @@ jobs:
             bundles: app
           - name: linux-x64
             # Build on `ubuntu-22.04` (not `ubuntu-latest`), the oldest supported
-            # Ubuntu as of now (support ends May 2027). e.g. GNOME 48 does not
-            # have glibc 2.43, so a binary built on newer Ubuntu fails to start.
+            # Ubuntu as of now (support ends May 2027), so the .deb/.rpm only
+            # require an old glibc and run on older distros.
             os: ubuntu-22.04
             bundles: deb,rpm
           - name: windows-x64
@@ -93,27 +93,26 @@ jobs:
           # Only hand-off to the publish job; the Release holds the durable copy.
           retention-days: 1
 
-  # Tauri can't emit a flatpak, so wrap the Linux .deb from the build job.
+  # Tauri can't emit a flatpak, so build from source in the GNOME SDK. This
+  # links against the runtime's libraries rather than Ubuntu's.
   flatpak:
-    needs: build
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      # Keep in sync with `runtime-version` in the manifest.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: linux-x64
-          path: linux
-      - run: cp linux/mumbo-linux-x64.deb packaging/flatpak/mumbo.deb
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: mumbo-linux-x64.flatpak
           manifest-path: packaging/flatpak/com.citelao.mumbo.yml
-          cache-key: flatpak-builder-${{ github.event.workflow_run.head_sha }}
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/**', 'Cargo.lock', 'package-lock.json') }}
           # The action can't set retention, so upload the bundle ourselves.
           upload-artifact: false
 
