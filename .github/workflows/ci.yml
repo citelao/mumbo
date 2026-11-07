@@ -28,10 +28,10 @@ jobs:
       matrix:
         # Test on:
         # - Windows (catches CRLF checkouts & MSVC-built audio code)
+        # - macOS
         # - Ubuntu latest (catches breaks from newer system libraries) and
         #   22.04 (oldest LTS with support, ending May 2027)
-        # macOS is left out because that's where we develop.
-        os: [ubuntu-22.04, ubuntu-latest, windows-latest]
+        os: [ubuntu-22.04, ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
