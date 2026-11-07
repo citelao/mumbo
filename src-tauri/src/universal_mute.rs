@@ -26,7 +26,7 @@ mod windows_impl {
         mute_handler_token: i64,
 
         // What the button currently shows, so we only tell Windows about changes.
-        shown_muted: Option<bool>,
+        shown_muted: bool,
     }
 
     impl UniversalMuter {
@@ -57,14 +57,14 @@ mod windows_impl {
                 coordinator,
                 call,
                 mute_handler_token,
-                shown_muted: Some(false),
+                shown_muted: false,
             })
         }
 
         /// Shows the button as muted/unmuted. Call this when server mute state
         /// changes.
         pub fn confirm(&mut self, muted: bool) -> Result<(), Error> {
-            if self.shown_muted == Some(muted) {
+            if self.shown_muted == muted {
                 return Ok(());
             }
             if muted {
@@ -72,7 +72,7 @@ mod windows_impl {
             } else {
                 self.coordinator.NotifyUnmuted()?;
             }
-            self.shown_muted = Some(muted);
+            self.shown_muted = muted;
             Ok(())
         }
     }
