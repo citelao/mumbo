@@ -55,7 +55,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # Key on the exact runner: the default key only has "Linux", so 22.04
+      # jobs would reuse C objects built against a newer glibc.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       - run: cargo test --workspace --locked
       # Lints don't vary by OS; once is enough.
@@ -88,7 +92,11 @@ jobs:
       - run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
+      # Key on the exact runner: the default key only has "Linux", so 22.04
+      # jobs would reuse C objects built against a newer glibc.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       # `tauri build` runs `npm run build` (tsc + vite) first. Bash on every OS:
       # Windows' default PowerShell can swallow the `--` before cargo's args.

@@ -52,7 +52,11 @@ jobs:
       - run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
+      # Key on the exact runner: the default key only has "Linux", so 22.04
+      # jobs would reuse C objects built against a newer glibc.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       # Bash on every OS: Windows' default PowerShell can swallow the `--`.
       - run: npx tauri build --bundles ${{ matrix.bundles }} -- --locked
