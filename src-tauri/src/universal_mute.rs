@@ -46,7 +46,8 @@ mod windows_impl {
 
             let call = coordinator.RequestNewOutgoingCall(
                 &HSTRING::from("mumbo"),
-                &HSTRING::from("Mumble"),
+                // Shown until we learn which channel we're in.
+                &HSTRING::from("Connecting..."),
                 &HSTRING::from("Mumbo"),
                 VoipPhoneCallMedia::Audio,
             )?;
@@ -75,6 +76,11 @@ mod windows_impl {
             self.shown_muted = muted;
             Ok(())
         }
+
+        /// Renames the call, which Windows shows as who you're talking to.
+        pub fn set_contact_name(&self, name: &str) -> Result<(), Error> {
+            self.call.SetContactName(&HSTRING::from(name))
+        }
     }
 
     impl Drop for UniversalMuter {
@@ -100,6 +106,10 @@ mod other_impl {
         }
 
         pub fn confirm(&mut self, _muted: bool) -> Result<(), Error> {
+            Ok(())
+        }
+
+        pub fn set_contact_name(&self, _name: &str) -> Result<(), Error> {
             Ok(())
         }
     }

@@ -336,6 +336,7 @@ async fn connect_internal(
     // Send state events to the app.
     let status_client = client.clone();
     tauri::async_runtime::spawn(async move {
+        let mut shown_channel: Option<String> = None;
         while let Some(event) = events.recv().await {
             // TODO: a useful payload.
             let _ = app.emit("session-changed", event);
@@ -351,6 +352,25 @@ async fn connect_internal(
                 && let Err(e) = muter.confirm(muted)
             {
                 log::warn!("Universal mute couldn't update the button: {e}");
+            }
+
+            // Windows shows the call's contact name next to the mute button, so
+            // keep it on the channel we're in.
+            let channel_name = {
+                let state = status_client.state();
+                let state = state.lock().unwrap();
+                state
+                    .current_user()
+                    .and_then(|user| state.channels.get(&user.channel_id))
+                    .map(|channel| channel.name.clone())
+            };
+            if let (Some(muter), Some(name)) = (universal_muter.as_ref(), channel_name)
+                && shown_channel.as_deref() != Some(name.as_str())
+            {
+                if let Err(e) = muter.set_contact_name(&name) {
+                    log::warn!("Universal mute couldn't rename the call: {e}");
+                }
+                shown_channel = Some(name);
             }
         }
         // `recv` only returns `None` once the driver has exited, so the
