@@ -1,8 +1,7 @@
 //! Windows' "Universal Mute" (the mute key on newer laptops, and `Win+Alt+K`).
 //!
-//! Windows only offers it to apps that look like they're in a call, so a
-//! `UniversalMuter` lives for as long as a connection does: creating one starts
-//! a call, dropping it ends the call. Elsewhere it does nothing.
+//! Create a `UniversalMuter` to start the call, manage it during the call, and
+//! then drop it to end the call.
 
 #[cfg(windows)]
 pub use windows_impl::UniversalMuter;
@@ -33,13 +32,13 @@ mod windows_impl {
     impl UniversalMuter {
         /// Starts a call, with the button showing unmuted. `on_request` is
         /// called, from a Windows thread, each time the user presses the button
-        /// (`true` = mute). It should act on the request immediately, but the
-        /// button stays put until `confirm` is called.
+        /// (`true` = mute).
         pub fn new(on_request: impl Fn(bool) + Send + 'static) -> Result<Self, Error> {
             let coordinator = VoipCallCoordinator::GetDefault()?;
 
             let mute_handler_token = coordinator.MuteStateChanged(&TypedEventHandler::new(
                 move |_, args: windows::core::Ref<MuteChangeEventArgs>| {
+                    // Call the callback; when muting is confirmed, the app should call `confirm`.
                     on_request(args.ok()?.Muted()?);
                     Ok(())
                 },
@@ -62,8 +61,8 @@ mod windows_impl {
             })
         }
 
-        /// Shows the button as muted/unmuted. Call this once the mute is real
-        /// (the server confirmed it), not when it was requested.
+        /// Shows the button as muted/unmuted. Call this when server mute state
+        /// changes.
         pub fn confirm(&mut self, muted: bool) -> Result<(), Error> {
             if self.shown_muted == Some(muted) {
                 return Ok(());

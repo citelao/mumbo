@@ -464,7 +464,7 @@ impl MumbleClient {
     /// reported for us. Until the server's `UserState` arrives, the two differ.
     pub fn self_mute_status(&self) -> SelfMuteStatus {
         let requested = self.self_muted.load(Ordering::Relaxed);
-        let confirmed = self.state.lock().unwrap().current_user().is_some_and(|user| user.self_mute());
+        let confirmed = self.state.lock().unwrap().current_user().is_some_and(|user| user.self_mute);
         match (requested, confirmed) {
             (false, false) => SelfMuteStatus::Unmuted,
             (true, false) => SelfMuteStatus::Muting,
