@@ -26,10 +26,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows catches CRLF checkouts and MSVC-built audio code; macOS is
-        # left out because that's where we develop. Ubuntu runs twice: 22.04 is
-        # the oldest glibc/webkit we ship on (see release.yml), latest catches
-        # breakage from newer system libraries.
+        # Test on:
+        # - Windows (catches CRLF checkouts & MSVC-built audio code)
+        # - Ubuntu latest (catches breaks from newer system libraries) and
+        #   22.04 (oldest LTS with support, ending May 2027)
+        # macOS is left out because that's where we develop.
         os: [ubuntu-22.04, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -71,7 +72,6 @@ jobs:
           # Only the .app: the .dmg step scripts Finder, which is unreliable on CI.
           - os: macos-latest
             bundles: app
-          # Same runner as release.yml so the bundle matches what ships.
           - os: ubuntu-22.04
             bundles: deb
           - os: windows-latest

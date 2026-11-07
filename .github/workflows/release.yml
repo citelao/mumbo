@@ -30,9 +30,9 @@ jobs:
             os: macos-15-intel
             bundles: app
           - name: linux-x64
-            # Pinned, not `ubuntu-latest`: the binary links against the runner's
-            # glibc, and must be no newer than the Flatpak runtime's and older
-            # distros' (ubuntu-latest moved to glibc 2.43, which GNOME 48 lacks).
+            # Build on `ubuntu-22.04` (not `ubuntu-latest`), the oldest supported
+            # Ubuntu as of now (support ends May 2027). e.g. GNOME 48 does not
+            # have glibc 2.43, so a binary built on newer Ubuntu fails to start.
             os: ubuntu-22.04
             bundles: deb,rpm
           - name: windows-x64
