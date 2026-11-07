@@ -41,9 +41,12 @@ fn set_noise_suppression(state: tauri::State<'_, AppState>, enabled: bool) {
 
 #[tauri::command]
 async fn get_server_stats(server: String, port: u16) -> Result<proto::client::ServerStats, String> {
-    proto::client::get_server_stats(server, Some(port))
+    // Stats are a nice-to-have UDP ping, so failure is a warning. On Windows an
+    // unreachable host (e.g. no local server running) surfaces as a bare
+    // "connection forcibly closed" (os error 10054), so name the target.
+    proto::client::get_server_stats(server.clone(), Some(port))
         .await
-        .inspect_err(|e| log::error!("{e}"))
+        .inspect_err(|e| log::warn!("Couldn't fetch stats from {server}:{port}: {e}"))
         .map_err(|e| e.to_string())
 }
 
@@ -57,9 +60,10 @@ async fn connect(
     name: String,
     channel: Channel<proto::ServerToClientMessage>,
 ) -> Result<(), String> {
+    let target = format!("{server}:{port}");
     connect_internal(app, state, server, port, password, name, channel)
         .await
-        .inspect_err(|e| log::error!("{e}"))
+        .inspect_err(|e| log::error!("Couldn't connect to {target}: {e}"))
         .map_err(|e| e.to_string())
 }
 
