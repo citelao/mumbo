@@ -102,3 +102,19 @@ jobs:
       # Windows' default PowerShell can swallow the `--` before cargo's args.
       - run: npx tauri build --bundles ${{ matrix.bundles }} -- --locked
         shell: bash
+
+  # Builds the flatpak from source in the GNOME SDK, as the release does.
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      # Keep in sync with `runtime-version` in the manifest.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: mumbo.flatpak
+          manifest-path: packaging/flatpak/com.citelao.mumbo.yml
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/**', 'Cargo.lock', 'package-lock.json') }}
+          upload-artifact: false

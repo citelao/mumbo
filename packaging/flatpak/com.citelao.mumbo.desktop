@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=mumbo
+Comment=Mumble voice chat client
+Exec=mumbo
+Icon=com.citelao.mumbo
+Terminal=false
+Categories=Network;Chat;
+Keywords=mumble;voice;chat;

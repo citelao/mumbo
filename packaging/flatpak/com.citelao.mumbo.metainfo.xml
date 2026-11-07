@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.citelao.mumbo</id>
+  <name>mumbo</name>
+  <summary>Mumble voice chat client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <!-- TODO: the repo has no LICENSE yet; set the real SPDX id before Flathub. -->
+  <project_license>LicenseRef-proprietary</project_license>
+  <developer id="com.citelao">
+    <name>citelao</name>
+  </developer>
+  <description>
+    <p>
+      mumbo is a client for Mumble voice chat servers. It aims to sound good
+      out of the box, with noise suppression and gain control configured for
+      you instead of left to a setup wizard.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.citelao.mumbo.desktop</launchable>
+  <url type="homepage">https://github.com/citelao/mumbo</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-07"/>
+  </releases>
+</component>
