@@ -67,6 +67,7 @@ Work tracker.
 - [ ] Support mrkdwn & wysiwyg chat messages
 - [ ] Notifications?
 - [ ] Notification settings
+- [ ] TTS for messages?
 
 ## Home page
 

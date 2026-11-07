@@ -30,7 +30,10 @@ jobs:
             os: macos-15-intel
             bundles: app
           - name: linux-x64
-            os: ubuntu-latest
+            # Build on `ubuntu-22.04` (not `ubuntu-latest`), the oldest supported
+            # Ubuntu as of now (support ends May 2027). e.g. GNOME 48 does not
+            # have glibc 2.43, so a binary built on newer Ubuntu fails to start.
+            os: ubuntu-22.04
             bundles: deb,rpm
           - name: windows-x64
             os: windows-latest
@@ -49,7 +52,11 @@ jobs:
       - run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
+      # Key on the exact runner: the default key only has "Linux", so 22.04
+      # jobs would reuse C objects built against a newer glibc.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       # Bash on every OS: Windows' default PowerShell can swallow the `--`.
       - run: npx tauri build --bundles ${{ matrix.bundles }} -- --locked

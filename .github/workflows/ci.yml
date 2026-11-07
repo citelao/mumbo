@@ -26,9 +26,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows catches CRLF checkouts and MSVC-built audio code; macOS is
-        # left out because that's where we develop.
-        os: [ubuntu-latest, windows-latest]
+        # Test on:
+        # - Windows (catches CRLF checkouts & MSVC-built audio code)
+        # - macOS
+        # - Ubuntu latest (catches breaks from newer system libraries) and
+        #   22.04 (oldest LTS with support, ending May 2027)
+        os: [ubuntu-22.04, ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -52,11 +55,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # Key on the exact runner: the default key only has "Linux", so 22.04
+      # jobs would reuse C objects built against a newer glibc.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       - run: cargo test --workspace --locked
       # Lints don't vary by OS; once is enough.
-      - if: runner.os == 'Linux'
+      - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   # Builds the app bundle for each platform, catching failures tests don't
@@ -69,7 +76,7 @@ jobs:
           # Only the .app: the .dmg step scripts Finder, which is unreliable on CI.
           - os: macos-latest
             bundles: app
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             bundles: deb
           - os: windows-latest
             bundles: nsis
@@ -85,7 +92,11 @@ jobs:
       - run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
+      # Key on the exact runner: the default key only has "Linux", so 22.04
+      # jobs would reuse C objects built against a newer glibc.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       # `tauri build` runs `npm run build` (tsc + vite) first. Bash on every OS:
       # Windows' default PowerShell can swallow the `--` before cargo's args.
