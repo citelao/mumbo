@@ -27,8 +27,10 @@ jobs:
       fail-fast: false
       matrix:
         # Windows catches CRLF checkouts and MSVC-built audio code; macOS is
-        # left out because that's where we develop.
-        os: [ubuntu-latest, windows-latest]
+        # left out because that's where we develop. Ubuntu runs twice: 22.04 is
+        # the oldest glibc/webkit we ship on (see release.yml), latest catches
+        # breakage from newer system libraries.
+        os: [ubuntu-22.04, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +58,7 @@ jobs:
 
       - run: cargo test --workspace --locked
       # Lints don't vary by OS; once is enough.
-      - if: runner.os == 'Linux'
+      - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   # Builds the app bundle for each platform, catching failures tests don't
@@ -69,7 +71,8 @@ jobs:
           # Only the .app: the .dmg step scripts Finder, which is unreliable on CI.
           - os: macos-latest
             bundles: app
-          - os: ubuntu-latest
+          # Same runner as release.yml so the bundle matches what ships.
+          - os: ubuntu-22.04
             bundles: deb
           - os: windows-latest
             bundles: nsis
