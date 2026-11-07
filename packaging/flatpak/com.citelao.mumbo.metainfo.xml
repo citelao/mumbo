@@ -4,8 +4,7 @@
   <name>mumbo</name>
   <summary>Mumble voice chat client</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <!-- TODO: the repo has no LICENSE yet; set the real SPDX id before Flathub. -->
-  <project_license>LicenseRef-proprietary</project_license>
+  <project_license>AGPL-3.0-only</project_license>
   <developer id="com.citelao">
     <name>citelao</name>
   </developer>
