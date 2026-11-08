@@ -29,3 +29,5 @@ How did you verify this change? What manual tests did you run? Any issues?
 > - [x] After joining & rejoining, audio still plays.
 > - [ ] ~~Video plays back~~ video has been postponed to #123.
 -->
+
+- [ ] ...
