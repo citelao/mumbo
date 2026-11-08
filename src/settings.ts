@@ -59,6 +59,12 @@ export default class SettingsStore {
         await this.store.save();
     }
 
+    async setTheme(theme: Theme): Promise<void> {
+        const settings = await this.getSettings();
+        settings.theme = theme;
+        await this.saveSettings(settings);
+    }
+
     async addRecentServer(server: Server): Promise<void> {
         const settings = await this.getSettings();
         const recentServers = settings.recentServers ?? [];

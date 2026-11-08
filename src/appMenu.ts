@@ -27,38 +27,28 @@ export async function fetchThemeMenuItem(menu: Menu, theme: Theme): Promise<Chec
     return item;
 }
 
-export async function createAppMenu(onThemeSelected: OnThemeSelected): Promise<Menu> {
+const THEMES: { theme: Theme; text: string }[] = [
+    { theme: 'system', text: 'System' },
+    { theme: 'light', text: 'Light' },
+    { theme: 'dark', text: 'Dark' },
+];
+
+export async function createAppMenu(onThemeSelected: OnThemeSelected, initialTheme: Theme = 'system'): Promise<Menu> {
     const menu = await Menu.default();
 
     const themeSubmenu = await Submenu.new({
         text: 'Theme',
         id: 'theme-submenu',
-        items: [
-            await CheckMenuItem.new({
-                id: 'theme-system',
-                text: 'System',
-                checked: true,
+        items: await Promise.all(THEMES.map(({ theme, text }) =>
+            CheckMenuItem.new({
+                id: `theme-${theme}`,
+                text,
+                checked: theme === initialTheme,
                 action: () => {
-                    onThemeSelected('system');
+                    onThemeSelected(theme);
                 },
             }),
-            await CheckMenuItem.new({
-                id: 'theme-light',
-                text: 'Light',
-                checked: false,
-                action: () => {
-                    onThemeSelected('light');
-                },
-            }),
-            await CheckMenuItem.new({
-                id: 'theme-dark',
-                text: 'Dark',
-                checked: false,
-                action: () => {
-                    onThemeSelected('dark');
-                },
-            }),
-        ],
+        )),
     });
 
     // https://github.com/tauri-apps/tauri/blob/2e23492ab9bcec06bab041e0e47447aaa0da298c/crates/tauri/src/menu/menu.rs#L19

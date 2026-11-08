@@ -8,8 +8,11 @@ import { setTheme } from "@tauri-apps/api/app";
 
 const settingsStore = await SettingsStore.create();
 
+const initialTheme = (await settingsStore.getSettings()).theme ?? "system";
+
 const menu = await createAppMenu(async (theme) => {
     console.log(`Theme selected: ${theme}`);
+    await settingsStore.setTheme(theme);
 
     // TODO: respond to the actual event.
     for (const t of ['system', 'light', 'dark'] as const) {
@@ -19,7 +22,9 @@ const menu = await createAppMenu(async (theme) => {
 
     const appTheme = (theme === "system") ? null : theme;
     await setTheme(appTheme);
-});
+}, initialTheme);
+// The native theme resets each launch, so reapply the saved choice.
+await setTheme(initialTheme === "system" ? null : initialTheme);
 const previous = await menu.setAsAppMenu();
 previous?.close();
 
