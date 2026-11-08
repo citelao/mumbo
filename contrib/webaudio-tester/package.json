@@ -2,6 +2,12 @@
   "name": "webrtc-tester",
   "version": "1.0.0",
   "description": "A simple web server for testing the W3C audio APIs.",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/citelao/mumbo.git",
+    "directory": "contrib/webaudio-tester"
+  },
   "type": "module",
   "private": true,
   "scripts": {

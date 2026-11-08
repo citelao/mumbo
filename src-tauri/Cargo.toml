@@ -1,10 +1,10 @@
 [package]
 name = "mumbo"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A lightweight, easy-to-use Mumble client in Rust"
 edition = "2024"
 license = "AGPL-3.0-or-later"
+repository = "https://github.com/citelao/mumbo"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
