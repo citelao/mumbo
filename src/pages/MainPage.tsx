@@ -11,9 +11,14 @@ import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
 import { Document } from '@tiptap/extension-document';
 import StarterKit from '@tiptap/starter-kit';
-import { Extension } from '@tiptap/core';
 import { HardBreak } from '@tiptap/extension-hard-break';
 import { Text } from '@tiptap/extension-text';
+import { Placeholder, UndoRedo } from '@tiptap/extensions';
+import { Bold } from '@tiptap/extension-bold';
+import { Italic } from '@tiptap/extension-italic';
+import { Code } from '@tiptap/extension-code';
+import { Underline } from '@tiptap/extension-underline';
+import { Link } from '@tiptap/extension-link';
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -204,9 +209,20 @@ export function MainPage(props: MainPageProps) {
                 }
             }),
             Text,
-            // enterExtension,
+
+            Bold,
+            Code,
+            Italic,
+            Link,
+            Underline,
+
+            UndoRedo,
+
+            // Placeholder.configure({
+            //     placeholder: 'Type a message...'
+            // }),
         ],
-        content: 'Hello World!', // initial content
+        content: '',
     });
 
     return (
