@@ -2,6 +2,10 @@
 
 Work tracker.
 
+## General UI
+
+- [ ] Support dark mode colors in app (central colors)
+
 ## State
 
 - [x] UI needs to work
@@ -44,6 +48,7 @@ Work tracker.
 ## Users
 - [ ] Profile pics
 - [ ] Comments
+- [ ] Comments with images
 - [ ] Signed accounts
 - [ ] Local nicknames (only seems to work with certificated users)
 - [ ] Information screen with stats (& cert?)?
@@ -65,7 +70,8 @@ Work tracker.
 - [ ] Distinguish channel vs global messages
 - [x] Send DMs
 - [ ] Send actual DMs, with nice UI
-- [ ] Support mrkdwn & wysiwyg chat messages
+- [x] Support ~~mrkdwn &~~ wysiwyg chat messages
+- [ ] Support chat images. Mumble has no upload protocol: an image is a `TextMessage` whose HTML has `<img src="data:image/...;base64,...">`. Should be limited to `image_message_length`.
 - [ ] Notifications?
 - [ ] Notification settings
 - [ ] TTS for messages?
