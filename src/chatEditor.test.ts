@@ -222,3 +222,76 @@ describe("placeholder", () => {
         expect(placeholder(editor)).not.toBeNull();
     });
 });
+
+describe("hostile HTML", () => {
+    const ALLOWED_TAGS = new Set(["A", "STRONG", "EM", "U", "CODE", "BR"]);
+    const ALLOWED_ATTRIBUTES: Record<string, string[]> = { A: ["href", "target", "rel"] };
+
+    // Whatever goes in, only our small whitelist may come out.
+    function expectOnlySafeHtml(html: string) {
+        const container = document.createElement("div");
+        container.innerHTML = html;
+        for (const el of container.querySelectorAll("*")) {
+            expect(ALLOWED_TAGS, `<${el.tagName.toLowerCase()}> in ${html}`).toContain(el.tagName);
+            for (const attr of el.getAttributeNames()) {
+                expect(ALLOWED_ATTRIBUTES[el.tagName] ?? [], `${attr} on <${el.tagName.toLowerCase()}> in ${html}`).toContain(attr);
+            }
+            if (el.tagName === "A") {
+                expect(el.getAttribute("href") ?? "").toMatch(/^(https?:|mailto:)/i);
+            }
+        }
+    }
+
+    const hostile = [
+        "<script>alert(1)</script>hi",
+        '<img src=x onerror="alert(1)">',
+        '<svg onload="alert(1)"><circle/></svg>',
+        '<iframe src="https://evil.example"></iframe>',
+        '<a href="javascript:alert(1)">click</a>',
+        '<a href="JaVaScRiPt:alert(1)">click</a>',
+        '<a href="data:text/html,<script>alert(1)</script>">click</a>',
+        '<a href="https://example.com" onclick="alert(1)" style="color:red">ok</a>',
+        '<a href="https://example.com&quot; onmouseover=&quot;alert(1)">quote</a>',
+        '<p style="position:fixed" onclick="alert(1)">styled</p>',
+        '<strong onmouseover="alert(1)" style="x">bold</strong>',
+        '<form action="https://evil.example"><input name=pw></form>',
+        '<object data="x"></object><embed src="x">',
+        '<style>body{display:none}</style>text',
+        '<meta http-equiv="refresh" content="0;url=https://evil.example">',
+        '<math><mi xlink:href="javascript:alert(1)">x</mi></math>',
+    ];
+
+    it.each(hostile)("setContent(%s) yields only whitelisted HTML", (html) => {
+        const editor = makeEditor();
+        editor.commands.setContent(html);
+        expectOnlySafeHtml(getMessageHtml(editor));
+    });
+
+    it.each(hostile)("pasting %s yields only whitelisted HTML", (html) => {
+        const editor = makeEditor();
+        paste(editor, { html, text: "plain" });
+        expectOnlySafeHtml(getMessageHtml(editor));
+    });
+
+    it("keeps legitimate links among hostile markup", () => {
+        const editor = makeEditor();
+        editor.commands.setContent('<script>x</script><a href="https://example.com" onclick="x">ok</a>');
+        const html = getMessageHtml(editor);
+        expect(html).toContain('href="https://example.com"');
+        expect(html).not.toContain("onclick");
+    });
+
+    it("escapes markup that is typed as text", () => {
+        const editor = makeEditor();
+        type(editor, '<script>alert("x")</script> & <b>');
+        const html = getMessageHtml(editor);
+        expect(html).toBe("&lt;script&gt;alert(\"x\")&lt;/script&gt; &amp; &lt;b&gt;");
+        expectOnlySafeHtml(html);
+    });
+
+    it("escapes a quote-laden URL typed as text", () => {
+        const editor = makeEditor();
+        type(editor, 'https://example.com/"onmouseover="alert(1) ');
+        expectOnlySafeHtml(getMessageHtml(editor));
+    });
+});
