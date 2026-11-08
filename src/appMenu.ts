@@ -1,32 +1,20 @@
-import { Menu } from '@tauri-apps/api/menu';
+import { Menu, Submenu } from '@tauri-apps/api/menu';
 
 export async function createAppMenu(): Promise<Menu> {
-    return await Menu.new({
-        items: [
-            {
-                id: 'quit',
-                text: 'Quit',
-                action: () => {
-                    console.log('quit pressed');
-                },
-            },
-            {
-                id: 'check_item',
-                text: 'Check Item',
-                checked: true,
-            },
-            {
-                item: 'Separator',
-            },
-            {
-                id: 'disabled_item',
-                text: 'Disabled Item',
-                enabled: false,
-            },
-            {
-                id: 'status',
-                text: 'Status: Processing...',
-            },
-        ]
+    const aboutSub = await Submenu.new({
+        text: 'MyApp',
+        items: [{ id: 'quit', text: 'Quit' }]
     });
+    
+    const fileSub = await Submenu.new({
+        text: 'File',
+        items: [{ id: 'open', text: 'Open' }]
+    });
+    
+    const menu = await Menu.new({
+        items: [aboutSub, fileSub]
+    });
+    aboutSub.close();
+    fileSub.close();
+    return menu;
 }

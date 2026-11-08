@@ -7,7 +7,8 @@ import { createAppMenu } from "./appMenu";
 const settingsStore = await SettingsStore.create();
 
 const menu = await createAppMenu();
-await menu.setAsAppMenu();
+const previous = await menu.setAsAppMenu();
+previous?.close();
 
 // TEST: Update individual menu item text
 const statusItem = await menu.get('status');
