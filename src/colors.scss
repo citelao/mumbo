@@ -11,10 +11,9 @@ $system: (
   // (ButtonBorder is faint or transparent in some), so tint the page background
   // with the text color. The same trick gives subtle highlights.
   "border": color-mix(in srgb, CanvasText 25%, var(--color-background)),
-  // GrayText and Field resolve to mid-grays in WebKit dark mode, giving poor
-  // placeholder contrast, so derive these from the text color too.
+  // GrayText resolves to a very faint gray in WebKit, giving poor placeholder
+  // contrast, so derive it from the text color.
   "text-secondary": color-mix(in srgb, CanvasText 55%, var(--color-background)),
-  "input-background": color-mix(in srgb, CanvasText 6%, var(--color-background)),
   "hover": color-mix(in srgb, CanvasText 10%, var(--color-background)),
   "code-background": color-mix(in srgb, CanvasText 8%, var(--color-background)),
 );
@@ -23,6 +22,10 @@ $system: (
 $themed: (
   // Tinted gray page background; closer to native than pure Canvas.
   "background": (#f6f6f6, #2f2f2f),
+  // What WebKit paints for a native <input> (probed in a WKWebView): white in
+  // light, rgb(30 30 30) in dark. The Field keyword is translucent in dark, so
+  // it's not used.
+  "input-background": (#fff, #1e1e1e),
   "error": (#d33, #ff6b6b),
 );
 
