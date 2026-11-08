@@ -1,5 +1,5 @@
 import { assembleChannelTree, TreeNode } from "../helpers/tree";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
@@ -8,9 +8,31 @@ import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { useEditor, EditorContent } from '@tiptap/react'
-import { FloatingMenu, BubbleMenu } from '@tiptap/react/menus'
-import StarterKit from '@tiptap/starter-kit'
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import { Extension } from '@tiptap/core';
+
+function createCustomEnterExtension(onEnter: (message: string) => void) {
+    const ext = Extension.create({
+      name: 'customEnter',
+    
+      addKeyboardShortcuts() {
+        return {
+          'Enter': () => {
+            onEnter(this.editor.getText());
+            return true; 
+          },
+          'Shift-Enter': () => {
+            // Handle Shift+Enter differently (e.g., insert a hard break)
+            this.editor.commands.setHardBreak();
+            return true;
+          },
+        };
+      },
+    });
+    return ext;
+}
+
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -172,9 +194,31 @@ export function MainPage(props: MainPageProps) {
         return renderChannel(node.value, node.children.map(child => child.value));
     };
 
+    const sendCurrentMessage = () => {
+        const message_text = editor?.getText();
+        const message = editor?.getHTML();
+        if (message_text.trim().length > 0) {
+            props.onSendMessage(message.trim());
+            editor?.commands.clearContent();
+        }
+    };
+
+    const enterExtension = useMemo(() => createCustomEnterExtension(sendCurrentMessage), []);
+
     const editor = useEditor({
         extensions: [
-            StarterKit
+            StarterKit,
+            enterExtension,
+            // Document.extend({
+            //     addKeyboardShortcuts() {
+            //         return {
+            //             "Mod-Enter": () => {
+            //                 sendCurrentMessage();
+            //                 return true;
+            //             }
+            //         };
+            //     }
+            // }),
         ],
         content: 'Hello World!', // initial content
     });
@@ -228,25 +272,20 @@ export function MainPage(props: MainPageProps) {
                             );
                         })}
                     </ol>
-                    <form onSubmit={(e) => {
-                        e.preventDefault();
-                        const input = e.currentTarget.querySelector('input[type="text"]') as HTMLInputElement;
-                        if (input && input.value.trim() !== "") {
-                            props.onSendMessage(input.value.trim());
-                            input.value = "";
-                        }
-                    }}>
-                        <label>
-                            Chat
-                            <input type="text" placeholder="Message" onKeyUp={(e) => {
-                                if (e.key === "Enter") {
-                                    e.currentTarget.form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-                                }
-                            }} />
-                        </label>
+                    {/* <label>
+                        Chat
+                        <input type="text" placeholder="Message" onKeyUp={(e) => {
+                            if (e.key === "Enter") {
+                                e.currentTarget.form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+                            }
+                        }} />
+                    </label> */}
 
-                        <EditorContent editor={editor} className={styles.editor} />
-                    </form>
+                    <EditorContent editor={editor} className={styles.editor} onKeyUp={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                            sendCurrentMessage();
+                        }
+                    }} />
                 </section>
             </main>
             <ProtocolViewer entries={props.protocolLog} onClear={props.onClearProtocolLog} />
