@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::io::Error;
 
 use mumble_protocol as proto;
@@ -7,10 +6,10 @@ use mumble_protocol::client::{Connection, ConnectionOptions, SelfMuteStatus};
 use tauri::{Emitter, Listener, Manager};
 use tauri::ipc::Channel;
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
-use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
 
 pub mod audio;
+mod settings;
 mod universal_mute;
 // Linux installs come from package managers (deb/rpm/flatpak), which update
 // themselves; Tauri's updater only handles AppImages there.
@@ -220,13 +219,8 @@ const AUDIO_NOISE_SUPPRESSION_EVENT: &str = "audio-noise-suppression-changed";
 /// earlier would be lost, so this is the cue to publish everything current.
 const AUDIO_DEVICES_SUBSCRIBE_EVENT: &str = "audio-devices-subscribe";
 
-const SETTINGS_FILE: &str = "settings.json";
-/// Where the preferred audio devices are saved. The UI's own settings share the
-/// file (under another key); the store plugin keeps one copy per file.
-const AUDIO_SETTINGS_KEY: &str = "audio";
-
 /// Saves the audio preferences each time one changes.
-fn save_audio_preferences(store: Arc<tauri_plugin_store::Store<tauri::Wry>>, audio: &audio::AudioModule) {
+fn save_audio_preferences(settings: settings::Settings, audio: &audio::AudioModule) {
     let input = audio.preferred_input_device();
     let output = audio.preferred_output_device();
     let noise_suppression = audio.noise_suppression();
@@ -236,11 +230,10 @@ fn save_audio_preferences(store: Arc<tauri_plugin_store::Store<tauri::Wry>>, aud
         noise_suppression.clone().map_changes(),
     ];
     for changes in changes {
-        let (store, input, output, noise_suppression) = (store.clone(), input.clone(), output.clone(), noise_suppression.clone());
+        let (settings, input, output, noise_suppression) = (settings.clone(), input.clone(), output.clone(), noise_suppression.clone());
         tauri::async_runtime::spawn(forward_changes(changes, move || {
             let saved = audio::SavedPreferences::of(input.borrow().as_ref(), output.borrow().as_ref(), *noise_suppression.borrow());
-            store.set(AUDIO_SETTINGS_KEY, serde_json::json!(saved));
-            if let Err(e) = store.save() {
+            if let Err(e) = settings.save_audio(&saved) {
                 log::warn!("Failed to save the preferred audio devices: {e}");
             }
         }));
@@ -570,11 +563,11 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
-            let store = app.store(SETTINGS_FILE)?;
-            let saved = audio::SavedPreferences::from_stored(store.get(AUDIO_SETTINGS_KEY));
-            let audio_module = audio::AudioModule::new(saved)?;
+            let settings = settings::Settings::load(app.handle())?;
+            let audio_module = audio::AudioModule::new(settings.audio())?;
             publish_audio_devices(app.handle(), &audio_module);
-            save_audio_preferences(store, &audio_module);
+            save_audio_preferences(settings.clone(), &audio_module);
+            app.manage(settings);
             app.manage(AppState {
                 client: Default::default(),
                 audio_module,
