@@ -14,8 +14,7 @@ pub mod audio;
 mod universal_mute;
 // Linux installs come from package managers (deb/rpm/flatpak), which update
 // themselves; Tauri's updater only handles AppImages there.
-// Dev builds aren't installed bundles, so there's nothing to replace.
-#[cfg(all(any(target_os = "macos", windows), not(debug_assertions)))]
+#[cfg(any(target_os = "macos", windows))]
 mod updater;
 #[cfg(test)]
 mod test_util;
@@ -580,8 +579,8 @@ pub fn run() {
                 client: Default::default(),
                 audio_module,
             });
-            #[cfg(all(any(target_os = "macos", windows), not(debug_assertions)))]
-            updater::spawn_check(app.handle().clone());
+            #[cfg(any(target_os = "macos", windows))]
+            updater::spawn_download(app.handle());
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
@@ -608,8 +607,14 @@ pub fn run() {
             set_channel,
             disconnect
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(any(target_os = "macos", windows))]
+            if let tauri::RunEvent::Exit = _event {
+                updater::install_pending(_app);
+            }
+        });
 }
 
 #[cfg(test)]
