@@ -12,6 +12,11 @@ use tokio::sync::{broadcast, watch};
 
 pub mod audio;
 mod universal_mute;
+// Linux installs come from package managers (deb/rpm/flatpak), which update
+// themselves; Tauri's updater only handles AppImages there.
+// Dev builds aren't installed bundles, so there's nothing to replace.
+#[cfg(all(any(target_os = "macos", windows), not(debug_assertions)))]
+mod updater;
 #[cfg(test)]
 mod test_util;
 
@@ -560,7 +565,10 @@ fn soft_clip(sample: f32) -> f32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(any(target_os = "macos", windows))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             let store = app.store(SETTINGS_FILE)?;
@@ -572,6 +580,8 @@ pub fn run() {
                 client: Default::default(),
                 audio_module,
             });
+            #[cfg(all(any(target_os = "macos", windows), not(debug_assertions)))]
+            updater::spawn_check(app.handle().clone());
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())

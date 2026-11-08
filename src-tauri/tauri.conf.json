@@ -34,5 +34,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1Mjk0MkNDMkYxMUVBMEUKUldRTzZoRXZ6RUlwSmNGVGZBaExVbVhFOFNTY05IV0I1VThGcEhFU2lQbnNYa1NxeUNvcmt1dTMK",
+      "endpoints": [
+        "https://github.com/citelao/mumbo/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
