@@ -1,73 +1,56 @@
 import { Menu, Submenu } from '@tauri-apps/api/menu';
 
 export async function createAppMenu(): Promise<Menu> {
-    // Will become the application submenu on MacOS
-    const aboutSubmenu = await Submenu.new({
-        text: 'About',
+    const menu = await Menu.default();
+
+    const themeSubmenu = await Submenu.new({
+        text: 'Theme',
         items: [
             {
-                id: 'quit',
-                text: 'Quit',
+                id: 'system',
+                text: 'System',
                 action: () => {
-                    console.log('Quit pressed');
+                    console.log('System theme selected');
+                },
+            },
+            {
+                id: 'light',
+                text: 'Light',
+                action: () => {
+                    console.log('Light theme selected');
+                },
+            },
+            {
+                id: 'dark',
+                text: 'Dark',
+                action: () => {
+                    console.log('Dark theme selected');
                 },
             },
         ],
     });
-    
-    const fileSubmenu = await Submenu.new({
-        text: 'File',
-        icon: 'Folder', // Optional: Add an icon to the submenu
+
+    // https://github.com/tauri-apps/tauri/blob/2e23492ab9bcec06bab041e0e47447aaa0da298c/crates/tauri/src/menu/menu.rs#L19
+    const TAURI_WINDOW_SUBMENU_ID = "__tauri_window_menu__";
+    const windowSubmenu = await menu.get(TAURI_WINDOW_SUBMENU_ID);
+    if (!windowSubmenu || !(windowSubmenu instanceof Submenu)) {
+        throw new Error(`Window submenu not found (${typeof windowSubmenu})`);
+    }
+    windowSubmenu.append(themeSubmenu);
+
+    const chatSubmenu = await Submenu.new({
+        text: 'Chat',
         items: [
             {
-                id: 'new',
-                text: 'New',
+                id: 'new_chat',
+                text: 'New Chat',
                 action: () => {
-                    console.log('New clicked');
-                },
-            },
-            {
-                id: 'open',
-                text: 'Open',
-                action: () => {
-                    console.log('Open clicked');
-                },
-            },
-            {
-                id: 'save_as',
-                text: 'Save As...',
-                action: () => {
-                    console.log('Save As clicked');
+                    console.log('New Chat clicked');
                 },
             },
         ],
     });
-    
-    const editSubmenu = await Submenu.new({
-        text: 'Edit',
-        items: [
-            {
-                id: 'undo',
-                text: 'Undo',
-                action: () => {
-                    console.log('Undo clicked');
-                },
-            },
-            {
-                id: 'redo',
-                text: 'Redo',
-                action: () => {
-                    console.log('Redo clicked');
-                },
-            },
-        ],
-    });
-    
-    const menu = await Menu.new({
-        items: [aboutSubmenu, fileSubmenu, editSubmenu],
-    });
-    aboutSubmenu.close();
-    fileSubmenu.close();
-    editSubmenu.close();
+    menu.insert(chatSubmenu, 1);
+
     return menu;
 }

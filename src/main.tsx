@@ -10,12 +10,6 @@ const menu = await createAppMenu();
 const previous = await menu.setAsAppMenu();
 previous?.close();
 
-// TEST: Update individual menu item text
-const statusItem = await menu.get('status');
-if (statusItem) {
-  await statusItem.setText('Status: Ready');
-}
-
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App settings={settingsStore} />
