@@ -3,7 +3,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
 import type { ProtocolLogEntry } from "./ProtocolViewer";
-import "./App.css";
+import "./App.scss";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 import SettingsStore, { Server, Settings } from "./settings";

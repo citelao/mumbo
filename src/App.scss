@@ -1,13 +1,13 @@
-:root {
-  color-scheme: light dark;
+@use "./colors";
 
+:root {
   font-family: system-ui, sans-serif;
   font-size: 12px;
   line-height: 24px;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  color: var(--color-text);
+  background-color: var(--color-background);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -53,7 +53,7 @@ html, body {
 .protocol-viewer {
   flex: none;
   padding: 0 0.5rem;
-  border-top: 1px solid #8884;
+  border-top: 1px solid var(--color-border);
   text-align: left;
 }
 
@@ -88,26 +88,15 @@ html, body {
 }
 
 .protocol-viewer-invalid {
-  color: #d33;
+  color: var(--color-error);
 }
 
 a {
   font-weight: 500;
-  color: #646cff;
+  color: var(--color-link);
   text-decoration: inherit;
 }
 
 a:hover {
-  color: #535bf2;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
+  color: var(--color-link-hover);
 }

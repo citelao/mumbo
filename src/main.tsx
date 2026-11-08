@@ -4,7 +4,7 @@ import App from "./App";
 import SettingsStore from "./settings";
 import { createAppMenu, fetchThemeMenuItem } from "./appMenu";
 import { setTheme } from "@tauri-apps/api/app";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+// import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const settingsStore = await SettingsStore.create();
 

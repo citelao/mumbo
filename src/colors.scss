@@ -1,0 +1,49 @@
+// Colors!
+//
+// Prefer CSS system colors (Canvas, LinkText, ...). Only add a light/dark pair
+// under $themed when no system color fits.
+
+$system: (
+  "text": CanvasText,
+  "link": LinkText,
+  "link-hover": ActiveText,
+  // No system color is reliably visible as a plain border in every webview
+  // (ButtonBorder is faint or transparent in some), so tint the page background
+  // with the text color. The same trick gives subtle highlights.
+  "border": color-mix(in srgb, CanvasText 25%, var(--color-background)),
+  // GrayText and Field resolve to mid-grays in WebKit dark mode, giving poor
+  // placeholder contrast, so derive these from the text color too.
+  "text-secondary": color-mix(in srgb, CanvasText 55%, var(--color-background)),
+  "input-background": color-mix(in srgb, CanvasText 6%, var(--color-background)),
+  "hover": color-mix(in srgb, CanvasText 10%, var(--color-background)),
+  "code-background": color-mix(in srgb, CanvasText 8%, var(--color-background)),
+);
+
+// name: (light, dark)
+$themed: (
+  // Tinted gray page background; closer to native than pure Canvas.
+  "background": (#f6f6f6, #2f2f2f),
+  "error": (#d33, #ff6b6b),
+);
+
+@use "sass:list";
+
+:root {
+  color-scheme: light dark;
+
+  @each $name, $value in $system {
+    --color-#{$name}: #{$value};
+  }
+
+  @each $name, $pair in $themed {
+    --color-#{$name}: #{list.nth($pair, 1)};
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    @each $name, $pair in $themed {
+      --color-#{$name}: #{list.nth($pair, 2)};
+    }
+  }
+}
