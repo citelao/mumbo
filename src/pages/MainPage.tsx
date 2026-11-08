@@ -9,30 +9,11 @@ import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
+import { Document } from '@tiptap/extension-document';
 import StarterKit from '@tiptap/starter-kit';
 import { Extension } from '@tiptap/core';
-
-function createCustomEnterExtension(onEnter: (message: string) => void) {
-    const ext = Extension.create({
-      name: 'customEnter',
-    
-      addKeyboardShortcuts() {
-        return {
-          'Enter': () => {
-            onEnter(this.editor.getText());
-            return true; 
-          },
-          'Shift-Enter': () => {
-            // Handle Shift+Enter differently (e.g., insert a hard break)
-            this.editor.commands.setHardBreak();
-            return true;
-          },
-        };
-      },
-    });
-    return ext;
-}
-
+import { HardBreak } from '@tiptap/extension-hard-break';
+import { Text } from '@tiptap/extension-text';
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -203,22 +184,27 @@ export function MainPage(props: MainPageProps) {
         }
     };
 
-    const enterExtension = useMemo(() => createCustomEnterExtension(sendCurrentMessage), []);
-
     const editor = useEditor({
         extensions: [
-            StarterKit,
-            enterExtension,
-            // Document.extend({
-            //     addKeyboardShortcuts() {
-            //         return {
-            //             "Mod-Enter": () => {
-            //                 sendCurrentMessage();
-            //                 return true;
-            //             }
-            //         };
-            //     }
-            // }),
+            Document.extend({
+                content: "inline*"
+            }),
+            HardBreak.extend({
+                addKeyboardShortcuts() {
+                    return {
+                        "Mod-Enter": () => {
+                            sendCurrentMessage();
+                            return true;
+                        },
+                        "Shift-Enter": () => {
+                            editor?.commands.setHardBreak();
+                            return true;
+                        }
+                    };
+                }
+            }),
+            Text,
+            // enterExtension,
         ],
         content: 'Hello World!', // initial content
     });
