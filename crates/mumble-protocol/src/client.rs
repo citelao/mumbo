@@ -423,7 +423,7 @@ impl MumbleClient {
         } else {
             self.state.lock().unwrap().current_user().unwrap().channel_id
         };
-        log::trace!("Sending text message: {} to channel: {:?}", message, channel_id);
+        log::info!("Sending text message: {} to channel: {:?}", message, channel_id);
         self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
             message: message.clone(),
             channel_id: vec![channel_id],
@@ -434,7 +434,7 @@ impl MumbleClient {
 
     /// Send a DM to one or more users specified by their session IDs.
     pub fn send_user_message(&self, message: String, session: Vec<u32>) -> Result<(), MumbleConnectionError> {
-        log::trace!("Sending text message: {} to user: {:?}", message, session);
+        log::info!("Sending text message: {} to user: {:?}", message, session);
         self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
             message: message.clone(),
             session,
