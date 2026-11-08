@@ -7,18 +7,57 @@
 
 use std::sync::Mutex;
 
+use serde::Deserialize;
 use tauri::{AppHandle, Manager};
+use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
+
+/// The frontend's settings, under the store's `settings` key (see
+/// `settings.ts`). Only the fields the updater needs.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Settings {
+    auto_update: Option<bool>,
+}
+
+/// On unless the user turned it off. The setting can change mid-session from
+/// the menu, so read it fresh each time.
+fn auto_update_enabled(settings: Option<serde_json::Value>) -> bool {
+    let Some(settings) = settings else {
+        return true;
+    };
+    match serde_json::from_value::<Settings>(settings) {
+        Ok(settings) => settings.auto_update.unwrap_or(true),
+        Err(e) => {
+            log::warn!("Ignoring unreadable update setting: {e}");
+            true
+        }
+    }
+}
+
+fn auto_update_enabled_in_store(app: &AppHandle) -> bool {
+    match app.store(crate::SETTINGS_FILE) {
+        Ok(store) => auto_update_enabled(store.get("settings")),
+        Err(e) => {
+            log::warn!("Couldn't read update setting, assuming on: {e}");
+            true
+        }
+    }
+}
 
 /// A verified-on-install update, downloaded and waiting for the app to quit.
 #[derive(Default)]
 struct PendingUpdate(Mutex<Option<(Update, Vec<u8>)>>);
 
-/// Starts downloading any available update.
+/// Starts downloading any available update, unless auto-update is off.
 pub fn spawn_download(app: &AppHandle) {
     app.manage(PendingUpdate::default());
     // Dev builds aren't installed bundles, so there's nothing to replace.
     if cfg!(debug_assertions) {
+        return;
+    }
+    if !auto_update_enabled_in_store(app) {
+        log::info!("Auto-update is off; not checking");
         return;
     }
     let app = app.clone();
@@ -52,8 +91,35 @@ pub fn install_pending(app: &AppHandle) {
     let Some((update, bytes)) = state.0.lock().unwrap().take() else {
         return;
     };
+    if !auto_update_enabled_in_store(app) {
+        log::info!("Auto-update was turned off; not installing {}", update.version);
+        return;
+    }
     log::info!("Installing update {}", update.version);
     if let Err(e) = update.install(bytes) {
         log::error!("Couldn't install update {}: {e}", update.version);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn on_when_nothing_is_saved() {
+        assert!(auto_update_enabled(None));
+        assert!(auto_update_enabled(Some(json!({ "theme": "dark" }))));
+    }
+
+    #[test]
+    fn follows_the_saved_choice() {
+        assert!(auto_update_enabled(Some(json!({ "autoUpdate": true }))));
+        assert!(!auto_update_enabled(Some(json!({ "autoUpdate": false }))));
+    }
+
+    #[test]
+    fn on_when_the_setting_is_unreadable() {
+        assert!(auto_update_enabled(Some(json!({ "autoUpdate": "nope" }))));
     }
 }

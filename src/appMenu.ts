@@ -1,7 +1,17 @@
-import { CheckMenuItem, Menu, Submenu } from '@tauri-apps/api/menu';
+import { CheckMenuItem, Menu, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { Theme } from './settings';
 
 export type OnThemeSelected = (theme: Theme) => void;
+
+export type Platform = 'macos' | 'windows' | 'linux';
+
+// Good enough to pick a menu layout; avoids pulling in the OS plugin.
+export function currentPlatform(): Platform {
+    const ua = navigator.userAgent;
+    if (ua.includes('Mac')) return 'macos';
+    if (ua.includes('Windows')) return 'windows';
+    return 'linux';
+}
 
 export async function fetchWindowSubmenu(menu: Menu): Promise<Submenu> {
     const TAURI_WINDOW_SUBMENU_ID = "__tauri_window_menu__";
@@ -70,4 +80,50 @@ export async function createAppMenu(onThemeSelected: OnThemeSelected, initialThe
     // menu.insert(chatSubmenu, 1);
 
     return menu;
+}
+/**
+ * Adds an "Update Automatically" toggle where each platform puts app-wide
+ * options: the app menu on macOS, the Edit menu on Windows. Linux builds don't
+ * self-update (their package managers do), so they get no item.
+ */
+export async function addAutoUpdateMenuItem(
+    menu: Menu,
+    platform: Platform,
+    checked: boolean,
+    onToggled: (enabled: boolean) => void,
+): Promise<void> {
+    if (platform === 'linux') {
+        return;
+    }
+
+    const item: CheckMenuItem = await CheckMenuItem.new({
+        id: 'auto-update',
+        text: 'Update Automatically',
+        checked,
+        // Native check items toggle themselves on click; just report the result.
+        action: async () => onToggled(await item.isChecked()),
+    });
+
+    // Tauri's default menu has no IDs on these submenus, so find them by
+    // position/label: https://github.com/tauri-apps/tauri/blob/2e23492ab9bcec06bab041e0e47447aaa0da298c/crates/tauri/src/menu/menu.rs#L19
+    const submenus = (await menu.items()).filter(i => i instanceof Submenu);
+    if (platform === 'macos') {
+        // Right after "About mumbo", as macOS apps do for update options.
+        const appSubmenu = submenus[0];
+        if (!appSubmenu) {
+            throw new Error('App submenu not found');
+        }
+        await appSubmenu.insert(item, 1);
+    } else {
+        let editSubmenu: Submenu | undefined;
+        for (const submenu of submenus) {
+            if (await submenu.text() === 'Edit') {
+                editSubmenu = submenu;
+            }
+        }
+        if (!editSubmenu) {
+            throw new Error('Edit submenu not found');
+        }
+        await editSubmenu.append([await PredefinedMenuItem.new({ item: 'Separator' }), item]);
+    }
 }

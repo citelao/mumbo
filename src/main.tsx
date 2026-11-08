@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import SettingsStore from "./settings";
-import { createAppMenu, fetchThemeMenuItem } from "./appMenu";
+import { addAutoUpdateMenuItem, createAppMenu, currentPlatform, fetchThemeMenuItem } from "./appMenu";
 import { setTheme } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -11,7 +11,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 try {
     const settingsStore = await SettingsStore.create();
 
-    const initialTheme = (await settingsStore.getSettings()).theme ?? "system";
+    const initialSettings = await settingsStore.getSettings();
+    const initialTheme = initialSettings.theme ?? "system";
     // The native theme resets each launch, so reapply the saved choice. Do this
     // first, while the window is still hidden (see `visible: false` in
     // tauri.conf.json), so the first paint is never in the wrong theme.
@@ -30,6 +31,9 @@ try {
         const appTheme = (theme === "system") ? null : theme;
         await setTheme(appTheme);
     }, initialTheme);
+    await addAutoUpdateMenuItem(menu, currentPlatform(), initialSettings.autoUpdate ?? true, async (enabled) => {
+        await settingsStore.setAutoUpdate(enabled);
+    });
     const previous = await menu.setAsAppMenu();
     previous?.close();
 
