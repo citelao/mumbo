@@ -78,6 +78,8 @@ jobs:
             bundles: app
           - os: ubuntu-22.04
             bundles: deb
+          - os: ubuntu-24.04-arm
+            bundles: deb
           - os: windows-latest
             bundles: nsis
     runs-on: ${{ matrix.os }}
