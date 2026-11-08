@@ -107,8 +107,8 @@ export function MainPage(props: MainPageProps) {
             onContextMenu={(e) => onUserContextMenu(user, e)}
             onDoubleClick={() => onSendUserMessage(`Hello ${user.name}!`, [user.session])}
             className={[styles["user"], user.is_me ? styles["me"] : ""].join(" ")}>
-            <span>
-                {user.is_speaking ? "● " : "◯ "}
+            <span className={styles["user-name"]}>
+                <div className={[styles["user-icon"], user.is_speaking ? styles["speaking"] : ""].join(" ")}></div>
                 {user.name}
             </span>
             <span>
