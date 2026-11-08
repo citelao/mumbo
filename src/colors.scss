@@ -5,16 +5,19 @@
 
 $system: (
   "text": CanvasText,
+  // GrayText resolves to a very faint gray in WebKit, giving poor placeholder
+  // contrast, so derive it from the text color.
+  "text-secondary": color-mix(in srgb, CanvasText 55%, var(--color-background)),
+
   "link": LinkText,
   "link-hover": ActiveText,
+
   // No system color is reliably visible as a plain border in every webview
   // (ButtonBorder is faint or transparent in some), so tint the page background
   // with the text color. The same trick gives subtle highlights.
   "border": color-mix(in srgb, CanvasText 25%, var(--color-background)),
-  // GrayText resolves to a very faint gray in WebKit, giving poor placeholder
-  // contrast, so derive it from the text color.
-  "text-secondary": color-mix(in srgb, CanvasText 55%, var(--color-background)),
-  "hover": color-mix(in srgb, CanvasText 10%, var(--color-background)),
+
+  "row-hover-background": color-mix(in srgb, CanvasText 10%, var(--color-background)),
   "code-background": color-mix(in srgb, CanvasText 8%, var(--color-background)),
 );
 

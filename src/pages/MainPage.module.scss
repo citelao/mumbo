@@ -89,7 +89,7 @@ pre {
         // TODO: a legit focus style for accessibility, legit keyboard focus, selection, etc.
         &:hover,
         &:focus {
-            background-color: var(--color-hover);
+            background-color: var(--color-row-hover-background);
         }
     }
 
