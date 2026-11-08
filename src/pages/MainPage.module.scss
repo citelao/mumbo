@@ -134,10 +134,17 @@ pre {
         color: var(--color-text-secondary);
         pointer-events: none;
     }
+}
 
+.editor,
+.chat {
     code {
-        background-color: var(--color-code-background);
-        padding: 0.2rem 0.4rem;
+        // Use the native monospace font for code blocks
+        font-family: monospace;
+
+        color: var(--color-text-code);
+        padding: 0 0.2rem;
         border-radius: 4px;
+        border: 1px solid var(--color-border-code);
     }
 }

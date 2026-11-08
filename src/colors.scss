@@ -16,9 +16,10 @@ $system: (
   // (ButtonBorder is faint or transparent in some), so tint the page background
   // with the text color. The same trick gives subtle highlights.
   "border": color-mix(in srgb, CanvasText 25%, var(--color-background)),
+  // A much subtler border for code blocks, derived from the text color.
+  "border-code": color-mix(in srgb, CanvasText 15%, var(--color-background)),
 
   "row-hover-background": color-mix(in srgb, CanvasText 10%, var(--color-background)),
-  "code-background": color-mix(in srgb, CanvasText 8%, var(--color-background)),
 );
 
 // name: (light, dark)
@@ -31,6 +32,7 @@ $themed: (
   // it's not used.
   "input-background": (#fff, #1e1e1e),
 
+  "text-code": (#c7254e, #f8f8f2),
   "error": (#d33, #ff6b6b),
 );
 
