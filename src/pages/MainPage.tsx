@@ -9,16 +9,7 @@ import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
-import { Document } from '@tiptap/extension-document';
-import StarterKit from '@tiptap/starter-kit';
-import { HardBreak } from '@tiptap/extension-hard-break';
-import { Text } from '@tiptap/extension-text';
-import { Placeholder, UndoRedo } from '@tiptap/extensions';
-import { Bold } from '@tiptap/extension-bold';
-import { Italic } from '@tiptap/extension-italic';
-import { Code } from '@tiptap/extension-code';
-import { Underline } from '@tiptap/extension-underline';
-import { Link } from '@tiptap/extension-link';
+import { createChatExtensions, getMessageHtml } from '../chatEditor';
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -181,47 +172,13 @@ export function MainPage(props: MainPageProps) {
     };
 
     const sendCurrentMessage = () => {
-        const message_text = editor?.getText();
-        const message = editor?.getHTML();
-        if (message_text.trim().length > 0) {
-            props.onSendMessage(message.trim());
-            editor?.commands.clearContent();
-        }
+        if (!editor || editor.getText().trim().length === 0) return;
+        props.onSendMessage(getMessageHtml(editor));
+        editor.commands.clearContent();
     };
 
     const editor = useEditor({
-        extensions: [
-            Document.extend({
-                content: "inline*"
-            }),
-            HardBreak.extend({
-                addKeyboardShortcuts() {
-                    return {
-                        "Mod-Enter": () => {
-                            sendCurrentMessage();
-                            return true;
-                        },
-                        "Shift-Enter": () => {
-                            editor?.commands.setHardBreak();
-                            return true;
-                        }
-                    };
-                }
-            }),
-            Text,
-
-            Bold,
-            Code,
-            Italic,
-            Link,
-            Underline,
-
-            UndoRedo,
-
-            // Placeholder.configure({
-            //     placeholder: 'Type a message...'
-            // }),
-        ],
+        extensions: createChatExtensions({ onSend: () => sendCurrentMessage() }),
         content: '',
     });
 

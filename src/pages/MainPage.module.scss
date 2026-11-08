@@ -125,6 +125,15 @@ pre {
         margin: 0;
     }
 
+    // Tiptap's Placeholder only sets this attribute/class; we draw the text.
+    p:global(.is-editor-empty):first-child::before {
+        content: attr(data-placeholder);
+        float: left;
+        height: 0;
+        color: #999;
+        pointer-events: none;
+    }
+
     code {
         background-color: #f5f5f5;
         padding: 0.2rem 0.4rem;
