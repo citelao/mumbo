@@ -26,6 +26,7 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
         Paragraph,
         HardBreak.extend({
             addKeyboardShortcuts() {
+                // https://stackoverflow.com/questions/71439281/change-enter-to-break-line-instead-of-new-paragraph-in-tiptap
                 return {
                     "Mod-Enter": () => {
                         options.onSend();
