@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import SettingsStore from "./settings";
-import { createAppMenu, fetchThemeMenuItem } from "./appMenu";
+import { createAppMenu } from "./appMenu";
 import { setTheme } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -17,19 +17,10 @@ try {
     // tauri.conf.json), so the first paint is never in the wrong theme.
     await setTheme(initialTheme === "system" ? null : initialTheme);
 
-    const menu = await createAppMenu(async (theme) => {
+    const menu = await createAppMenu(settingsStore, async (theme) => {
         console.log(`Theme selected: ${theme}`);
-        await settingsStore.setTheme(theme);
-
-        // TODO: respond to the actual event.
-        for (const t of ['system', 'light', 'dark'] as const) {
-            const item = await fetchThemeMenuItem(menu, t);
-            item.setChecked(t === theme);
-        }
-
-        const appTheme = (theme === "system") ? null : theme;
-        await setTheme(appTheme);
-    }, initialTheme);
+        await setTheme(theme === "system" ? null : theme);
+    });
     const previous = await menu.setAsAppMenu();
     previous?.close();
 

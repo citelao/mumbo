@@ -14,7 +14,10 @@ export type Theme = z.infer<typeof ThemeSchema>;
 const SettingsSchema = z.object({
     recentServers: z.array(ServerSchema).optional(),
 
-    theme: ThemeSchema.optional()
+    theme: ThemeSchema.optional(),
+
+    // Read by the Rust updater too (see `updater.rs`). Missing means on.
+    autoUpdate: z.boolean().optional(),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -62,6 +65,12 @@ export default class SettingsStore {
     async setTheme(theme: Theme): Promise<void> {
         const settings = await this.getSettings();
         settings.theme = theme;
+        await this.saveSettings(settings);
+    }
+
+    async setAutoUpdate(enabled: boolean): Promise<void> {
+        const settings = await this.getSettings();
+        settings.autoUpdate = enabled;
         await this.saveSettings(settings);
     }
 

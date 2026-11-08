@@ -13,6 +13,10 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  # The updater only installs strictly newer semver, so every build gets its own.
+  VERSION: 0.1.${{ github.event.workflow_run.run_number }}
+
 jobs:
   build:
     # `workflow_run` also fires for failed and PR-triggered runs.
@@ -63,8 +67,19 @@ jobs:
           key: ${{ matrix.os }}
 
       # Bash on every OS: Windows' default PowerShell can swallow the `--`.
-      - run: npx tauri build --bundles ${{ matrix.bundles }} -- --locked
-        shell: bash
+      # Updater artifacts are opted into here, not in tauri.conf.json, so local
+      # and CI builds don't need the signing key.
+      - shell: bash
+        env:
+          # TODO: replace with `secrets.TAURI_SIGNING_PRIVATE_KEY` (and its
+          # pubkey in tauri.conf.json); this dummy key is public, so anyone can
+          # sign updates with it.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.workspace }}/src-tauri/updater/dummy.key
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          npx tauri build --bundles ${{ matrix.bundles }} \
+            --config '{"version":"${{ env.VERSION }}","bundle":{"createUpdaterArtifacts":true}}' \
+            -- --locked
 
       # Collect installers under a flat, arch-tagged name so the release job
       # can upload them without clashing (e.g. two macOS builds).
@@ -77,6 +92,9 @@ jobs:
             macOS)
               # A .dmg would need Finder scripting, which is unreliable on CI.
               ditto -c -k --keepParent "$bundle/macos/mumbo.app" "staged/mumbo-${{ matrix.name }}.app.zip"
+              # What the updater downloads.
+              cp "$bundle/macos/mumbo.app.tar.gz" "staged/mumbo-${{ matrix.name }}.app.tar.gz"
+              cp "$bundle/macos/mumbo.app.tar.gz.sig" "staged/mumbo-${{ matrix.name }}.app.tar.gz.sig"
               ;;
             Linux)
               for f in "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm; do
@@ -85,6 +103,7 @@ jobs:
               ;;
             Windows)
               cp "$bundle"/nsis/*-setup.exe "staged/mumbo-${{ matrix.name }}-setup.exe"
+              cp "$bundle"/nsis/*-setup.exe.sig "staged/mumbo-${{ matrix.name }}-setup.exe.sig"
               ;;
           esac
           ls -l staged
@@ -152,6 +171,33 @@ jobs:
           path: staged
           merge-multiple: true
 
+      # The manifest the updater polls via `releases/latest/download/latest.json`.
+      # Platform keys are Tauri's `{os}-{arch}` target names.
+      - name: Write updater manifest
+        run: |
+          tag="build-${{ github.event.workflow_run.run_number }}"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          entry() {
+            jq -n --arg url "$base/$1" --rawfile sig "staged/$1.sig" \
+              '{url: $url, signature: $sig}'
+          }
+          jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson mac_arm "$(entry mumbo-macos-arm64.app.tar.gz)" \
+            --argjson mac_x64 "$(entry mumbo-macos-x64.app.tar.gz)" \
+            --argjson win_x64 "$(entry mumbo-windows-x64-setup.exe)" \
+            '{
+              version: $version,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": $mac_arm,
+                "darwin-x86_64": $mac_x64,
+                "windows-x86_64": $win_x64
+              }
+            }' > staged/latest.json
+          cat staged/latest.json
+
       # Not checked out, so point gh at the repo explicitly.
       - name: Create release
         run: |
@@ -159,6 +205,6 @@ jobs:
           gh release create "$tag" staged/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$SHA" \
-            --title "mumbo ${SHA:0:7}" \
+            --title "mumbo $VERSION (${SHA:0:7})" \
             --generate-notes \
             --latest

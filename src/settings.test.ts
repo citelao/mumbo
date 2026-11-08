@@ -178,3 +178,13 @@ describe("SettingsStore.setTheme", () => {
         expect(await settings.getSettings()).toEqual({ recentServers: [a], theme: "dark" });
     });
 });
+
+describe("SettingsStore.setAutoUpdate", () => {
+    it("persists the choice under `autoUpdate`, which the Rust updater reads", async () => {
+        const { settings, data } = fakeStore({ settings: { theme: "dark" } });
+
+        await settings.setAutoUpdate(false);
+
+        expect(data.get("settings")).toEqual({ theme: "dark", autoUpdate: false });
+    });
+});
