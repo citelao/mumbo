@@ -8,6 +8,9 @@ import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { useEditor, EditorContent } from '@tiptap/react'
+import { FloatingMenu, BubbleMenu } from '@tiptap/react/menus'
+import StarterKit from '@tiptap/starter-kit'
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -169,6 +172,13 @@ export function MainPage(props: MainPageProps) {
         return renderChannel(node.value, node.children.map(child => child.value));
     };
 
+    const editor = useEditor({
+        extensions: [
+            StarterKit
+        ],
+        content: 'Hello World!', // initial content
+    });
+
     return (
         <>
             <main className={[styles.container, "container"].join(" ")}>
@@ -234,6 +244,8 @@ export function MainPage(props: MainPageProps) {
                                 }
                             }} />
                         </label>
+
+                        <EditorContent editor={editor} className={styles.editor} />
                     </form>
                 </section>
             </main>

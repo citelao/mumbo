@@ -108,3 +108,20 @@ pre {
         font-weight: 700; // Highlight the current user
     }
 }
+
+.editor {
+    [contenteditable] {
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 0 0.5rem;
+        margin: 0.5rem 0;
+
+        // focus ring, but with no extra padding
+        outline-offset: 0;
+    }
+
+    p {
+        margin: 0;
+    }
+}
