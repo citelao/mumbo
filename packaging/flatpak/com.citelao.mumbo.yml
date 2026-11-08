@@ -30,6 +30,8 @@ modules:
         - --share=network
       env:
         CARGO_HOME: /run/build/mumbo/cargo
+        # flatpak-builder splits debug info out into com.citelao.mumbo.Debug
+        CARGO_PROFILE_RELEASE_DEBUG: "true"
     build-commands:
       - npm ci
       - npm run build
