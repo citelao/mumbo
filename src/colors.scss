@@ -25,10 +25,12 @@ $system: (
 $themed: (
   // Tinted gray page background; closer to native than pure Canvas.
   "background": (#f6f6f6, #2f2f2f),
+
   // What WebKit paints for a native <input> (probed in a WKWebView): white in
   // light, rgb(30 30 30) in dark. The Field keyword is translucent in dark, so
   // it's not used.
   "input-background": (#fff, #1e1e1e),
+
   "error": (#d33, #ff6b6b),
 );
 
