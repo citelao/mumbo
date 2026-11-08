@@ -115,10 +115,10 @@ pre {
         border: 1px solid #ccc;
         border-radius: 4px;
         padding: 0 0.5rem;
-        margin: 0.5rem 0;
+        margin: 0.5rem 0.5rem;
 
         // focus ring, but with no extra padding
-        outline-offset: 0;
+        outline-offset: -2px;
     }
 
     p {
