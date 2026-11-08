@@ -63,9 +63,23 @@ pub fn install_pending(app: &AppHandle) {
         log::info!("Auto-update was turned off; not installing {}", update.version);
         return;
     }
+    // An installer started while Windows shuts down could be killed partway,
+    // leaving a broken install. Skip it; the next launch downloads it again.
+    // (macOS is safe either way: the new bundle is swapped in atomically.)
+    #[cfg(windows)]
+    if windows_is_shutting_down() {
+        log::info!("Windows is shutting down; not installing {}", update.version);
+        return;
+    }
     log::info!("Installing update {}", update.version);
     if let Err(e) = update.install(bytes) {
         log::error!("Couldn't install update {}: {e}", update.version);
     }
 }
 
+#[cfg(windows)]
+fn windows_is_shutting_down() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_SHUTTINGDOWN};
+    // SAFETY: `GetSystemMetrics` only reads a value; it has no preconditions.
+    unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
+}
