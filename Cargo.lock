@@ -1052,6 +1052,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "e2e-latency"
+version = "0.1.0"
+dependencies = [
+ "mumble-protocol",
+ "mumbo-audio",
+ "ringbuf 0.5.3",
+ "tokio",
+]
+
+[[package]]
 name = "easyfft"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2450,17 +2460,12 @@ dependencies = [
  "futures-util",
  "log",
  "mumble-protocol",
- "neteq",
- "nnnoiseless",
- "opus",
+ "mumbo-audio",
  "ringbuf 0.5.3",
- "rubato",
  "rustls",
  "serde",
  "serde_json",
  "sonora",
- "sonora-agc2",
- "sonora-simd",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
@@ -2471,6 +2476,24 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "windows",
+]
+
+[[package]]
+name = "mumbo-audio"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "mumble-protocol",
+ "neteq",
+ "nnnoiseless",
+ "opus",
+ "ringbuf 0.5.3",
+ "rubato",
+ "sonora",
+ "sonora-agc2",
+ "sonora-simd",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

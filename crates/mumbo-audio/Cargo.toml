@@ -1,0 +1,26 @@
+[package]
+name = "mumbo-audio"
+version = "0.1.0"
+edition = "2024"
+
+# The device-free half of the audio stack: everything between the sound card
+# and the network (mic processing, Opus, jitter buffering, mixing). The app
+# wires it to cpal; tests and the e2e harness wire it to files and clocks.
+
+[dependencies]
+mumble-protocol = { path = "../mumble-protocol" }
+log = "0.4.34"
+opus = "0.4.0"
+ringbuf = "0.5.3"
+neteq = { version = "0.9.1", default-features = false }
+rubato = "5.0.1"
+sonora = "0.2.0"
+# sonora's internal voice detector, which sonora itself doesn't expose.
+sonora-agc2 = "0.2.0"
+sonora-simd = "0.2.0"
+thiserror = "2.0.21"
+nnnoiseless = { version = "0.5.2", default-features = false }
+tokio = { version = "1.53.3", features = ["sync"] }
+
+[dev-dependencies]
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "time", "sync"] }

@@ -11,7 +11,9 @@
     "test": "vitest run",
     "mumble:up": "podman compose -f dev/mumble-server/compose.yaml up -d",
     "mumble:down": "podman compose -f dev/mumble-server/compose.yaml down",
-    "mumble:logs": "podman compose -f dev/mumble-server/compose.yaml logs -f"
+    "mumble:logs": "podman compose -f dev/mumble-server/compose.yaml logs -f",
+    "e2e:latency": "dev/e2e/run.sh probe",
+    "e2e:speech": "dev/e2e/run.sh speech"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
