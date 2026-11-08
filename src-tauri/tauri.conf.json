@@ -14,7 +14,8 @@
       {
         "title": "mumbo",
         "width": 700,
-        "height": 500
+        "height": 500,
+        "visible": false
       }
     ],
     "security": {

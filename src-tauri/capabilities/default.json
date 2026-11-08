@@ -9,6 +9,7 @@
     "core:default",
     "opener:default",
     "store:default",
-    "core:app:allow-set-app-theme"
+    "core:app:allow-set-app-theme",
+    "core:window:allow-show"
   ]
 }
