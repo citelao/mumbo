@@ -119,16 +119,26 @@ export function isMessageEmpty(editor: Editor): boolean {
 }
 
 /**
- * The message as HTML to send over Mumble: the contents of the single
+ * The message as XHTML to send over Mumble: the contents of the single
  * paragraph, never wrapped in `<p>`.
+ *
+ * Must be well-formed XML (`<br />`, `<img ... />`, no `&nbsp;`): Murmur
+ * re-parses messages over its text length limit as XML, and rejects them as
+ * `TextTooLong` if that fails. See contrib/text-message-tester.
  */
 export function getMessageHtml(editor: Editor): string {
     const paragraph = editor.state.doc.firstChild;
     if (paragraph === null) return "";
 
-    const container = document.createElement("div");
-    container.appendChild(
-        DOMSerializer.fromSchema(editor.schema).serializeFragment(paragraph.content),
-    );
-    return container.innerHTML.trim();
+    // Nodes from a namespace-less XML document, so XMLSerializer doesn't add
+    // xmlns="http://www.w3.org/1999/xhtml" to every top-level element.
+    const xmlDocument = document.implementation.createDocument(null, null);
+    const fragment = DOMSerializer.fromSchema(editor.schema).serializeFragment(paragraph.content, {
+        document: xmlDocument,
+    });
+    const serializer = new XMLSerializer();
+    return Array.from(fragment.childNodes)
+        .map((node) => serializer.serializeToString(node))
+        .join("")
+        .trim();
 }

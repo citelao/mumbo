@@ -458,6 +458,12 @@ impl MumbleClient {
     /// Sends a text message to the specified channel.
     ///
     /// Defaults to the current user's channel.
+    ///
+    /// `message` must be well-formed XML (e.g. `<br />`, `<img ... />`, no
+    /// `&nbsp;`). Murmur re-parses messages longer than the server's
+    /// `message_length` as XML to measure them without their images, and
+    /// rejects them with `PermissionDenied { type: TextTooLong }` if that
+    /// parse fails. See `contrib/text-message-tester`.
     pub fn send_channel_message(
         &self,
         message: String,
@@ -490,6 +496,8 @@ impl MumbleClient {
     }
 
     /// Send a DM to one or more users specified by their session IDs.
+    ///
+    /// `message` must be well-formed XML; see [`Self::send_channel_message`].
     pub fn send_user_message(
         &self,
         message: String,

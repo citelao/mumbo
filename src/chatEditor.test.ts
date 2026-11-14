@@ -74,7 +74,23 @@ describe("message HTML", () => {
         type(editor, "a");
         editor.commands.setHardBreak();
         type(editor, "b");
-        expect(getMessageHtml(editor)).toBe("a<br>b");
+        expect(getMessageHtml(editor)).toMatch(/^a<br ?\/>b$/);
+    });
+
+    // Murmur re-parses long messages (e.g. with images) as XML and rejects
+    // them as TextTooLong if that fails. See contrib/text-message-tester.
+    it.each([
+        ["a hard break", '<p>a<br>b</p>'],
+        ["an image", '<p><img src="data:image/png;base64,AAAA"></p>'],
+        ["a non-breaking space", "<p>a&nbsp;b</p>"],
+        ["an ampersand in text and a link", '<p>a &amp; <a href="https://example.com/?a=1&amp;b=2">b</a></p>'],
+    ])("is well-formed XML with %s", (_name, content) => {
+        const editor = makeEditor();
+        editor.commands.setContent(content);
+        const html = getMessageHtml(editor);
+        const xml = new DOMParser().parseFromString(`<document>${html}</document>`, "application/xml");
+        expect(xml.getElementsByTagName("parsererror")).toHaveLength(0);
+        expect(html).not.toContain("xmlns");
     });
 
     it("never contains <p> after pressing Enter-ish commands", () => {
@@ -166,7 +182,7 @@ describe("keyboard", () => {
         editor.commands.keyboardShortcut("Shift-Enter");
         type(editor, "b");
         expect(onSend).not.toHaveBeenCalled();
-        expect(getMessageHtml(editor)).toBe("a<br>b");
+        expect(getMessageHtml(editor)).toMatch(/^a<br ?\/>b$/);
     });
 });
 

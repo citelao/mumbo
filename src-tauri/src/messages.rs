@@ -9,6 +9,10 @@ pub fn sanitize_user_message(state: &MumbleState, message: &str) -> Result<Strin
     //
     // - parse html
     // - re-encode base64 images
+    // - validate (or rewrite) the message as well-formed XML. The frontend
+    //   serializes as XML, but nothing here enforces it, and invalid XML is
+    //   rejected by the server as TextTooLong; see
+    //   MumbleClient::send_channel_message.
     if !state.allow_html {
         // TODO: sanitize message length
     }
