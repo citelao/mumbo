@@ -25,8 +25,8 @@ pub fn sanitize_user_message(state: &MumbleState, message: &str) -> Result<Strin
                     // Automatically decodes type.
                     let img = image::load_from_memory(&body)?;
 
-                    const MAX_WIDTH: u32 = 800;
-                    const MAX_HEIGHT: u32 = 600;
+                    const MAX_WIDTH: u32 = 300;
+                    const MAX_HEIGHT: u32 = 200;
                     let resized = img.resize(MAX_WIDTH, MAX_HEIGHT, image::imageops::FilterType::Lanczos3);
 
                     let mut resized_png_buf = Vec::new();
@@ -55,7 +55,17 @@ pub fn sanitize_user_message(state: &MumbleState, message: &str) -> Result<Strin
     rewriter.write(message.as_bytes())?;
     rewriter.end()?;
 
-    // TODO: validate message size within limits.
+    // Check message length & warn
     // TODO: redo resizing with smaller images as necessary.
+    if let Some(max_len) = state.image_message_length {
+        if output.len() > max_len.try_into().unwrap_or(usize::MAX) {
+            log::warn!("Warning: message length exceeds {}/{}", output.len(), max_len);
+        } else {
+            log::info!("Message length within limit: {}/{}", output.len(), max_len);
+        }
+    } else {
+        log::warn!("Warning: message length limit not set");
+    }
+
     return Ok(String::from_utf8(output)?);
 }
