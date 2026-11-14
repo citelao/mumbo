@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
-import { createChatExtensions, getMessageHtml } from "./chatEditor";
+import { createChatExtensions, getMessageHtml, isMessageEmpty } from "./chatEditor";
 
 const editors: Editor[] = [];
 
@@ -85,6 +85,32 @@ describe("message HTML", () => {
         type(editor, "b");
         expect(editor.state.doc.childCount).toBe(1);
         expect(getMessageHtml(editor)).not.toContain("<p");
+    });
+});
+
+describe("isMessageEmpty", () => {
+    it("is true for an empty editor", () => {
+        expect(isMessageEmpty(makeEditor())).toBe(true);
+    });
+
+    it("is true for only whitespace and hard breaks", () => {
+        const editor = makeEditor();
+        type(editor, "  ");
+        editor.commands.setHardBreak();
+        type(editor, " ");
+        expect(isMessageEmpty(editor)).toBe(true);
+    });
+
+    it("is false for text", () => {
+        const editor = makeEditor();
+        type(editor, "hi");
+        expect(isMessageEmpty(editor)).toBe(false);
+    });
+
+    it("is false for just an image", () => {
+        const editor = makeEditor();
+        editor.commands.setContent('<img src="data:image/png;base64,AAAA">');
+        expect(isMessageEmpty(editor)).toBe(false);
     });
 });
 

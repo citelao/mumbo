@@ -9,7 +9,7 @@ import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
-import { createChatExtensions, getMessageHtml } from '../chatEditor';
+import { createChatExtensions, getMessageHtml, isMessageEmpty } from '../chatEditor';
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -172,7 +172,7 @@ export function MainPage(props: MainPageProps) {
     };
 
     const sendCurrentMessage = () => {
-        if (!editor || editor.getText().trim().length === 0) return;
+        if (!editor || isMessageEmpty(editor)) return;
         props.onSendMessage(getMessageHtml(editor));
         editor.commands.clearContent();
     };

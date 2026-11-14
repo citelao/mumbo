@@ -106,6 +106,19 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
 }
 
 /**
+ * Whether there's nothing worth sending: no non-whitespace text and no images.
+ */
+export function isMessageEmpty(editor: Editor): boolean {
+    // getText() ignores images, so look for them separately.
+    let hasImage = false;
+    editor.state.doc.descendants((node) => {
+        if (node.type.name === "image") hasImage = true;
+        return !hasImage;
+    });
+    return !hasImage && editor.getText().trim().length === 0;
+}
+
+/**
  * The message as HTML to send over Mumble: the contents of the single
  * paragraph, never wrapped in `<p>`.
  */
