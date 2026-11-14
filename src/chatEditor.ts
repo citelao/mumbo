@@ -10,6 +10,8 @@ import { Italic } from "@tiptap/extension-italic";
 import { Code } from "@tiptap/extension-code";
 import { Underline } from "@tiptap/extension-underline";
 import { Link } from "@tiptap/extension-link";
+import { Image } from "@tiptap/extension-image";
+import { FileHandler } from "@tiptap/extension-file-handler";
 
 export interface ChatExtensionOptions {
     onSend: () => void;
@@ -49,6 +51,45 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
             defaultProtocol: "https",
         }),
         Underline,
+
+        Image.configure({
+            allowBase64: true,
+            inline: true,
+        }),
+        FileHandler.configure({
+            allowedMimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"],
+            onDrop: (currentEditor, files, pos) => {
+            },
+            onPaste: (currentEditor, files, htmlContent) => {
+                if (htmlContent) {
+                    // Allow other handlers.
+                    console.log(htmlContent);
+                    return false;
+                }
+
+                for (const file of files) {
+                    const fileReader = new FileReader();
+                    fileReader.readAsDataURL(file);
+                    fileReader.onload = () => {
+                        const base64 = fileReader.result;
+                        if (base64) {
+                            currentEditor
+                                .chain()
+                                .insertContentAt(
+                                    currentEditor.state.selection.anchor,
+                                    {
+                                        type: "image",
+                                        attrs: {
+                                            src: base64,
+                                        },
+                                    })
+                                .focus()
+                                .run();
+                        }
+                    };
+                }
+            },
+        }),
 
         UndoRedo,
 
