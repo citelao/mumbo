@@ -59,13 +59,19 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
         FileHandler.configure({
             allowedMimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"],
             onDrop: (currentEditor, files, pos) => {
+                // TODO.
             },
             onPaste: (currentEditor, files, htmlContent) => {
-                if (htmlContent) {
-                    // Allow other handlers.
-                    console.log(htmlContent);
-                    return false;
-                }
+                // We *could* handle HTML (with images) differently, to save
+                // re-encoding e.g., but the official Mumble client only accepts
+                // base64 images & refuses to load remote resources (it shows a
+                // giant black square instead). So skip.
+                //
+                // if (htmlContent) {
+                //     // Allow other handlers.
+                //     console.log(htmlContent);
+                //     return false;
+                // }
 
                 for (const file of files) {
                     const fileReader = new FileReader();
