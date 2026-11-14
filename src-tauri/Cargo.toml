@@ -44,6 +44,10 @@ sonora-agc2 = "0.2.0"
 sonora-simd = "0.2.0"
 thiserror = "2.0.21"
 nnnoiseless = { version = "0.5.2", default-features = false }
+lol_html = "3.0.3"
+data-url = "0.3.2"
+image = "0.25.10"
+base64 = "0.23.1"
 
 
 [dev-dependencies]

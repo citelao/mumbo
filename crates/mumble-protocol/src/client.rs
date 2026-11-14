@@ -473,6 +473,7 @@ impl MumbleClient {
                 .unwrap()
                 .channel_id
         };
+
         log::info!(
             "Sending text message: {} to channel: {:?}",
             message,

@@ -11,6 +11,7 @@ use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
 
 pub mod audio;
+pub mod messages;
 #[cfg(test)]
 mod test_util;
 mod universal_mute;
@@ -128,6 +129,9 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
 #[tauri::command]
 fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
     if let Some(client) = state.client.lock().unwrap().as_ref() {
+        let message = crate::messages::sanitize_user_message(&client.state().lock().unwrap(), &message)
+            .map_err(|e| e.to_string())?;
+
         client
             .send_channel_message(message, None)
             .map_err(|e| e.to_string())
@@ -143,6 +147,9 @@ fn send_user_message(
     session: Vec<u32>,
 ) -> Result<(), String> {
     if let Some(client) = state.client.lock().unwrap().as_ref() {
+        let message = crate::messages::sanitize_user_message(&client.state().lock().unwrap(), &message)
+            .map_err(|e| e.to_string())?;
+
         client
             .send_user_message(message, session)
             .map_err(|e| e.to_string())

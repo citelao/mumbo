@@ -133,6 +133,7 @@ pub enum ConnectionStatus {
 #[derive(Debug, Clone, Serialize)]
 pub enum MumbleEvent {
     // TODO: more granular events are probably useful, but let's start with this.
+    ServerConfigChanged,
     UsersChanged,
     ChannelsChanged,
     ChatMessage,
@@ -140,6 +141,11 @@ pub enum MumbleEvent {
 
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
+    // Configuration state
+    pub allow_html: bool,
+    pub message_length: Option<u32>,
+    pub image_message_length: Option<u32>,
+
     // Sorted by session, so snapshots (UI, fixtures) have a stable order.
     pub users: BTreeMap<u32, User>,
 
@@ -248,14 +254,32 @@ impl MumbleState {
                 }
             }
 
-            // TODO: unsure if this is a chat message.
-            // crate::ServerToClientMessage::ServerConfig(_) => {
-            //     if let Some(welcome_text) = m.welcome_text {
-            //         self.chat_messages.push(welcome_text);
-            //         // TODO: support multiple events for this
-            //         return Ok(Some(MumbleEvent::ChatMessage));
-            //     }
-            // }
+            crate::ServerToClientMessage::ServerConfig(m) => {
+                let mut changed = false;
+                if let Some(allow_html) = m.allow_html {
+                    self.allow_html = allow_html;
+                    changed = true;
+                }
+                if let Some(message_length) = m.message_length {
+                    self.message_length = Some(message_length);
+                    changed = true;
+                }
+                if let Some(image_message_length) = m.image_message_length {
+                    self.image_message_length = Some(image_message_length);
+                    changed = true;
+                }
+
+                // TODO: unsure if this is a chat message.
+                // if let Some(welcome_text) = m.welcome_text {
+                //     self.chat_messages.push(welcome_text);
+                //     // TODO: support multiple events for this
+                //     return Ok(Some(MumbleEvent::ChatMessage));
+                // }
+
+                if changed {
+                    return Ok(Some(MumbleEvent::ServerConfigChanged));
+                }
+            }
             crate::ServerToClientMessage::UserState(m) => {
                 let Some(session) = m.session else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Missing session"));
@@ -367,6 +391,21 @@ impl MumbleState {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Channel not found"));
                 }
             }
+
+            // // Permission denied can be fired when TextTooLong
+            // crate::ServerToClientMessage::PermissionDenied(m) => {
+            //     match m.r#type() {
+            //         crate::raw::permission_denied::DenyType::TextTooLong => {
+            //             log::warn!("Permission denied: Text too long");
+            //             return Ok(Some(MumbleEvent::ChatMessage)); // maybe?
+            //         }
+            //         _ => {
+            //             log::warn!("Permission denied: {:?}", m);
+            //         }
+            //     }
+            //     return Ok(None);
+            //     // return Ok(Some(MumbleEvent::PermissionDenied));
+            // }
 
             _ => {
                 log::warn!("Unhandled message: {:?}", message);
