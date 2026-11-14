@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/*"]
+members = ["src-tauri", "crates/*", "contrib/text-message-tester"]
 
 [profile.release]
 codegen-units = 1
