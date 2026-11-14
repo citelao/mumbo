@@ -1,10 +1,19 @@
 use std::{io::Error, str::FromStr};
 
-use cpal::{DeviceId, traits::{DeviceTrait, HostTrait, StreamTrait}};
+use cpal::{
+    DeviceId,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 use opus::Channels::Mono;
-use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
+use ringbuf::{
+    HeapRb,
+    traits::{Consumer, Observer, Producer, Split},
+};
 use serde::{Deserialize, Serialize};
-use sonora::{AudioProcessing, Config, StreamConfig, config::{AdaptiveDigital, EchoCanceller, GainController2}};
+use sonora::{
+    AudioProcessing, Config, StreamConfig,
+    config::{AdaptiveDigital, EchoCanceller, GainController2},
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,18 +65,20 @@ pub fn get_audio_input_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
     let default_device_id = default_device.and_then(|d| d.id().ok());
 
     let devices = host.input_devices()?;
-    let device_names = devices.filter_map(|d| {
-        let desc = d.description().ok()?;
-        let name = desc.name();
-        let id = d.id().ok()?;
-        let id_str = id.to_string();
+    let device_names = devices
+        .filter_map(|d| {
+            let desc = d.description().ok()?;
+            let name = desc.name();
+            let id = d.id().ok()?;
+            let id_str = id.to_string();
 
-        Some(AudioDevice {
-            id: id_str,
-            name: name.to_string(),
-            is_default: Some(&id) == default_device_id.as_ref(),
+            Some(AudioDevice {
+                id: id_str,
+                name: name.to_string(),
+                is_default: Some(&id) == default_device_id.as_ref(),
+            })
         })
-    }).collect();
+        .collect();
     Ok(device_names)
 }
 
@@ -78,18 +89,20 @@ pub fn get_audio_output_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
     let default_device_id = default_device.and_then(|d| d.id().ok());
 
     let devices = host.output_devices()?;
-    let device_names = devices.filter_map(|d| {
-        let desc = d.description().ok()?;
-        let name = desc.name();
-        let id = d.id().ok()?;
-        let id_str = id.to_string();
+    let device_names = devices
+        .filter_map(|d| {
+            let desc = d.description().ok()?;
+            let name = desc.name();
+            let id = d.id().ok()?;
+            let id_str = id.to_string();
 
-        Some(AudioDevice {
-            id: id_str,
-            name: name.to_string(),
-            is_default: Some(&id) == default_device_id.as_ref(),
+            Some(AudioDevice {
+                id: id_str,
+                name: name.to_string(),
+                is_default: Some(&id) == default_device_id.as_ref(),
+            })
         })
-    }).collect();
+        .collect();
     Ok(device_names)
 }
 
@@ -191,7 +204,10 @@ fn resolve_device(
         .ok()
         .and_then(|id| host.device_by_id(&id));
     if found.is_none() {
-        log::warn!("Preferred audio device {:?} is not available; using the default", preferred.name);
+        log::warn!(
+            "Preferred audio device {:?} is not available; using the default",
+            preferred.name
+        );
     }
     found.or(default)
 }
@@ -208,7 +224,10 @@ fn output_stream_config(device: &cpal::Device) -> Result<cpal::StreamConfig, Aud
     };
     if config.sample_rate != SPEAKER_SAMPLE_RATE {
         // TODO: resample playback; at the wrong rate it plays at the wrong speed.
-        log::warn!("Speakers run at {} Hz, not {SPEAKER_SAMPLE_RATE} Hz", config.sample_rate);
+        log::warn!(
+            "Speakers run at {} Hz, not {SPEAKER_SAMPLE_RATE} Hz",
+            config.sample_rate
+        );
     }
     Ok(config)
 }
@@ -243,14 +262,21 @@ pub struct SavedDevice {
 
 impl From<&AudioDevice> for SavedDevice {
     fn from(device: &AudioDevice) -> Self {
-        Self { id: device.id.clone(), name: device.name.clone() }
+        Self {
+            id: device.id.clone(),
+            name: device.name.clone(),
+        }
     }
 }
 
 impl From<SavedDevice> for AudioDevice {
     fn from(saved: SavedDevice) -> Self {
         // Whether it is the system default is only known by listing devices.
-        Self { id: saved.id, name: saved.name, is_default: false }
+        Self {
+            id: saved.id,
+            name: saved.name,
+            is_default: false,
+        }
     }
 }
 
@@ -272,13 +298,25 @@ fn default_noise_suppression() -> bool {
 
 impl Default for SavedPreferences {
     fn default() -> Self {
-        Self { input: None, output: None, noise_suppression: default_noise_suppression() }
+        Self {
+            input: None,
+            output: None,
+            noise_suppression: default_noise_suppression(),
+        }
     }
 }
 
 impl SavedPreferences {
-    pub fn of(input: Option<&AudioDevice>, output: Option<&AudioDevice>, noise_suppression: bool) -> Self {
-        Self { input: input.map(SavedDevice::from), output: output.map(SavedDevice::from), noise_suppression }
+    pub fn of(
+        input: Option<&AudioDevice>,
+        output: Option<&AudioDevice>,
+        noise_suppression: bool,
+    ) -> Self {
+        Self {
+            input: input.map(SavedDevice::from),
+            output: output.map(SavedDevice::from),
+            noise_suppression,
+        }
     }
 
     /// Reads what an earlier run saved. Anything missing or unreadable counts as
@@ -333,8 +371,10 @@ impl AudioModule {
         let (input_devices_tx, _) = tokio::sync::watch::channel(input_devices);
         let (output_devices_tx, _) = tokio::sync::watch::channel(output_devices);
 
-        let (preferred_input_device_tx, _) = tokio::sync::watch::channel(saved.input.map(AudioDevice::from));
-        let (preferred_output_device_tx, _) = tokio::sync::watch::channel(saved.output.map(AudioDevice::from));
+        let (preferred_input_device_tx, _) =
+            tokio::sync::watch::channel(saved.input.map(AudioDevice::from));
+        let (preferred_output_device_tx, _) =
+            tokio::sync::watch::channel(saved.output.map(AudioDevice::from));
 
         let (noise_suppression_tx, _) = tokio::sync::watch::channel(saved.noise_suppression);
 
@@ -372,7 +412,9 @@ impl AudioModule {
     /// Prefers the listed input device with this `id` the next time audio
     /// starts. `None` goes back to following the system default.
     pub fn select_input_device(&self, id: Option<&str>) -> Result<(), AudioError> {
-        let device = id.map(|id| find_device(&self.input_devices.borrow(), id)).transpose()?;
+        let device = id
+            .map(|id| find_device(&self.input_devices.borrow(), id))
+            .transpose()?;
         self.set_preferred_input_device(device);
         Ok(())
     }
@@ -380,7 +422,9 @@ impl AudioModule {
     /// Prefers the listed output device with this `id`. `None` goes back to
     /// following the system default.
     pub fn select_output_device(&self, id: Option<&str>) -> Result<(), AudioError> {
-        let device = id.map(|id| find_device(&self.output_devices.borrow(), id)).transpose()?;
+        let device = id
+            .map(|id| find_device(&self.output_devices.borrow(), id))
+            .transpose()?;
         self.set_preferred_output_device(device);
         Ok(())
     }
@@ -398,15 +442,28 @@ impl AudioModule {
         // TODO: rebuild the stream if audio is already running.
     }
 
-    pub fn start(&self, mut on_mic_frame: impl MicFrameSink + 'static, mut speakers: impl SpeakerSource + 'static) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
+    pub fn start(
+        &self,
+        mut on_mic_frame: impl MicFrameSink + 'static,
+        mut speakers: impl SpeakerSource + 'static,
+    ) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
         let host = default_host();
-        let input_device = resolve_device(&host, self.preferred_input_device.borrow().as_ref(), host.default_input_device())
-            .ok_or(AudioError::NoAudioDevice)?;
-        let output_device = resolve_device(&host, self.preferred_output_device.borrow().as_ref(), host.default_output_device())
-            .ok_or(AudioError::NoAudioDevice)?;
+        let input_device = resolve_device(
+            &host,
+            self.preferred_input_device.borrow().as_ref(),
+            host.default_input_device(),
+        )
+        .ok_or(AudioError::NoAudioDevice)?;
+        let output_device = resolve_device(
+            &host,
+            self.preferred_output_device.borrow().as_ref(),
+            host.default_output_device(),
+        )
+        .ok_or(AudioError::NoAudioDevice)?;
         let output_config = output_stream_config(&output_device)?;
         let output_channels = output_config.channels as usize;
-        let (mut output_producer, mut output_consumer) = HeapRb::<i16>::new(SPEAKER_HEADROOM_SAMPLES).split();
+        let (mut output_producer, mut output_consumer) =
+            HeapRb::<i16>::new(SPEAKER_HEADROOM_SAMPLES).split();
 
         // TODO: better config detection. e.g. handling arbitrary sample rates & channel counts.
         let input_config = input_device
@@ -415,9 +472,7 @@ impl AudioModule {
             .find_map(|c| c.try_with_sample_rate(DESIRED_INPUT_SAMPLE_RATE));
         let input_config = match input_config {
             Some(supported) => supported.config(),
-            None => input_device
-                .default_input_config()?
-                .config(),
+            None => input_device.default_input_config()?.config(),
         };
 
         let input_channels = input_config.channels;
@@ -426,7 +481,8 @@ impl AudioModule {
         // Allocate enough headroom for ~200ms of audio.
         const HEADROOM_MS: u32 = 200;
         let headroom_samples: u32 = (input_rate * HEADROOM_MS) / 1000;
-        let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(headroom_samples as usize).split();
+        let (mut input_producer, mut input_consumer) =
+            HeapRb::<f32>::new(headroom_samples as usize).split();
 
         let apm_config = apm_config();
         let mut apm = audio_processing(apm_config.clone());
@@ -436,11 +492,20 @@ impl AudioModule {
         // TODO: measure actual network delay and update this value accordingly.
         apm.set_stream_delay_ms(50)?;
 
-        log::info!("Audio input: {:?}, {input_config:?}", input_device.description()?);
-        log::info!("Audio output: {:?}, {output_config:?}", output_device.description()?);
+        log::info!(
+            "Audio input: {:?}, {input_config:?}",
+            input_device.description()?
+        );
+        log::info!(
+            "Audio output: {:?}, {output_config:?}",
+            output_device.description()?
+        );
         log::info!("Audio processing config: {apm_config:?}");
         if input_config.sample_rate != DESIRED_INPUT_SAMPLE_RATE {
-            log::warn!("Mic runs at {} Hz; resampling to {DESIRED_INPUT_SAMPLE_RATE} Hz for Opus", input_config.sample_rate);
+            log::warn!(
+                "Mic runs at {} Hz; resampling to {DESIRED_INPUT_SAMPLE_RATE} Hz for Opus",
+                input_config.sample_rate
+            );
         }
 
         let task = async move {
@@ -463,7 +528,8 @@ impl AudioModule {
                 move |output: &mut [f32], _| {
                     // same value in every channel
                     for frame in output.chunks_mut(output_channels) {
-                        let sample = output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                        let sample =
+                            output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
                         frame.fill(sample);
                     }
                 },
@@ -472,11 +538,8 @@ impl AudioModule {
             )?;
             speaker_stream.play()?;
 
-            let mut encoder = opus::Encoder::new(
-                DESIRED_INPUT_SAMPLE_RATE,
-                Mono,
-                opus::Application::Voip
-            )?;
+            let mut encoder =
+                opus::Encoder::new(DESIRED_INPUT_SAMPLE_RATE, Mono, opus::Application::Voip)?;
 
             // Pre-allocate buffers (I think these are on the heap so not huge prob).
             let mut mic_resampler = MicResampler::new(input_rate, DESIRED_INPUT_SAMPLE_RATE)?;
@@ -576,13 +639,22 @@ impl MicResampler {
             .map_err(Error::other)?,
         );
         let scratch = vec![0.0; rubato::Resampler::output_frames_max(&*resampler)];
-        Ok(Self::Resample { resampler, pending: Vec::new(), scratch })
+        Ok(Self::Resample {
+            resampler,
+            pending: Vec::new(),
+            scratch,
+        })
     }
 
     /// Appends the 48 kHz version of `input` to `output`. Input that doesn't
     /// fill a whole chunk yet is kept for the next call.
     fn process(&mut self, input: &[f32], output: &mut Vec<f32>) -> Result<(), Error> {
-        let Self::Resample { resampler, pending, scratch } = self else {
+        let Self::Resample {
+            resampler,
+            pending,
+            scratch,
+        } = self
+        else {
             output.extend_from_slice(input);
             return Ok(());
         };
@@ -594,9 +666,11 @@ impl MicResampler {
         while pending.len() - consumed >= resampler.input_frames_next() {
             let frames_in = resampler.input_frames_next();
             let frames_out = scratch.len();
-            let chunk_in = InterleavedSlice::new(&pending[consumed..consumed + frames_in], 1, frames_in)
-                .map_err(Error::other)?;
-            let mut chunk_out = InterleavedSlice::new_mut(&mut scratch[..], 1, frames_out).map_err(Error::other)?;
+            let chunk_in =
+                InterleavedSlice::new(&pending[consumed..consumed + frames_in], 1, frames_in)
+                    .map_err(Error::other)?;
+            let mut chunk_out =
+                InterleavedSlice::new_mut(&mut scratch[..], 1, frames_out).map_err(Error::other)?;
             let (used, written) = resampler
                 .process_into_buffer(&chunk_in, &mut chunk_out, None)
                 .map_err(Error::other)?;
@@ -704,7 +778,11 @@ mod tests {
     fn check(devices: &[AudioDevice]) {
         let ids: HashSet<_> = devices.iter().map(|d| &d.id).collect();
         assert_eq!(ids.len(), devices.len(), "device ids must be unique");
-        assert!(devices.iter().all(|d| !d.id.is_empty() && !d.name.is_empty()));
+        assert!(
+            devices
+                .iter()
+                .all(|d| !d.id.is_empty() && !d.name.is_empty())
+        );
         let defaults = devices.iter().filter(|d| d.is_default).count();
         // Not "exactly one when any exist": ALSA on headless Linux lists devices
         // but reports a default that isn't among them.
@@ -730,7 +808,10 @@ mod tests {
         assert_eq!(consumer.occupied_len(), 3 * SPEAKER_FRAME_SAMPLES);
         let mut played = vec![0i16; consumer.occupied_len()];
         consumer.pop_slice(&mut played);
-        assert!(played.iter().all(|&s| s == 1000), "the speakers' audio should pass through unchanged");
+        assert!(
+            played.iter().all(|&s| s == 1000),
+            "the speakers' audio should pass through unchanged"
+        );
     }
 
     #[test]
@@ -767,14 +848,19 @@ mod tests {
         let more = top_up_output(&mut producer, 4000, &mut speakers, &mut apm).unwrap();
 
         assert!(!more);
-        assert_eq!(consumer.occupied_len(), 2 * SPEAKER_FRAME_SAMPLES, "frames before the end are still played");
+        assert_eq!(
+            consumer.occupied_len(),
+            2 * SPEAKER_FRAME_SAMPLES,
+            "frames before the end are still played"
+        );
     }
 
     #[test]
     fn top_up_passes_source_errors_on() {
         let (mut producer, _consumer) = ring(4800);
         let mut apm = audio_processing(Config::default());
-        let mut speakers = || -> Result<Option<Frame>, Error> { Err(Error::other("decoder broke")) };
+        let mut speakers =
+            || -> Result<Option<Frame>, Error> { Err(Error::other("decoder broke")) };
 
         let result = top_up_output(&mut producer, 1000, &mut speakers, &mut apm);
 
@@ -799,18 +885,24 @@ mod tests {
 
         let mut seed = 12345u32;
         let mut far_end = move || {
-            Ok(Some(std::array::from_fn::<i16, SPEAKER_FRAME_SAMPLES, _>(|_| {
-                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                ((seed >> 16) as i16) / 8 // white noise, about 12% of full scale
-            })))
+            Ok(Some(std::array::from_fn::<i16, SPEAKER_FRAME_SAMPLES, _>(
+                |_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    ((seed >> 16) as i16) / 8 // white noise, about 12% of full scale
+                },
+            )))
         };
 
         let (mut producer, mut consumer) = ring(4800);
-        let mut room = std::collections::VecDeque::from(vec![[0.0f32; SPEAKER_FRAME_SAMPLES]; ROOM_DELAY_FRAMES]);
+        let mut room = std::collections::VecDeque::from(vec![
+            [0.0f32; SPEAKER_FRAME_SAMPLES];
+            ROOM_DELAY_FRAMES
+        ]);
         let (mut echo, mut left) = (0.0, 0.0);
         for tick in 0..TICKS {
             if feed_render_through_top_up {
-                top_up_output(&mut producer, SPEAKER_FRAME_SAMPLES, &mut far_end, &mut apm).unwrap();
+                top_up_output(&mut producer, SPEAKER_FRAME_SAMPLES, &mut far_end, &mut apm)
+                    .unwrap();
             } else {
                 let frame: Frame = far_end().unwrap().unwrap();
                 producer.push_slice(&frame);
@@ -824,7 +916,8 @@ mod tests {
             let mic = room.pop_front().unwrap();
 
             let mut processed = [0.0f32; SPEAKER_FRAME_SAMPLES];
-            apm.process_capture_f32(&[&mic], &mut [&mut processed]).unwrap();
+            apm.process_capture_f32(&[&mic], &mut [&mut processed])
+                .unwrap();
             if tick >= TICKS - MEASURED_TICKS {
                 echo += energy(&mic);
                 left += energy(&processed);
@@ -837,7 +930,10 @@ mod tests {
     fn the_echo_canceller_removes_what_the_speakers_played() {
         let remaining = echo_remaining(true);
         eprintln!("echo remaining with the render reference: {remaining}");
-        assert!(remaining < 0.01, "{remaining} of the echo is still in the mic");
+        assert!(
+            remaining < 0.01,
+            "{remaining} of the echo is still in the mic"
+        );
     }
 
     #[test]
@@ -845,17 +941,27 @@ mod tests {
         // Guards the test above: it only means something if cancelling needs the reference.
         let remaining = echo_remaining(false);
         eprintln!("echo remaining without the render reference: {remaining}");
-        assert!(remaining > 0.2, "the echo went away without a reference: {remaining}");
+        assert!(
+            remaining > 0.2,
+            "the echo went away without a reference: {remaining}"
+        );
     }
 
     #[test]
     fn saved_preferences_round_trip_through_json() {
-        let selected = AudioDevice { id: "mic".into(), name: "Dock Mic".into(), is_default: true };
+        let selected = AudioDevice {
+            id: "mic".into(),
+            name: "Dock Mic".into(),
+            is_default: true,
+        };
         let saved = SavedPreferences::of(Some(&selected), None, false);
 
         let json = serde_json::to_value(&saved).unwrap();
         // is_default describes the moment it was saved, so it is not kept.
-        assert_eq!(json, serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null, "noise_suppression": false }));
+        assert_eq!(
+            json,
+            serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null, "noise_suppression": false })
+        );
 
         assert_eq!(SavedPreferences::from_stored(Some(json)), saved);
     }
@@ -863,14 +969,26 @@ mod tests {
     #[test]
     fn noise_suppression_is_on_unless_turned_off() {
         assert!(SavedPreferences::default().noise_suppression);
-        assert!(SavedPreferences::from_stored(Some(serde_json::json!({ "input": null }))).noise_suppression);
-        assert!(!SavedPreferences::from_stored(Some(serde_json::json!({ "noise_suppression": false }))).noise_suppression);
+        assert!(
+            SavedPreferences::from_stored(Some(serde_json::json!({ "input": null })))
+                .noise_suppression
+        );
+        assert!(
+            !SavedPreferences::from_stored(Some(serde_json::json!({ "noise_suppression": false })))
+                .noise_suppression
+        );
     }
 
     #[test]
     fn nothing_saved_means_the_system_default() {
-        assert_eq!(SavedPreferences::from_stored(None), SavedPreferences::default());
-        assert_eq!(SavedPreferences::from_stored(Some(serde_json::json!({}))), SavedPreferences::default());
+        assert_eq!(
+            SavedPreferences::from_stored(None),
+            SavedPreferences::default()
+        );
+        assert_eq!(
+            SavedPreferences::from_stored(Some(serde_json::json!({}))),
+            SavedPreferences::default()
+        );
     }
 
     #[test]
@@ -882,14 +1000,21 @@ mod tests {
             serde_json::json!({ "input": { "id": "no name" } }),
             serde_json::json!({ "input": { "id": 1, "name": "x" } }),
         ] {
-            assert_eq!(SavedPreferences::from_stored(Some(garbage.clone())), SavedPreferences::default(), "{garbage}");
+            assert_eq!(
+                SavedPreferences::from_stored(Some(garbage.clone())),
+                SavedPreferences::default(),
+                "{garbage}"
+            );
         }
     }
 
     #[test]
     fn a_restored_preference_survives_its_device_being_unplugged() {
         let saved = SavedPreferences {
-            input: Some(SavedDevice { id: "dock-mic".into(), name: "Dock Mic".into() }),
+            input: Some(SavedDevice {
+                id: "dock-mic".into(),
+                name: "Dock Mic".into(),
+            }),
             output: None,
             noise_suppression: true,
         };
@@ -897,13 +1022,26 @@ mod tests {
         let module = AudioModule::new(saved).unwrap();
 
         // Not necessarily in the device list (the dock may be unplugged), but still preferred.
-        assert!(module.input_devices.borrow().iter().all(|d| d.id != "dock-mic"));
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("dock-mic"));
+        assert!(
+            module
+                .input_devices
+                .borrow()
+                .iter()
+                .all(|d| d.id != "dock-mic")
+        );
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("dock-mic")
+        );
         assert_eq!(preferred_id(&module.preferred_output_device), None);
     }
 
     fn device(id: &str) -> AudioDevice {
-        AudioDevice { id: id.into(), name: id.into(), is_default: false }
+        AudioDevice {
+            id: id.into(),
+            name: id.into(),
+            is_default: false,
+        }
     }
 
     fn module_with(inputs: Vec<AudioDevice>, outputs: Vec<AudioDevice>) -> AudioModule {
@@ -923,7 +1061,10 @@ mod tests {
 
         module.select_input_device(Some("b")).unwrap();
 
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("b")
+        );
     }
 
     #[test]
@@ -932,7 +1073,10 @@ mod tests {
 
         module.select_output_device(Some("y")).unwrap();
 
-        assert_eq!(preferred_id(&module.preferred_output_device).as_deref(), Some("y"));
+        assert_eq!(
+            preferred_id(&module.preferred_output_device).as_deref(),
+            Some("y")
+        );
         assert_eq!(preferred_id(&module.preferred_input_device), None);
     }
 
@@ -941,10 +1085,21 @@ mod tests {
         let module = module_with(vec![device("a")], vec![device("x")]);
         module.select_input_device(Some("a")).unwrap();
 
-        assert!(matches!(module.select_input_device(Some("nope")), Err(AudioError::UnknownDevice(id)) if id == "nope"));
-        assert!(matches!(module.select_output_device(Some("a")), Err(AudioError::UnknownDevice(_))), "inputs are not outputs");
+        assert!(
+            matches!(module.select_input_device(Some("nope")), Err(AudioError::UnknownDevice(id)) if id == "nope")
+        );
+        assert!(
+            matches!(
+                module.select_output_device(Some("a")),
+                Err(AudioError::UnknownDevice(_))
+            ),
+            "inputs are not outputs"
+        );
 
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("a"));
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("a")
+        );
         assert_eq!(preferred_id(&module.preferred_output_device), None);
     }
 
@@ -975,7 +1130,10 @@ mod tests {
         module.select_input_device(Some("a")).unwrap();
         module.select_input_device(Some("b")).unwrap();
 
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("b")
+        );
     }
 
     #[test]
@@ -990,8 +1148,16 @@ mod tests {
 
     #[test]
     fn listing_is_stable_between_calls() {
-        let a: Vec<_> = get_audio_input_devices().unwrap().into_iter().map(|d| d.id).collect();
-        let b: Vec<_> = get_audio_input_devices().unwrap().into_iter().map(|d| d.id).collect();
+        let a: Vec<_> = get_audio_input_devices()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        let b: Vec<_> = get_audio_input_devices()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
         assert_eq!(a, b);
     }
 
@@ -999,8 +1165,16 @@ mod tests {
     fn serializes_to_the_shape_the_frontend_parses() {
         // src/audioDevices.test.ts parses this same fixture with the zod schema.
         let devices = vec![
-            AudioDevice { id: "built-in-mic".into(), name: "Built-in Microphone".into(), is_default: true },
-            AudioDevice { id: "usb-mic".into(), name: "USB Microphone".into(), is_default: false },
+            AudioDevice {
+                id: "built-in-mic".into(),
+                name: "Built-in Microphone".into(),
+                is_default: true,
+            },
+            AudioDevice {
+                id: "usb-mic".into(),
+                name: "USB Microphone".into(),
+                is_default: false,
+            },
         ];
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/audio_devices.json")).unwrap();
@@ -1013,15 +1187,17 @@ mod tests {
     fn audio_processing_accepts_48k_mono_frames() {
         let mut apm = audio_processing(Config::default());
         let mut capture_out = vec![0.0f32; MIC_FRAME_SAMPLES];
-        apm.process_capture_f32(&[&[0.1f32; MIC_FRAME_SAMPLES]], &mut [&mut capture_out]).unwrap();
+        apm.process_capture_f32(&[&[0.1f32; MIC_FRAME_SAMPLES]], &mut [&mut capture_out])
+            .unwrap();
         let mut render_out = [0i16; crate::MIX_FRAME_SAMPLES];
-        apm.process_render_i16(&[1000i16; crate::MIX_FRAME_SAMPLES], &mut render_out).unwrap();
+        apm.process_render_i16(&[1000i16; crate::MIX_FRAME_SAMPLES], &mut render_out)
+            .unwrap();
     }
-
 
     #[test]
     fn mic_audio_at_48_khz_passes_through_unchanged() {
-        let mut resampler = MicResampler::new(DESIRED_INPUT_SAMPLE_RATE, DESIRED_INPUT_SAMPLE_RATE).unwrap();
+        let mut resampler =
+            MicResampler::new(DESIRED_INPUT_SAMPLE_RATE, DESIRED_INPUT_SAMPLE_RATE).unwrap();
         let input = sine(440.0, DESIRED_INPUT_SAMPLE_RATE, 4800);
 
         let mut output = Vec::new();
@@ -1041,14 +1217,17 @@ mod tests {
         }
 
         // About one second at 48 kHz: the clock is preserved…
-        assert!((47_000..=48_000).contains(&output.len()), "got {} samples", output.len());
+        assert!(
+            (47_000..=48_000).contains(&output.len()),
+            "got {} samples",
+            output.len()
+        );
         // …and so is the pitch. Treating 44.1 kHz audio as 48 kHz without
         // resampling would shift 440 Hz up to ~479 Hz (the "mousy" bug).
-        let settled = &output[4800..];   // skip the resampler's startup delay
+        let settled = &output[4800..]; // skip the resampler's startup delay
         assert!(tone_strength(settled, 440.0) > 0.4, "440 Hz missing");
         assert!(tone_strength(settled, 479.0) < 0.05, "pitch shifted up");
     }
-
 
     /// 10 ms frames of a speech-like sound: a 140 Hz voice with harmonics,
     /// pulsing at a syllable-ish 4 Hz.
@@ -1057,10 +1236,13 @@ mod tests {
             .map(|frame| {
                 (0..MIC_FRAME_SAMPLES)
                     .map(|i| {
-                        let t = (frame * MIC_FRAME_SAMPLES + i) as f32 / DESIRED_INPUT_SAMPLE_RATE as f32;
+                        let t = (frame * MIC_FRAME_SAMPLES + i) as f32
+                            / DESIRED_INPUT_SAMPLE_RATE as f32;
                         let envelope = 0.5 + 0.5 * (t * 4.0 * std::f32::consts::TAU).sin();
                         let voice: f32 = (1..25)
-                            .map(|k| (t * 140.0 * k as f32 * std::f32::consts::TAU).sin() / k as f32)
+                            .map(|k| {
+                                (t * 140.0 * k as f32 * std::f32::consts::TAU).sin() / k as f32
+                            })
                             .sum();
                         0.15 * envelope * voice
                     })
@@ -1074,11 +1256,13 @@ mod tests {
     /// the loudest output sample.
     fn voice_through_the_mic_processing(gain: f32) -> (f32, f32, f32) {
         let mut apm = audio_processing(apm_config());
-        let (mut input_energy, mut output_energy, mut peak, mut samples) = (0.0f32, 0.0f32, 0.0f32, 0usize);
+        let (mut input_energy, mut output_energy, mut peak, mut samples) =
+            (0.0f32, 0.0f32, 0.0f32, 0usize);
         for (n, frame) in voiced_frames(800).iter().enumerate() {
             let input: Vec<f32> = frame.iter().map(|s| s * gain).collect();
             let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
-            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            apm.process_capture_f32(&[&input], &mut [&mut output])
+                .unwrap();
             if n >= 700 {
                 input_energy += input.iter().map(|s| s * s).sum::<f32>();
                 output_energy += output.iter().map(|s| s * s).sum::<f32>();
@@ -1086,14 +1270,24 @@ mod tests {
                 samples += input.len();
             }
         }
-        ((input_energy / samples as f32).sqrt(), (output_energy / samples as f32).sqrt(), peak)
+        (
+            (input_energy / samples as f32).sqrt(),
+            (output_energy / samples as f32).sqrt(),
+            peak,
+        )
     }
 
     #[test]
     fn a_quiet_voice_is_brought_up_to_a_normal_level() {
         let (heard, sent, _) = voice_through_the_mic_processing(0.1);
-        eprintln!("quiet voice: in {heard}, out {sent}, boost {:.1} dB", 20.0 * (sent / heard).log10());
-        assert!(sent > 2.0 * heard, "a quiet voice was sent at {sent} from {heard}: barely louder");
+        eprintln!(
+            "quiet voice: in {heard}, out {sent}, boost {:.1} dB",
+            20.0 * (sent / heard).log10()
+        );
+        assert!(
+            sent > 2.0 * heard,
+            "a quiet voice was sent at {sent} from {heard}: barely louder"
+        );
     }
 
     #[test]
@@ -1116,7 +1310,8 @@ mod tests {
                 })
                 .collect();
             let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
-            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            apm.process_capture_f32(&[&input], &mut [&mut output])
+                .unwrap();
             if n >= 700 {
                 energy += output.iter().map(|s| s * s).sum::<f32>();
             }
@@ -1130,7 +1325,10 @@ mod tests {
     fn speech_detector_hears_a_voice() {
         let mut detector = SpeechDetector::new(DESIRED_INPUT_SAMPLE_RATE);
 
-        let speech = voiced_frames(10).iter().filter(|frame| detector.is_speech(frame)).count();
+        let speech = voiced_frames(10)
+            .iter()
+            .filter(|frame| detector.is_speech(frame))
+            .count();
 
         // The detector needs a frame or two to react.
         assert!(speech >= 8, "only {speech} of 10 voiced frames were speech");
@@ -1151,7 +1349,9 @@ mod tests {
     fn speech_detector_ignores_silence() {
         let mut detector = SpeechDetector::new(DESIRED_INPUT_SAMPLE_RATE);
 
-        let speech = (0..10).filter(|_| detector.is_speech(&[0.0; MIC_FRAME_SAMPLES])).count();
+        let speech = (0..10)
+            .filter(|_| detector.is_speech(&[0.0; MIC_FRAME_SAMPLES]))
+            .count();
 
         assert_eq!(speech, 0);
     }
@@ -1172,7 +1372,11 @@ mod tests {
         for _ in 0..VOICE_HOLD_FRAMES - 1 {
             assert_eq!(gate.update(false), Transmit::Continue);
         }
-        assert_eq!(gate.update(true), Transmit::Continue, "the pause should not end the burst");
+        assert_eq!(
+            gate.update(true),
+            Transmit::Continue,
+            "the pause should not end the burst"
+        );
     }
 
     #[test]
@@ -1180,10 +1384,24 @@ mod tests {
         let mut gate = VoiceGate::default();
 
         gate.update(true);
-        let after: Vec<Transmit> = (0..VOICE_HOLD_FRAMES + 1).map(|_| gate.update(false)).collect();
+        let after: Vec<Transmit> = (0..VOICE_HOLD_FRAMES + 1)
+            .map(|_| gate.update(false))
+            .collect();
 
-        assert!(after[..VOICE_HOLD_FRAMES - 1].iter().all(|t| *t == Transmit::Continue), "{after:?}");
-        assert_eq!(after[VOICE_HOLD_FRAMES - 1..], [Transmit::End, Transmit::Skip]);
-        assert_eq!(gate.update(true), Transmit::Start, "new speech starts a new burst");
+        assert!(
+            after[..VOICE_HOLD_FRAMES - 1]
+                .iter()
+                .all(|t| *t == Transmit::Continue),
+            "{after:?}"
+        );
+        assert_eq!(
+            after[VOICE_HOLD_FRAMES - 1..],
+            [Transmit::End, Transmit::Skip]
+        );
+        assert_eq!(
+            gate.update(true),
+            Transmit::Start,
+            "new speech starts a new burst"
+        );
     }
 }
