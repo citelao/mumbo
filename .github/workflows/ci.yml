@@ -117,6 +117,7 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: mumbo.flatpak
+          build-debug-bundle: true
           manifest-path: packaging/flatpak/com.citelao.mumbo.yml
           cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/**', 'Cargo.lock', 'package-lock.json') }}
           upload-artifact: false
