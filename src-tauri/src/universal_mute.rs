@@ -3,10 +3,10 @@
 //! Create a `UniversalMuter` to start the call, manage it during the call, and
 //! then drop it to end the call.
 
-#[cfg(windows)]
-pub use windows_impl::UniversalMuter;
 #[cfg(not(windows))]
 pub use other_impl::UniversalMuter;
+#[cfg(windows)]
+pub use windows_impl::UniversalMuter;
 
 #[cfg(windows)]
 mod windows_impl {
@@ -86,7 +86,9 @@ mod windows_impl {
     impl Drop for UniversalMuter {
         fn drop(&mut self) {
             // Nothing useful to do if Windows refuses; the process is likely going away.
-            let _ = self.coordinator.RemoveMuteStateChanged(self.mute_handler_token);
+            let _ = self
+                .coordinator
+                .RemoveMuteStateChanged(self.mute_handler_token);
             let _ = self.call.NotifyCallEnded();
         }
     }

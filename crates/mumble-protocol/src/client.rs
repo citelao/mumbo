@@ -1,16 +1,25 @@
-use std::io;
+use futures_util::{Sink, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use prost::Message;
 use serde::Serialize;
+use std::io;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc};
-use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
 use tokio::io::{AsyncRead, AsyncWrite};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
-use futures_util::{Sink, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use tokio::sync::{broadcast, mpsc};
+use tokio_util::{
+    codec::{FramedRead, FramedWrite},
+    sync::CancellationToken,
+};
 
 mod accept_any_cert;
 
-use crate::{ServerToClientMessage, ServerToClientUdpMessage, UdpMessageId, state::{ConnectionStatus, MumbleState}};
+use crate::{
+    ServerToClientMessage, ServerToClientUdpMessage, UdpMessageId,
+    state::{ConnectionStatus, MumbleState},
+};
 
 #[derive(Clone)]
 pub struct MumbleClient {
@@ -96,18 +105,29 @@ pub struct ServerStats {
     pub max_bandwidth_per_user: u32,
 }
 
-pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<ServerStats, MumbleConnectionError> {
+pub async fn get_server_stats(
+    server: String,
+    port: Option<u16>,
+) -> Result<ServerStats, MumbleConnectionError> {
     let port = port.unwrap_or(64738);
     let addr = tokio::net::lookup_host((server.as_str(), port))
         .await?
         .next()
-        .ok_or(MumbleConnectionError::IoError(io::Error::other("No address found")))?;
-    let bind = if addr.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
+        .ok_or(MumbleConnectionError::IoError(io::Error::other(
+            "No address found",
+        )))?;
+    let bind = if addr.is_ipv6() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    };
 
     log::trace!("Pinging server {} on port {}", server, port);
 
     let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
 
     let socket = tokio::net::UdpSocket::bind(bind).await?;
     let ping_message = crate::raw_udp::Ping {
@@ -123,19 +143,22 @@ pub async fn get_server_stats(server: String, port: Option<u16>) -> Result<Serve
     loop {
         let mut buf = vec![0u8; 1024]; // TODO: size of the expected buffer.
         let (len, _amt_read_from) = socket.recv_from(&mut buf).await?;
-    
+
         // Should be a ping message in response
         let response = crate::raw_udp::Ping::decode(&buf[1..len])?;
         if response.timestamp == timestamp {
             let round_trip_time = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 - timestamp;
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+                - timestamp;
             return Ok(ServerStats {
                 round_trip_time,
                 server_version_v2: response.server_version_v2,
                 user_count: response.user_count,
                 max_user_count: response.max_user_count,
                 max_bandwidth_per_user: response.max_bandwidth_per_user,
-            })
+            });
         }
 
         // TODO: abandon after a bit.
@@ -172,8 +195,8 @@ async fn connect_over(
     let (debug_tx, debug_rx) = broadcast::channel::<ServerToClientMessage>(DEBUG_CHANNEL_CAPACITY);
 
     let (stream_read, stream_write) = tokio::io::split(stream);
-    let mut reader = FramedRead::new(stream_read, crate::codec::MumbleCodec::default())
-        .inspect(move |msg| {
+    let mut reader =
+        FramedRead::new(stream_read, crate::codec::MumbleCodec::default()).inspect(move |msg| {
             if let Ok(msg) = msg {
                 if let ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) = msg {
                     // Audio messages are noisy.
@@ -194,7 +217,8 @@ async fn connect_over(
     // Send a version message!
     let (major, minor, patch) = (1u32, 5u32, 0u32);
     let our_version: u32 = (major << 16) | (minor << 8) | patch;
-    let our_version_v2: u64 = (u64::from(major) << 48) | (u64::from(minor) << 32) | (u64::from(patch) << 16);
+    let our_version_v2: u64 =
+        (u64::from(major) << 48) | (u64::from(minor) << 32) | (u64::from(patch) << 16);
 
     let version = crate::raw::Version {
         // not necessary, but nice
@@ -206,7 +230,9 @@ async fn connect_over(
         version_v1: Some(our_version),
         version_v2: Some(our_version_v2),
     };
-    writer.send(crate::ClientToServerMessage::Version(version)).await?;
+    writer
+        .send(crate::ClientToServerMessage::Version(version))
+        .await?;
     log::info!("Version message sent to server");
 
     // Wait for the server's version message.
@@ -217,9 +243,7 @@ async fn connect_over(
     // Some("1.5.901"), os: Some("Linux"), os_version: Some("Ubuntu 24.04.4 LTS
     // [arm64]") }
     // ```
-    let Some(crate::ServerToClientMessage::Version(version)) = reader
-        .try_next()
-        .await? else {
+    let Some(crate::ServerToClientMessage::Version(version)) = reader.try_next().await? else {
         return Err(MumbleConnectionError::UnexpectedServerClose);
     };
     log::info!("Received version message: {:?}", version);
@@ -236,7 +260,9 @@ async fn connect_over(
         opus: Some(true),
         client_type: Some(0),
     };
-    writer.send(crate::ClientToServerMessage::Authenticate(authenticate)).await?;
+    writer
+        .send(crate::ClientToServerMessage::Authenticate(authenticate))
+        .await?;
     log::info!("Authenticate message sent to server");
 
     let state = Arc::new(Mutex::new(MumbleState::default()));
@@ -263,8 +289,18 @@ async fn connect_over(
     let (server_tx, server_rx) = mpsc::unbounded_channel::<crate::ClientToServerMessage>();
 
     let cancellation_token = CancellationToken::new();
-    tokio::spawn(run(reader, writer, state.clone(), audio_tx, events_tx, server_rx, cancellation_token.clone())
-        .inspect_err(|e| log::error!("connection ended: {e}")));
+    tokio::spawn(
+        run(
+            reader,
+            writer,
+            state.clone(),
+            audio_tx,
+            events_tx,
+            server_rx,
+            cancellation_token.clone(),
+        )
+        .inspect_err(|e| log::error!("connection ended: {e}")),
+    );
 
     Ok(Connection {
         client: MumbleClient {
@@ -300,8 +336,8 @@ async fn run(
     audio_tx: tokio::sync::mpsc::Sender<crate::raw_udp::Audio>,
     events_tx: mpsc::UnboundedSender<crate::state::MumbleEvent>,
     mut server_rx: mpsc::UnboundedReceiver<crate::ClientToServerMessage>,
-    cancellation_token: CancellationToken) -> Result<(), MumbleConnectionError> {
-
+    cancellation_token: CancellationToken,
+) -> Result<(), MumbleConnectionError> {
     // Mumble requires pings every 30s by default; be eager.
     let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
@@ -388,7 +424,12 @@ impl MumbleClient {
 
     /// Sends one Opus packet. Set `is_terminator` on the last packet of a
     /// burst so listeners know the speaker stopped rather than lost packets.
-    pub fn send_audio(&self, audio: &[u8], frame_counter: u64, is_terminator: bool) -> Result<(), MumbleConnectionError> {
+    pub fn send_audio(
+        &self,
+        audio: &[u8],
+        frame_counter: u64,
+        is_terminator: bool,
+    ) -> Result<(), MumbleConnectionError> {
         let muted = self.self_muted.load(Ordering::Relaxed);
         if muted && !is_terminator {
             return Ok(());
@@ -397,8 +438,7 @@ impl MumbleClient {
         // state) would keep us marked as speaking; send it without any voice.
         let audio = if muted { &[] } else { audio };
         let packet = crate::ClientToServerMessage::UdpTunnel(
-            crate::ClientToServerUdpMessage::Audio(
-            crate::raw_udp::Audio {
+            crate::ClientToServerUdpMessage::Audio(crate::raw_udp::Audio {
                 opus_data: audio.to_vec(),
 
                 // Normal speech
@@ -410,36 +450,58 @@ impl MumbleClient {
                 is_terminator,
 
                 ..Default::default()
-            }));
+            }),
+        );
         self.send(packet)
     }
 
     /// Sends a text message to the specified channel.
     ///
     /// Defaults to the current user's channel.
-    pub fn send_channel_message(&self, message: String, channel_id: Option<u32>) -> Result<(), MumbleConnectionError> {
+    pub fn send_channel_message(
+        &self,
+        message: String,
+        channel_id: Option<u32>,
+    ) -> Result<(), MumbleConnectionError> {
         let channel_id = if let Some(channel_id) = channel_id {
             channel_id
         } else {
-            self.state.lock().unwrap().current_user().unwrap().channel_id
+            self.state
+                .lock()
+                .unwrap()
+                .current_user()
+                .unwrap()
+                .channel_id
         };
-        log::info!("Sending text message: {} to channel: {:?}", message, channel_id);
-        self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
-            message: message.clone(),
-            channel_id: vec![channel_id],
-            ..Default::default()
-        }))?;
+        log::info!(
+            "Sending text message: {} to channel: {:?}",
+            message,
+            channel_id
+        );
+        self.send(crate::ClientToServerMessage::TextMessage(
+            crate::raw::TextMessage {
+                message: message.clone(),
+                channel_id: vec![channel_id],
+                ..Default::default()
+            },
+        ))?;
         Ok(())
     }
 
     /// Send a DM to one or more users specified by their session IDs.
-    pub fn send_user_message(&self, message: String, session: Vec<u32>) -> Result<(), MumbleConnectionError> {
+    pub fn send_user_message(
+        &self,
+        message: String,
+        session: Vec<u32>,
+    ) -> Result<(), MumbleConnectionError> {
         log::info!("Sending text message: {} to user: {:?}", message, session);
-        self.send(crate::ClientToServerMessage::TextMessage(crate::raw::TextMessage {
-            message: message.clone(),
-            session,
-            ..Default::default()
-        }))?;
+        self.send(crate::ClientToServerMessage::TextMessage(
+            crate::raw::TextMessage {
+                message: message.clone(),
+                session,
+                ..Default::default()
+            },
+        ))?;
         Ok(())
     }
 
@@ -447,24 +509,33 @@ impl MumbleClient {
     /// server (and so other users) that we are self-muted.
     pub fn set_self_mute(&self, muted: bool) -> Result<(), MumbleConnectionError> {
         self.self_muted.store(muted, Ordering::Relaxed);
-        self.send(crate::ClientToServerMessage::UserState(Box::new(crate::raw::UserState {
-            self_mute: Some(muted),
-            ..Default::default()
-        })))
+        self.send(crate::ClientToServerMessage::UserState(Box::new(
+            crate::raw::UserState {
+                self_mute: Some(muted),
+                ..Default::default()
+            },
+        )))
     }
 
     pub fn set_channel(&self, channel_id: u32) -> Result<(), MumbleConnectionError> {
-        self.send(crate::ClientToServerMessage::UserState(Box::new(crate::raw::UserState {
-            channel_id: Some(channel_id),
-            ..Default::default()
-        })))
+        self.send(crate::ClientToServerMessage::UserState(Box::new(
+            crate::raw::UserState {
+                channel_id: Some(channel_id),
+                ..Default::default()
+            },
+        )))
     }
 
     /// Compares the mute we last requested against the one the server last
     /// reported for us. Until the server's `UserState` arrives, the two differ.
     pub fn self_mute_status(&self) -> SelfMuteStatus {
         let requested = self.self_muted.load(Ordering::Relaxed);
-        let confirmed = self.state.lock().unwrap().current_user().is_some_and(|user| user.self_mute);
+        let confirmed = self
+            .state
+            .lock()
+            .unwrap()
+            .current_user()
+            .is_some_and(|user| user.self_mute);
         match (requested, confirmed) {
             (false, false) => SelfMuteStatus::Unmuted,
             (true, false) => SelfMuteStatus::Muting,
@@ -474,7 +545,9 @@ impl MumbleClient {
     }
 
     fn send(&self, message: crate::ClientToServerMessage) -> Result<(), MumbleConnectionError> {
-        self.outgoing.send(message).map_err(|_| MumbleConnectionError::Disconnected)
+        self.outgoing
+            .send(message)
+            .map_err(|_| MumbleConnectionError::Disconnected)
     }
 }
 #[cfg(test)]
@@ -497,7 +570,10 @@ mod tests {
 
     impl FakeServer {
         async fn send<M: TcpMessageId>(&mut self, message: M) {
-            let frame = MumbleFrame { type_id: M::TYPE_ID, payload: message.encode_to_vec().into() };
+            let frame = MumbleFrame {
+                type_id: M::TYPE_ID,
+                payload: message.encode_to_vec().into(),
+            };
             self.frames.send(frame).await.unwrap();
         }
 
@@ -505,12 +581,21 @@ mod tests {
             // Tunnelled voice: one UDP type byte, then the protobuf.
             let mut payload = vec![raw_udp::Audio::TYPE_ID];
             payload.extend(audio.encode_to_vec());
-            self.frames.send(MumbleFrame { type_id: raw::UdpTunnel::TYPE_ID, payload: payload.into() }).await.unwrap();
+            self.frames
+                .send(MumbleFrame {
+                    type_id: raw::UdpTunnel::TYPE_ID,
+                    payload: payload.into(),
+                })
+                .await
+                .unwrap();
         }
 
         /// The next frame the client sent, or `None` once it hung up.
         async fn receive(&mut self) -> Option<MumbleFrame> {
-            tokio::time::timeout(TIMEOUT, self.frames.next()).await.unwrap().map(Result::unwrap)
+            tokio::time::timeout(TIMEOUT, self.frames.next())
+                .await
+                .unwrap()
+                .map(Result::unwrap)
         }
 
         async fn receive_message<M: TcpMessageId>(&mut self) -> M {
@@ -532,8 +617,16 @@ mod tests {
                 if frame.type_id == raw::Ping::TYPE_ID {
                     continue;
                 }
-                assert_eq!(frame.type_id, raw::UdpTunnel::TYPE_ID, "unexpected message type");
-                assert_eq!(frame.payload[0], raw_udp::Audio::TYPE_ID, "not a voice packet");
+                assert_eq!(
+                    frame.type_id,
+                    raw::UdpTunnel::TYPE_ID,
+                    "unexpected message type"
+                );
+                assert_eq!(
+                    frame.payload[0],
+                    raw_udp::Audio::TYPE_ID,
+                    "not a voice packet"
+                );
                 return raw_udp::Audio::decode(&frame.payload[1..]).unwrap();
             }
         }
@@ -541,7 +634,11 @@ mod tests {
         /// Reads the client's opening Version and Authenticate, and answers with Version.
         async fn greet(&mut self) -> raw::Authenticate {
             self.receive_message::<raw::Version>().await;
-            self.send(raw::Version { version_v2: Some(1 << 48 | 5 << 32), ..Default::default() }).await;
+            self.send(raw::Version {
+                version_v2: Some(1 << 48 | 5 << 32),
+                ..Default::default()
+            })
+            .await;
             self.receive_message::<raw::Authenticate>().await
         }
 
@@ -550,12 +647,20 @@ mod tests {
             self.greet().await;
             self.send(user(1, "Alice")).await;
             self.send(user(2, "me")).await;
-            self.send(raw::ServerSync { session: Some(2), ..Default::default() }).await;
+            self.send(raw::ServerSync {
+                session: Some(2),
+                ..Default::default()
+            })
+            .await;
         }
     }
 
     fn user(session: u32, name: &str) -> raw::UserState {
-        raw::UserState { session: Some(session), name: Some(name.to_string()), ..Default::default() }
+        raw::UserState {
+            session: Some(session),
+            name: Some(name.to_string()),
+            ..Default::default()
+        }
     }
 
     fn options() -> ConnectionOptions {
@@ -568,22 +673,42 @@ mod tests {
     }
 
     /// Starts a client handshake against a fake server.
-    fn start() -> (tokio::task::JoinHandle<Result<Connection, MumbleConnectionError>>, FakeServer) {
+    fn start() -> (
+        tokio::task::JoinHandle<Result<Connection, MumbleConnectionError>>,
+        FakeServer,
+    ) {
         let (client_end, server_end) = tokio::io::duplex(64 * 1024);
         let connecting = tokio::spawn(connect_over(client_end, options()));
-        (connecting, FakeServer { frames: Framed::new(server_end, MumbleFrameCodec) })
+        (
+            connecting,
+            FakeServer {
+                frames: Framed::new(server_end, MumbleFrameCodec),
+            },
+        )
     }
 
     async fn connected() -> (Connection, FakeServer) {
         let (connecting, mut server) = start();
         server.accept().await;
-        let connection = tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().unwrap();
+        let connection = tokio::time::timeout(TIMEOUT, connecting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         (connection, server)
     }
 
     /// Names of the users the client thinks are speaking.
     fn speaking(client: &MumbleClient) -> Vec<String> {
-        client.state().lock().unwrap().users().iter().filter(|u| u.is_speaking).map(|u| u.name.clone()).collect()
+        client
+            .state()
+            .lock()
+            .unwrap()
+            .users()
+            .iter()
+            .filter(|u| u.is_speaking)
+            .map(|u| u.name.clone())
+            .collect()
     }
 
     /// Discards the events reported so far, e.g. from the handshake.
@@ -592,7 +717,14 @@ mod tests {
     }
 
     fn user_names(client: &MumbleClient) -> Vec<String> {
-        client.state().lock().unwrap().users().iter().map(|u| u.name.clone()).collect()
+        client
+            .state()
+            .lock()
+            .unwrap()
+            .users()
+            .iter()
+            .map(|u| u.name.clone())
+            .collect()
     }
 
     #[tokio::test]
@@ -603,10 +735,18 @@ mod tests {
         server.send(raw::Version::default()).await;
         let authenticate = server.receive_message::<raw::Authenticate>().await;
 
-        assert_eq!(version.version_v2, Some(1 << 48 | 5 << 32), "should claim 1.5.0");
+        assert_eq!(
+            version.version_v2,
+            Some(1 << 48 | 5 << 32),
+            "should claim 1.5.0"
+        );
         assert_eq!(authenticate.username.as_deref(), Some("me"));
         assert_eq!(authenticate.password.as_deref(), Some("hunter2"));
-        assert_eq!(authenticate.opus, Some(true), "must advertise Opus or the server may fall back to CELT");
+        assert_eq!(
+            authenticate.opus,
+            Some(true),
+            "must advertise Opus or the server may fall back to CELT"
+        );
     }
 
     #[tokio::test]
@@ -626,22 +766,41 @@ mod tests {
         let still_waiting = tokio::time::timeout(Duration::from_millis(50), &mut connecting).await;
         assert!(still_waiting.is_err(), "connect returned before ServerSync");
 
-        server.send(raw::ServerSync { session: Some(2), ..Default::default() }).await;
-        tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().unwrap();
+        server
+            .send(raw::ServerSync {
+                session: Some(2),
+                ..Default::default()
+            })
+            .await;
+        tokio::time::timeout(TIMEOUT, connecting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 
     #[tokio::test]
     async fn connect_fails_when_the_server_rejects() {
         let (connecting, mut server) = start();
         server.greet().await;
-        server.send(raw::Reject {
-            r#type: Some(raw::reject::RejectType::WrongServerPw as i32),
-            reason: Some("Invalid server password".to_string()),
-        }).await;
+        server
+            .send(raw::Reject {
+                r#type: Some(raw::reject::RejectType::WrongServerPw as i32),
+                reason: Some("Invalid server password".to_string()),
+            })
+            .await;
 
-        let error = tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().err().expect("connect should fail");
+        let error = tokio::time::timeout(TIMEOUT, connecting)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .expect("connect should fail");
 
-        assert!(error.to_string().contains("Invalid server password"), "{error}");
+        assert!(
+            error.to_string().contains("Invalid server password"),
+            "{error}"
+        );
     }
 
     #[tokio::test]
@@ -650,17 +809,34 @@ mod tests {
         server.greet().await;
         drop(server);
 
-        let error = tokio::time::timeout(TIMEOUT, connecting).await.unwrap().unwrap().err().expect("connect should fail");
+        let error = tokio::time::timeout(TIMEOUT, connecting)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .expect("connect should fail");
 
-        assert!(matches!(error, MumbleConnectionError::UnexpectedServerClose), "{error}");
+        assert!(
+            matches!(error, MumbleConnectionError::UnexpectedServerClose),
+            "{error}"
+        );
     }
 
     #[tokio::test]
     async fn audio_goes_to_the_audio_channel_not_the_state() {
         let (mut connection, mut server) = connected().await;
 
-        server.send_audio(raw_udp::Audio { sender_session: 1, opus_data: vec![1, 2, 3], ..Default::default() }).await;
-        let audio = tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().unwrap();
+        server
+            .send_audio(raw_udp::Audio {
+                sender_session: 1,
+                opus_data: vec![1, 2, 3],
+                ..Default::default()
+            })
+            .await;
+        let audio = tokio::time::timeout(TIMEOUT, connection.audio.recv())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!((audio.sender_session, audio.opus_data), (1, vec![1, 2, 3]));
         assert_eq!(user_names(&connection.client), ["Alice", "me"]);
@@ -675,8 +851,14 @@ mod tests {
         let first = server.receive_audio().await;
         let last = server.receive_audio().await;
 
-        assert_eq!((first.opus_data, first.frame_number, first.is_terminator), (vec![1], 7, false));
-        assert_eq!((last.opus_data, last.frame_number, last.is_terminator), (vec![2], 8, true));
+        assert_eq!(
+            (first.opus_data, first.frame_number, first.is_terminator),
+            (vec![1], 7, false)
+        );
+        assert_eq!(
+            (last.opus_data, last.frame_number, last.is_terminator),
+            (vec![2], 8, true)
+        );
     }
 
     #[tokio::test]
@@ -688,9 +870,19 @@ mod tests {
             received.push(message);
         }
 
-        assert!(matches!(received[0], ServerToClientMessage::Version(_)), "{received:?}");
-        assert!(matches!(received.last(), Some(ServerToClientMessage::ServerSync(_))), "{received:?}");
-        assert_eq!(received.len(), 4, "Version, two UserStates, ServerSync: {received:?}");
+        assert!(
+            matches!(received[0], ServerToClientMessage::Version(_)),
+            "{received:?}"
+        );
+        assert!(
+            matches!(received.last(), Some(ServerToClientMessage::ServerSync(_))),
+            "{received:?}"
+        );
+        assert_eq!(
+            received.len(),
+            4,
+            "Version, two UserStates, ServerSync: {received:?}"
+        );
     }
 
     #[tokio::test]
@@ -703,14 +895,30 @@ mod tests {
             handshake.push(event);
         }
         assert!(
-            matches!(handshake[..], [crate::state::MumbleEvent::UsersChanged, crate::state::MumbleEvent::UsersChanged]),
+            matches!(
+                handshake[..],
+                [
+                    crate::state::MumbleEvent::UsersChanged,
+                    crate::state::MumbleEvent::UsersChanged
+                ]
+            ),
             "{handshake:?}"
         );
 
         // …and changes keep being reported afterwards.
-        server.send(raw::TextMessage { message: "hi".to_string(), ..Default::default() }).await;
-        let event = tokio::time::timeout(TIMEOUT, connection.events.recv()).await.unwrap();
-        assert!(matches!(event, Some(crate::state::MumbleEvent::ChatMessage)), "{event:?}");
+        server
+            .send(raw::TextMessage {
+                message: "hi".to_string(),
+                ..Default::default()
+            })
+            .await;
+        let event = tokio::time::timeout(TIMEOUT, connection.events.recv())
+            .await
+            .unwrap();
+        assert!(
+            matches!(event, Some(crate::state::MumbleEvent::ChatMessage)),
+            "{event:?}"
+        );
     }
 
     #[tokio::test]
@@ -731,7 +939,12 @@ mod tests {
         // The server sees the socket close (after any pings already in flight)…
         while server.receive().await.is_some() {}
         // …and the audio channel closes, which is how the app's audio task stops.
-        assert!(tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().is_none());
+        assert!(
+            tokio::time::timeout(TIMEOUT, connection.audio.recv())
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -740,7 +953,12 @@ mod tests {
 
         drop(server);
 
-        assert!(tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().is_none());
+        assert!(
+            tokio::time::timeout(TIMEOUT, connection.audio.recv())
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -760,7 +978,12 @@ mod tests {
 
         // Nobody reads `connection.audio`; overflow it, then send a state update.
         for _ in 0..600 {
-            server.send_audio(raw_udp::Audio { sender_session: 1, ..Default::default() }).await;
+            server
+                .send_audio(raw_udp::Audio {
+                    sender_session: 1,
+                    ..Default::default()
+                })
+                .await;
         }
         server.send(user(3, "Bob")).await;
 
@@ -796,9 +1019,19 @@ mod tests {
 
         // Packets are ordered, so the first audio after the mute is the
         // terminator only if the ordinary packet was dropped.
-        assert_eq!(server.receive_message::<raw::UserState>().await.self_mute, Some(true));
+        assert_eq!(
+            server.receive_message::<raw::UserState>().await.self_mute,
+            Some(true)
+        );
         let terminator = server.receive_audio().await;
-        assert_eq!((terminator.opus_data, terminator.frame_number, terminator.is_terminator), (vec![], 2, true));
+        assert_eq!(
+            (
+                terminator.opus_data,
+                terminator.frame_number,
+                terminator.is_terminator
+            ),
+            (vec![], 2, true)
+        );
     }
 
     #[tokio::test]
@@ -811,14 +1044,26 @@ mod tests {
         assert_eq!(client.self_mute_status(), SelfMuteStatus::Muting);
 
         server.receive_message::<raw::UserState>().await;
-        server.send(raw::UserState { session: Some(2), self_mute: Some(true), ..Default::default() }).await;
+        server
+            .send(raw::UserState {
+                session: Some(2),
+                self_mute: Some(true),
+                ..Default::default()
+            })
+            .await;
         wait_until(|| client.self_mute_status() == SelfMuteStatus::Muted).await;
 
         client.set_self_mute(false).unwrap();
         assert_eq!(client.self_mute_status(), SelfMuteStatus::Unmuting);
 
         server.receive_message::<raw::UserState>().await;
-        server.send(raw::UserState { session: Some(2), self_mute: Some(false), ..Default::default() }).await;
+        server
+            .send(raw::UserState {
+                session: Some(2),
+                self_mute: Some(false),
+                ..Default::default()
+            })
+            .await;
         wait_until(|| client.self_mute_status() == SelfMuteStatus::Unmuted).await;
     }
 
@@ -829,18 +1074,32 @@ mod tests {
 
         connection.client.send_audio(&[1], 0, false).unwrap();
         server.receive_audio().await;
-        let event = tokio::time::timeout(TIMEOUT, connection.events.recv()).await.unwrap();
+        let event = tokio::time::timeout(TIMEOUT, connection.events.recv())
+            .await
+            .unwrap();
 
-        assert!(matches!(event, Some(crate::state::MumbleEvent::UsersChanged)), "{event:?}");
+        assert!(
+            matches!(event, Some(crate::state::MumbleEvent::UsersChanged)),
+            "{event:?}"
+        );
     }
 
     #[tokio::test]
     async fn received_voice_is_played_and_marks_the_sender_as_speaking() {
         let (mut connection, mut server) = connected().await;
 
-        server.send_audio(raw_udp::Audio { sender_session: 1, opus_data: vec![1, 2, 3], ..Default::default() }).await;
+        server
+            .send_audio(raw_udp::Audio {
+                sender_session: 1,
+                opus_data: vec![1, 2, 3],
+                ..Default::default()
+            })
+            .await;
 
-        let audio = tokio::time::timeout(TIMEOUT, connection.audio.recv()).await.unwrap().unwrap();
+        let audio = tokio::time::timeout(TIMEOUT, connection.audio.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(audio.opus_data, [1, 2, 3]);
         assert_eq!(speaking(&connection.client), ["Alice"]);
     }
