@@ -30,6 +30,14 @@ modules:
         - --share=network
       env:
         CARGO_HOME: /run/build/mumbo/cargo
+        # Build with full debug info to enable crash debugging. This does not
+        # bloat installs, flatpak-builder moves the debug info to a separate,
+        # opt-in .Debug extension.
+        # https://docs.flatpak.org/en/latest/debugging.html#creating-a-debug-extension
+        CARGO_PROFILE_RELEASE_DEBUG: "true"
+        # May be removed if strip=true is removed from Cargo.toml release
+        # profile.
+        CARGO_PROFILE_RELEASE_STRIP: "false"
     build-commands:
       - npm ci
       - npm run build
