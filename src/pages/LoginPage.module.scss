@@ -3,12 +3,31 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    // Fill #root (which may be inset by safe areas) rather than the viewport,
+    // and scroll if the forms don't fit (e.g. a phone with the keyboard up).
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .sub-container {
     display: flex;
     gap: 1rem;
+}
+
+// Phones: stack recent servers above the form, and let the form shrink.
+@media (max-width: 600px) {
+    .container {
+        justify-content: flex-start;
+    }
+
+    .sub-container {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .connection-form {
+        min-width: 0;
+    }
 }
 
 .user-count.error {

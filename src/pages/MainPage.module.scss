@@ -5,6 +5,17 @@
     display: grid;
     grid-template-columns: 1fr 3fr;
     align-items: stretch;
+
+    // Phones: user list (with mute/disconnect) on top, chat below.
+    @media (max-width: 600px) {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, auto) minmax(0, 1fr);
+        gap: 0.5rem;
+
+        .user-list {
+            max-height: 35vh;
+        }
+    }
 }
 
 .chat {
