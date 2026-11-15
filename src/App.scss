@@ -38,6 +38,10 @@ html, body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  /* On iOS, keep content out from under the status bar and home indicator
+     (needs `viewport-fit=cover` in index.html; 0 on desktop). */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .container {
