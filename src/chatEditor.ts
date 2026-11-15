@@ -52,48 +52,26 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
         }),
         Underline,
 
-        Image.configure({
-            allowBase64: true,
+        Image.extend({
+            // Only embedded images. The official Mumble client won't load
+            // remote ones (it shows a black square), and loading them here
+            // would let a pasted image track us.
+            parseHTML() {
+                return [{ tag: 'img[src^="data:image/"]' }];
+            },
+        }).configure({
             inline: true,
         }),
         FileHandler.configure({
-            allowedMimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"],
+            allowedMimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+            // Otherwise, when the clipboard also has HTML for the image (e.g.
+            // "Copy Image" in a browser), that gets pasted too.
+            consumePasteEvent: true,
             onDrop: (currentEditor, files, pos) => {
-                // TODO.
+                insertImageFiles(currentEditor, files, () => pos);
             },
-            onPaste: (currentEditor, files, htmlContent) => {
-                // We *could* handle HTML (with images) differently, to save
-                // re-encoding e.g., but the official Mumble client only accepts
-                // base64 images & refuses to load remote resources (it shows a
-                // giant black square instead). So skip.
-                //
-                // if (htmlContent) {
-                //     // Allow other handlers.
-                //     console.log(htmlContent);
-                //     return false;
-                // }
-
-                for (const file of files) {
-                    const fileReader = new FileReader();
-                    fileReader.readAsDataURL(file);
-                    fileReader.onload = () => {
-                        const base64 = fileReader.result;
-                        if (base64) {
-                            currentEditor
-                                .chain()
-                                .insertContentAt(
-                                    currentEditor.state.selection.anchor,
-                                    {
-                                        type: "image",
-                                        attrs: {
-                                            src: base64,
-                                        },
-                                    })
-                                .focus()
-                                .run();
-                        }
-                    };
-                }
+            onPaste: (currentEditor, files) => {
+                insertImageFiles(currentEditor, files, () => currentEditor.state.selection.anchor);
             },
         }),
 
@@ -103,6 +81,25 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
             placeholder: "Type a message...",
         }),
     ];
+}
+
+/**
+ * Inserts each file as an embedded (data: URL) image. Files are read
+ * asynchronously, so `position` is called once each is ready.
+ */
+function insertImageFiles(editor: Editor, files: File[], position: () => number) {
+    for (const file of files) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result !== "string") return;
+            editor
+                .chain()
+                .insertContentAt(position(), { type: "image", attrs: { src: reader.result } })
+                .focus()
+                .run();
+        };
+        reader.readAsDataURL(file);
+    }
 }
 
 /**

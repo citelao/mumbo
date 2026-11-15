@@ -34,15 +34,46 @@ function type(editor: Editor, text: string) {
     }
 }
 
-function paste(editor: Editor, { html, text }: { html?: string; text: string }) {
+function paste(editor: Editor, { html, text, files = [] }: { html?: string; text?: string; files?: File[] }) {
     const event = new Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(event, "clipboardData", {
         value: {
-            getData: (type: string) => (type === "text/html" ? (html ?? "") : type === "text/plain" ? text : ""),
-            types: html ? ["text/html", "text/plain"] : ["text/plain"],
+            getData: (type: string) =>
+                type === "text/html" ? (html ?? "") : type === "text/plain" ? (text ?? "") : "",
+            types: [
+                ...(files.length ? ["Files"] : []),
+                ...(html ? ["text/html"] : []),
+                ...(text ? ["text/plain"] : []),
+            ],
+            files,
         },
     });
     editor.view.dom.dispatchEvent(event);
+}
+
+function drop(editor: Editor, files: File[]) {
+    // jsdom has no layout, so ProseMirror can't find a drop position (and
+    // ignores the drop) unless we stub it: the start of the paragraph.
+    editor.view.posAtCoords = () => ({ pos: 1, inside: -1 });
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+        dataTransfer: { value: { types: ["Files"], files, getData: () => "" } },
+        clientX: { value: 0 },
+        clientY: { value: 0 },
+    });
+    editor.view.dom.dispatchEvent(event);
+}
+
+function pngFile() {
+    return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" });
+}
+
+function imageSources(editor: Editor): string[] {
+    const sources: string[] = [];
+    editor.state.doc.descendants((node) => {
+        if (node.type.name === "image") sources.push(node.attrs.src);
+    });
+    return sources;
 }
 
 describe("message HTML", () => {
@@ -127,6 +158,31 @@ describe("isMessageEmpty", () => {
         const editor = makeEditor();
         editor.commands.setContent('<img src="data:image/png;base64,AAAA">');
         expect(isMessageEmpty(editor)).toBe(false);
+    });
+});
+
+describe("images", () => {
+    it("pastes an image file as a data URL", async () => {
+        const editor = makeEditor();
+        paste(editor, { files: [pngFile()] });
+        await vi.waitFor(() => expect(imageSources(editor)).toHaveLength(1));
+        expect(imageSources(editor)[0]).toMatch(/^data:image\/png;base64,/);
+    });
+
+    it("pastes only the file when the clipboard also has HTML for it", async () => {
+        const editor = makeEditor();
+        paste(editor, { files: [pngFile()], html: '<img src="https://example.com/image.png">' });
+        await vi.waitFor(() => expect(imageSources(editor)).toHaveLength(1));
+        // Give a second, unwanted insertion the chance to show up.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(imageSources(editor)).toEqual([expect.stringMatching(/^data:image\/png;base64,/)]);
+    });
+
+    it("drops an image file as a data URL", async () => {
+        const editor = makeEditor();
+        drop(editor, [pngFile()]);
+        await vi.waitFor(() => expect(imageSources(editor)).toHaveLength(1));
+        expect(imageSources(editor)[0]).toMatch(/^data:image\/png;base64,/);
     });
 });
 
@@ -266,8 +322,11 @@ describe("placeholder", () => {
 });
 
 describe("hostile HTML", () => {
-    const ALLOWED_TAGS = new Set(["A", "STRONG", "EM", "U", "CODE", "BR"]);
-    const ALLOWED_ATTRIBUTES: Record<string, string[]> = { A: ["href", "target", "rel"] };
+    const ALLOWED_TAGS = new Set(["A", "STRONG", "EM", "U", "CODE", "BR", "IMG"]);
+    const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
+        A: ["href", "target", "rel"],
+        IMG: ["src", "alt", "title", "width", "height"],
+    };
 
     // Whatever goes in, only our small whitelist may come out.
     function expectOnlySafeHtml(html: string) {
@@ -281,11 +340,18 @@ describe("hostile HTML", () => {
             if (el.tagName === "A") {
                 expect(el.getAttribute("href") ?? "").toMatch(/^(https?:|mailto:)/i);
             }
+            // Only embedded images: remote ones would load (and track) in our
+            // webview, and the official client won't load them anyway.
+            if (el.tagName === "IMG") {
+                expect(el.getAttribute("src") ?? "").toMatch(/^data:image\//);
+            }
         }
     }
 
     const hostile = [
         "<script>alert(1)</script>hi",
+        '<img src="https://evil.example/pixel.png">',
+        '<img src="data:text/html,<script>alert(1)</script>">',
         '<img src=x onerror="alert(1)">',
         '<svg onload="alert(1)"><circle/></svg>',
         '<iframe src="https://evil.example"></iframe>',
