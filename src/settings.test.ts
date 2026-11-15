@@ -168,3 +168,13 @@ describe("SettingsStore.getSettings", () => {
         expect(await settings.getSettings()).toEqual({});
     });
 });
+
+describe("SettingsStore.setTheme", () => {
+    it("persists the theme and keeps other settings", async () => {
+        const { settings } = fakeStore({ settings: { recentServers: [a] } });
+
+        await settings.setTheme("dark");
+
+        expect(await settings.getSettings()).toEqual({ recentServers: [a], theme: "dark" });
+    });
+});

@@ -473,7 +473,7 @@ impl MumbleClient {
                 .unwrap()
                 .channel_id
         };
-        log::trace!(
+        log::info!(
             "Sending text message: {} to channel: {:?}",
             message,
             channel_id
@@ -494,7 +494,7 @@ impl MumbleClient {
         message: String,
         session: Vec<u32>,
     ) -> Result<(), MumbleConnectionError> {
-        log::trace!("Sending text message: {} to user: {:?}", message, session);
+        log::info!("Sending text message: {} to user: {:?}", message, session);
         self.send(crate::ClientToServerMessage::TextMessage(
             crate::raw::TextMessage {
                 message: message.clone(),

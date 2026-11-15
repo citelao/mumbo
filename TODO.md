@@ -2,6 +2,10 @@
 
 Work tracker.
 
+## General UI
+
+- [ ] Support dark mode colors in app (central colors)
+
 ## State
 
 - [x] UI needs to work
@@ -29,6 +33,7 @@ Work tracker.
 - [x] Output & input device selection
 - [ ] Device selection during a call
 - [x] Hook up audio selectors
+- [ ] BUG: AEC should use full system audio, since that shouldn't be included.
 - [ ] Device configuration (e.g. mono/stereo, bitrate resampling)
 - [ ] Per-speaker auto-gain before summing, so one loud mic doesn't dominate
 - [ ] Other speaker local volume adjustment
@@ -39,10 +44,12 @@ Work tracker.
 - [ ] Use Mumble's `frame_number` for NetEq sequence/timestamps before moving voice to UDP
 - [ ] BUG: tapping the microphone on a mac seems to trigger audio, even though no speech is present.
 - [ ] Streaming a pure tone through NetEq in real time comes out ~2% sharp (450 Hz for 440 Hz): accelerate removes ~23% of the audio to hold a 20 ms target delay. Check speech for artifacts; consider a higher `min_delay_ms` (see the e2e test in lib.rs)
+- [ ] Notification sounds
 
 ## Users
 - [ ] Profile pics
 - [ ] Comments
+- [ ] Comments with images
 - [ ] Signed accounts
 - [ ] Local nicknames (only seems to work with certificated users)
 - [ ] Information screen with stats (& cert?)?
@@ -64,7 +71,8 @@ Work tracker.
 - [ ] Distinguish channel vs global messages
 - [x] Send DMs
 - [ ] Send actual DMs, with nice UI
-- [ ] Support mrkdwn & wysiwyg chat messages
+- [x] Support ~~mrkdwn &~~ wysiwyg chat messages
+- [ ] Support chat images. Mumble has no upload protocol: an image is a `TextMessage` whose HTML has `<img src="data:image/...;base64,...">`. Should be limited to `image_message_length`.
 - [ ] Notifications?
 - [ ] Notification settings
 - [ ] TTS for messages?
@@ -77,4 +85,5 @@ Work tracker.
 - [ ] Show common public servers?
 - [ ] Save passwords for recent servers in the OS keychain (`keyring` crate), not in the plain-JSON store
 - [ ] Include a help link
+- [ ] BUG: servers that are offline still appear in recents (should show error)
 - [ ] Join URLs (including to channels)

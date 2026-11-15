@@ -8,8 +8,13 @@ const ServerSchema = z.object({
     password: z.string().optional(),
 });
 
+const ThemeSchema = z.enum(['system', 'light', 'dark']);
+export type Theme = z.infer<typeof ThemeSchema>;
+
 const SettingsSchema = z.object({
-    recentServers: z.array(ServerSchema).optional()
+    recentServers: z.array(ServerSchema).optional(),
+
+    theme: ThemeSchema.optional()
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -52,6 +57,12 @@ export default class SettingsStore {
     async saveSettings(settings: Settings): Promise<void> {
         await this.store.set("settings", settings);
         await this.store.save();
+    }
+
+    async setTheme(theme: Theme): Promise<void> {
+        const settings = await this.getSettings();
+        settings.theme = theme;
+        await this.saveSettings(settings);
     }
 
     async addRecentServer(server: Server): Promise<void> {

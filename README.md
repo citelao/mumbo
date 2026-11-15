@@ -37,6 +37,18 @@ Connect with `localhost:64738`, password `test` by default. See `dev/mumble-serv
 npm run tauri build
 ```
 
+#### Flatpak
+
+The flatpak is built from source against the GNOME runtime (see `packaging/flatpak/`):
+
+```bash
+flatpak-builder --user --install-deps-from=flathub --force-clean --install \
+  flatpak-build packaging/flatpak/com.citelao.mumbo.yml
+flatpak run com.citelao.mumbo
+```
+
+To run a build without installing it, use `flatpak-builder --run flatpak-build packaging/flatpak/com.citelao.mumbo.yml env WAYLAND_DISPLAY=$WAYLAND_DISPLAY mumbo`. `--run` mounts the Wayland socket but doesn't set `WAYLAND_DISPLAY`, so GTK fails to initialize without it.
+
 ## Recommended IDE Setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)

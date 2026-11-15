@@ -1,0 +1,59 @@
+// Colors!
+//
+// Prefer CSS system colors (Canvas, LinkText, ...). Only add a light/dark pair
+// under $themed when no system color fits.
+
+$system: (
+  "text": CanvasText,
+  // GrayText resolves to a very faint gray in WebKit, giving poor placeholder
+  // contrast, so derive it from the text color.
+  "text-secondary": color-mix(in srgb, CanvasText 55%, var(--color-background)),
+
+  "link": LinkText,
+  "link-hover": ActiveText,
+
+  // No system color is reliably visible as a plain border in every webview
+  // (ButtonBorder is faint or transparent in some), so tint the page background
+  // with the text color. The same trick gives subtle highlights.
+  "border": color-mix(in srgb, CanvasText 25%, var(--color-background)),
+  // A much subtler border for code blocks, derived from the text color.
+  "border-code": color-mix(in srgb, CanvasText 15%, var(--color-background)),
+
+  "row-hover-background": color-mix(in srgb, CanvasText 10%, var(--color-background)),
+);
+
+// name: (light, dark)
+$themed: (
+  // Tinted gray page background; closer to native than pure Canvas.
+  "background": (#f6f6f6, #2f2f2f),
+
+  // What WebKit paints for a native <input> (probed in a WKWebView): white in
+  // light, rgb(30 30 30) in dark. The Field keyword is translucent in dark, so
+  // it's not used.
+  "input-background": (#fff, #1e1e1e),
+
+  "text-code": (#c7254e, #f8f8f2),
+  "error": (#d33, #ff6b6b),
+);
+
+@use "sass:list";
+
+:root {
+  color-scheme: light dark;
+
+  @each $name, $value in $system {
+    --color-#{$name}: #{$value};
+  }
+
+  @each $name, $pair in $themed {
+    --color-#{$name}: #{list.nth($pair, 1)};
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    @each $name, $pair in $themed {
+      --color-#{$name}: #{list.nth($pair, 2)};
+    }
+  }
+}

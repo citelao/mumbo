@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAudio Tester</title>
+</head>
+<body>
+    <h1>WebAudio Tester</h1>
+
+    <!-- Level meter -->
+    <progress id="level-meter" max="1" value="0"></progress>
+    <span id="level-text"></span>
+
+    <button id="start-stop">Start</button>
+
+    <!-- Capture processing; takes effect on the next Start -->
+    <fieldset>
+        <legend>Processing</legend>
+        <label><input type="checkbox" id="echo-cancellation" checked> echo cancellation</label>
+        <label><input type="checkbox" id="noise-suppression" checked> noise suppression</label>
+        <label><input type="checkbox" id="auto-gain-control" checked> auto gain control</label>
+    </fieldset>
+
+    <!-- One recording per Start/Stop -->
+    <h2>Recordings</h2>
+    <ul id="recordings"></ul>
+
+    <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

@@ -8,6 +8,8 @@ import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { useEditor, EditorContent } from '@tiptap/react';
+import { createChatExtensions, getMessageHtml } from '../chatEditor';
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -169,6 +171,17 @@ export function MainPage(props: MainPageProps) {
         return renderChannel(node.value, node.children.map(child => child.value));
     };
 
+    const sendCurrentMessage = () => {
+        if (!editor || editor.getText().trim().length === 0) return;
+        props.onSendMessage(getMessageHtml(editor));
+        editor.commands.clearContent();
+    };
+
+    const editor = useEditor({
+        extensions: createChatExtensions({ onSend: () => sendCurrentMessage() }),
+        content: '',
+    });
+
     return (
         <>
             <main className={[styles.container, "container"].join(" ")}>
@@ -218,23 +231,20 @@ export function MainPage(props: MainPageProps) {
                             );
                         })}
                     </ol>
-                    <form onSubmit={(e) => {
-                        e.preventDefault();
-                        const input = e.currentTarget.querySelector('input[type="text"]') as HTMLInputElement;
-                        if (input && input.value.trim() !== "") {
-                            props.onSendMessage(input.value.trim());
-                            input.value = "";
+                    {/* <label>
+                        Chat
+                        <input type="text" placeholder="Message" onKeyUp={(e) => {
+                            if (e.key === "Enter") {
+                                e.currentTarget.form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+                            }
+                        }} />
+                    </label> */}
+
+                    <EditorContent editor={editor} className={styles.editor} onKeyUp={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                            sendCurrentMessage();
                         }
-                    }}>
-                        <label>
-                            Chat
-                            <input type="text" placeholder="Message" onKeyUp={(e) => {
-                                if (e.key === "Enter") {
-                                    e.currentTarget.form?.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-                                }
-                            }} />
-                        </label>
-                    </form>
+                    }} />
                 </section>
             </main>
             <ProtocolViewer entries={props.protocolLog} onClear={props.onClearProtocolLog} />
