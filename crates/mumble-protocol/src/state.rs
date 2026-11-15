@@ -392,6 +392,10 @@ impl MumbleState {
                 }
             }
 
+            // TODO: surface PermissionDenied (e.g. TextTooLong) to the user,
+            // like the official client's "Denied: Text message too long." It
+            // carries no message ID, so it can't be tied to a specific message.
+            //
             // // Permission denied can be fired when TextTooLong
             // crate::ServerToClientMessage::PermissionDenied(m) => {
             //     match m.r#type() {
