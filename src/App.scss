@@ -16,6 +16,19 @@
   -webkit-text-size-adjust: 100%;
 }
 
+/* Touchscreens (phones): iOS zooms the page into any focused text field under
+   16px, and 12px is too small to read and tap anyway. */
+@media (pointer: coarse) {
+  :root {
+    font-size: 16px;
+  }
+
+  /* Form controls don't inherit font size by default. */
+  input, select, textarea, button {
+    font-size: inherit;
+  }
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   font-family: inherit;
