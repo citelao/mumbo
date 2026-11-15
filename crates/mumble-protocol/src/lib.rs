@@ -9,43 +9,97 @@ pub mod raw_udp {
     include!(concat!(env!("OUT_DIR"), "/mumble_udp.rs"));
 }
 
+pub mod client;
 pub mod codec;
 pub mod state;
-pub mod client;
 
 pub trait TcpMessageId: prost::Message + Default {
     const TYPE_ID: u16;
 }
 
 // https://github.com/mumble-voip/mumble/blob/master/docs/dev/network-protocol/protocol_stack_tcp.md
-impl TcpMessageId for raw::Version { const TYPE_ID: u16 = 0; }
-impl TcpMessageId for raw::UdpTunnel { const TYPE_ID: u16 = 1; }
-impl TcpMessageId for raw::Authenticate { const TYPE_ID: u16 = 2; }
-impl TcpMessageId for raw::Ping { const TYPE_ID: u16 = 3; }
-impl TcpMessageId for raw::Reject { const TYPE_ID: u16 = 4; }
-impl TcpMessageId for raw::ServerSync { const TYPE_ID: u16 = 5; }
-impl TcpMessageId for raw::ChannelRemove { const TYPE_ID: u16 = 6; }
-impl TcpMessageId for raw::ChannelState { const TYPE_ID: u16 = 7; }
-impl TcpMessageId for raw::UserRemove { const TYPE_ID: u16 = 8; }
-impl TcpMessageId for raw::UserState { const TYPE_ID: u16 = 9; }
-impl TcpMessageId for raw::BanList { const TYPE_ID: u16 = 10; }
-impl TcpMessageId for raw::TextMessage { const TYPE_ID: u16 = 11; }
-impl TcpMessageId for raw::PermissionDenied { const TYPE_ID: u16 = 12; }
-impl TcpMessageId for raw::Acl { const TYPE_ID: u16 = 13; }
-impl TcpMessageId for raw::QueryUsers { const TYPE_ID: u16 = 14; }
-impl TcpMessageId for raw::CryptSetup { const TYPE_ID: u16 = 15; }
+impl TcpMessageId for raw::Version {
+    const TYPE_ID: u16 = 0;
+}
+impl TcpMessageId for raw::UdpTunnel {
+    const TYPE_ID: u16 = 1;
+}
+impl TcpMessageId for raw::Authenticate {
+    const TYPE_ID: u16 = 2;
+}
+impl TcpMessageId for raw::Ping {
+    const TYPE_ID: u16 = 3;
+}
+impl TcpMessageId for raw::Reject {
+    const TYPE_ID: u16 = 4;
+}
+impl TcpMessageId for raw::ServerSync {
+    const TYPE_ID: u16 = 5;
+}
+impl TcpMessageId for raw::ChannelRemove {
+    const TYPE_ID: u16 = 6;
+}
+impl TcpMessageId for raw::ChannelState {
+    const TYPE_ID: u16 = 7;
+}
+impl TcpMessageId for raw::UserRemove {
+    const TYPE_ID: u16 = 8;
+}
+impl TcpMessageId for raw::UserState {
+    const TYPE_ID: u16 = 9;
+}
+impl TcpMessageId for raw::BanList {
+    const TYPE_ID: u16 = 10;
+}
+impl TcpMessageId for raw::TextMessage {
+    const TYPE_ID: u16 = 11;
+}
+impl TcpMessageId for raw::PermissionDenied {
+    const TYPE_ID: u16 = 12;
+}
+impl TcpMessageId for raw::Acl {
+    const TYPE_ID: u16 = 13;
+}
+impl TcpMessageId for raw::QueryUsers {
+    const TYPE_ID: u16 = 14;
+}
+impl TcpMessageId for raw::CryptSetup {
+    const TYPE_ID: u16 = 15;
+}
 
-impl TcpMessageId for raw::ContextActionModify { const TYPE_ID: u16 = 16; }
-impl TcpMessageId for raw::ContextAction { const TYPE_ID: u16 = 17; }
-impl TcpMessageId for raw::UserList { const TYPE_ID: u16 = 18; }
-impl TcpMessageId for raw::VoiceTarget { const TYPE_ID: u16 = 19; }
-impl TcpMessageId for raw::PermissionQuery { const TYPE_ID: u16 = 20; }
-impl TcpMessageId for raw::CodecVersion { const TYPE_ID: u16 = 21; }
-impl TcpMessageId for raw::UserStats { const TYPE_ID: u16 = 22; }
-impl TcpMessageId for raw::RequestBlob { const TYPE_ID: u16 = 23; }
-impl TcpMessageId for raw::ServerConfig { const TYPE_ID: u16 = 24; }
-impl TcpMessageId for raw::SuggestConfig { const TYPE_ID: u16 = 25; }
-impl TcpMessageId for raw::PluginDataTransmission { const TYPE_ID: u16 = 26; }
+impl TcpMessageId for raw::ContextActionModify {
+    const TYPE_ID: u16 = 16;
+}
+impl TcpMessageId for raw::ContextAction {
+    const TYPE_ID: u16 = 17;
+}
+impl TcpMessageId for raw::UserList {
+    const TYPE_ID: u16 = 18;
+}
+impl TcpMessageId for raw::VoiceTarget {
+    const TYPE_ID: u16 = 19;
+}
+impl TcpMessageId for raw::PermissionQuery {
+    const TYPE_ID: u16 = 20;
+}
+impl TcpMessageId for raw::CodecVersion {
+    const TYPE_ID: u16 = 21;
+}
+impl TcpMessageId for raw::UserStats {
+    const TYPE_ID: u16 = 22;
+}
+impl TcpMessageId for raw::RequestBlob {
+    const TYPE_ID: u16 = 23;
+}
+impl TcpMessageId for raw::ServerConfig {
+    const TYPE_ID: u16 = 24;
+}
+impl TcpMessageId for raw::SuggestConfig {
+    const TYPE_ID: u16 = 25;
+}
+impl TcpMessageId for raw::PluginDataTransmission {
+    const TYPE_ID: u16 = 26;
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -58,8 +112,12 @@ pub trait UdpMessageId: prost::Message + Default {
     const TYPE_ID: u8;
 }
 
-impl UdpMessageId for raw_udp::Audio { const TYPE_ID: u8 = 0; }
-impl UdpMessageId for raw_udp::Ping { const TYPE_ID: u8 = 1; }
+impl UdpMessageId for raw_udp::Audio {
+    const TYPE_ID: u8 = 0;
+}
+impl UdpMessageId for raw_udp::Ping {
+    const TYPE_ID: u8 = 1;
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -86,34 +144,73 @@ impl ServerToClientMessage {
         let message = match msg_type {
             raw::Version::TYPE_ID => ServerToClientMessage::Version(raw::Version::decode(payload)?),
             raw::UdpTunnel::TYPE_ID => {
-                let (&udp_type, rest) = payload.split_first().ok_or_else(|| Error::new(std::io::ErrorKind::InvalidData, "Empty UDP payload"))?;
+                let (&udp_type, rest) = payload.split_first().ok_or_else(|| {
+                    Error::new(std::io::ErrorKind::InvalidData, "Empty UDP payload")
+                })?;
                 match udp_type {
-                    raw_udp::Audio::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(raw_udp::Audio::decode(rest)?)),
-                    raw_udp::Ping::TYPE_ID => ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping::decode(rest)?)),
-                    _ => return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown UDP message type: {}", udp_type))),
+                    raw_udp::Audio::TYPE_ID => ServerToClientMessage::UdpTunnel(
+                        ServerToClientUdpMessage::Audio(raw_udp::Audio::decode(rest)?),
+                    ),
+                    raw_udp::Ping::TYPE_ID => ServerToClientMessage::UdpTunnel(
+                        ServerToClientUdpMessage::Ping(raw_udp::Ping::decode(rest)?),
+                    ),
+                    _ => {
+                        return Err(Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("Unknown UDP message type: {}", udp_type),
+                        ));
+                    }
                 }
-            },
+            }
             raw::Ping::TYPE_ID => ServerToClientMessage::Ping(raw::Ping::decode(payload)?),
             raw::Reject::TYPE_ID => ServerToClientMessage::Reject(raw::Reject::decode(payload)?),
-            raw::ChannelRemove::TYPE_ID => ServerToClientMessage::ChannelRemove(raw::ChannelRemove::decode(payload)?),
-            raw::ChannelState::TYPE_ID => ServerToClientMessage::ChannelState(raw::ChannelState::decode(payload)?),
-            raw::ServerSync::TYPE_ID => ServerToClientMessage::ServerSync(raw::ServerSync::decode(payload)?),
-            raw::UserRemove::TYPE_ID => ServerToClientMessage::UserRemove(raw::UserRemove::decode(payload)?),
-            raw::UserState::TYPE_ID => ServerToClientMessage::UserState(raw::UserState::decode(payload)?),
-            raw::TextMessage::TYPE_ID => ServerToClientMessage::TextMessage(raw::TextMessage::decode(payload)?),
-            raw::CryptSetup::TYPE_ID => ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(payload)?),
-            raw::PermissionQuery::TYPE_ID => ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(payload)?),
-            raw::PermissionDenied::TYPE_ID => ServerToClientMessage::PermissionDenied(raw::PermissionDenied::decode(payload)?),
-            raw::CodecVersion::TYPE_ID => ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(payload)?),
-            raw::ServerConfig::TYPE_ID => ServerToClientMessage::ServerConfig(raw::ServerConfig::decode(payload)?),
+            raw::ChannelRemove::TYPE_ID => {
+                ServerToClientMessage::ChannelRemove(raw::ChannelRemove::decode(payload)?)
+            }
+            raw::ChannelState::TYPE_ID => {
+                ServerToClientMessage::ChannelState(raw::ChannelState::decode(payload)?)
+            }
+            raw::ServerSync::TYPE_ID => {
+                ServerToClientMessage::ServerSync(raw::ServerSync::decode(payload)?)
+            }
+            raw::UserRemove::TYPE_ID => {
+                ServerToClientMessage::UserRemove(raw::UserRemove::decode(payload)?)
+            }
+            raw::UserState::TYPE_ID => {
+                ServerToClientMessage::UserState(raw::UserState::decode(payload)?)
+            }
+            raw::TextMessage::TYPE_ID => {
+                ServerToClientMessage::TextMessage(raw::TextMessage::decode(payload)?)
+            }
+            raw::CryptSetup::TYPE_ID => {
+                ServerToClientMessage::CryptSetup(raw::CryptSetup::decode(payload)?)
+            }
+            raw::PermissionQuery::TYPE_ID => {
+                ServerToClientMessage::PermissionQuery(raw::PermissionQuery::decode(payload)?)
+            }
+            raw::PermissionDenied::TYPE_ID => {
+                ServerToClientMessage::PermissionDenied(raw::PermissionDenied::decode(payload)?)
+            }
+            raw::CodecVersion::TYPE_ID => {
+                ServerToClientMessage::CodecVersion(raw::CodecVersion::decode(payload)?)
+            }
+            raw::ServerConfig::TYPE_ID => {
+                ServerToClientMessage::ServerConfig(raw::ServerConfig::decode(payload)?)
+            }
             _ => {
-                return Err(Error::new(std::io::ErrorKind::InvalidData, format!("Unknown message type: {} (size: {})", msg_type, payload.len())));
+                return Err(Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Unknown message type: {} (size: {})",
+                        msg_type,
+                        payload.len()
+                    ),
+                ));
             }
         };
         Ok(message)
     }
 }
-
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ClientToServerUdpMessage {
@@ -141,13 +238,18 @@ impl ClientToServerMessage {
                     let mut payload = vec![raw_udp::Audio::TYPE_ID];
                     payload.extend(audio.encode_to_vec());
                     Ok((raw::UdpTunnel::TYPE_ID, payload))
-                }
-                // ClientToServerUdpMessage::Ping(ping) => Ok((raw_udp::Ping::TYPE_ID, ping.encode_to_vec())),
+                } // ClientToServerUdpMessage::Ping(ping) => Ok((raw_udp::Ping::TYPE_ID, ping.encode_to_vec())),
             },
-            ClientToServerMessage::Authenticate(msg) => Ok((raw::Authenticate::TYPE_ID, msg.encode_to_vec())),
+            ClientToServerMessage::Authenticate(msg) => {
+                Ok((raw::Authenticate::TYPE_ID, msg.encode_to_vec()))
+            }
             ClientToServerMessage::Ping(msg) => Ok((raw::Ping::TYPE_ID, msg.encode_to_vec())),
-            ClientToServerMessage::TextMessage(msg) => Ok((raw::TextMessage::TYPE_ID, msg.encode_to_vec())),
-            ClientToServerMessage::UserState(msg) => Ok((raw::UserState::TYPE_ID, msg.encode_to_vec())),
+            ClientToServerMessage::TextMessage(msg) => {
+                Ok((raw::TextMessage::TYPE_ID, msg.encode_to_vec()))
+            }
+            ClientToServerMessage::UserState(msg) => {
+                Ok((raw::UserState::TYPE_ID, msg.encode_to_vec()))
+            }
         }
     }
 }
@@ -219,20 +321,38 @@ mod tests {
             ServerToClientMessage::ServerConfig(Default::default()),
         ];
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../fixtures/server_to_client_messages.json")).unwrap();
+            serde_json::from_str(include_str!("../fixtures/server_to_client_messages.json"))
+                .unwrap();
 
         assert_eq!(serde_json::to_value(&samples).unwrap(), fixture);
 
         let covered: std::collections::BTreeSet<_> = samples.iter().map(variant_name).collect();
-        assert_eq!(covered, EVERY_VARIANT.iter().copied().collect(), "every variant needs a sample");
+        assert_eq!(
+            covered,
+            EVERY_VARIANT.iter().copied().collect(),
+            "every variant needs a sample"
+        );
     }
 
     /// Every variant, including UDP subtypes. Keep in sync with `variant_name`,
     /// whose exhaustive match stops compiling when a variant is added.
     const EVERY_VARIANT: &[&str] = &[
-        "Version", "UdpTunnel/Audio", "UdpTunnel/Ping", "Ping", "Reject", "ServerSync", "ChannelRemove",
-        "ChannelState", "UserRemove", "UserState", "TextMessage", "PermissionDenied", "CryptSetup",
-        "PermissionQuery", "CodecVersion", "ServerConfig",
+        "Version",
+        "UdpTunnel/Audio",
+        "UdpTunnel/Ping",
+        "Ping",
+        "Reject",
+        "ServerSync",
+        "ChannelRemove",
+        "ChannelState",
+        "UserRemove",
+        "UserState",
+        "TextMessage",
+        "PermissionDenied",
+        "CryptSetup",
+        "PermissionQuery",
+        "CodecVersion",
+        "ServerConfig",
     ];
 
     // No `_ =>` arm on purpose: adding a variant fails to compile here, as a
@@ -240,7 +360,9 @@ mod tests {
     fn variant_name(message: &ServerToClientMessage) -> &'static str {
         match message {
             ServerToClientMessage::Version(_) => "Version",
-            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) => "UdpTunnel/Audio",
+            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Audio(_)) => {
+                "UdpTunnel/Audio"
+            }
             ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(_)) => "UdpTunnel/Ping",
             ServerToClientMessage::Ping(_) => "Ping",
             ServerToClientMessage::Reject(_) => "Reject",
@@ -274,10 +396,11 @@ mod tests {
 
     #[test]
     fn udp_tunnel_message_serializes_nested_tag() {
-        let message = ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping {
-            timestamp: 1,
-            ..Default::default()
-        }));
+        let message =
+            ServerToClientMessage::UdpTunnel(ServerToClientUdpMessage::Ping(raw_udp::Ping {
+                timestamp: 1,
+                ..Default::default()
+            }));
 
         let json = serde_json::to_value(&message).unwrap();
         assert_eq!(json["type"], "UdpTunnel");

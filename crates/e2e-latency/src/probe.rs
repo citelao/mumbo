@@ -56,7 +56,9 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
                 return Err("connection closed before enough audio arrived");
             };
             let received = now_nanos();
-            let Some(sent) = audio.opus_data.get(..8) else { continue };
+            let Some(sent) = audio.opus_data.get(..8) else {
+                continue;
+            };
             let sent = u64::from_le_bytes(sent.try_into().unwrap());
 
             seen += 1;
@@ -69,7 +71,9 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
         }
         Ok(())
     };
-    tokio::time::timeout(timeout, collect).await.map_err(|_| "timed out waiting for audio")??;
+    tokio::time::timeout(timeout, collect)
+        .await
+        .map_err(|_| "timed out waiting for audio")??;
 
     let expected = (last_frame - first_frame.unwrap() + 1) as f64;
     let loss_pct = 100.0 * (1.0 - latencies_ms.len() as f64 / expected);

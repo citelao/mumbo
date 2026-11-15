@@ -1,4 +1,8 @@
-use std::{env, str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{
+    env,
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use mumble_protocol::client::{Connection, ConnectionOptions, connect};
 
@@ -7,7 +11,9 @@ where
     T::Err: std::fmt::Debug,
 {
     match env::var(key) {
-        Ok(v) => v.parse().unwrap_or_else(|e| panic!("bad {key}={v:?}: {e:?}")),
+        Ok(v) => v
+            .parse()
+            .unwrap_or_else(|e| panic!("bad {key}={v:?}: {e:?}")),
         Err(_) => default,
     }
 }
@@ -15,7 +21,10 @@ where
 /// Wall-clock time in unix nanos. Containers on one compose network share a
 /// clock, so these are comparable across processes.
 pub fn now_nanos() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
 
 pub async fn connect_with_retry(name: String) -> Connection {

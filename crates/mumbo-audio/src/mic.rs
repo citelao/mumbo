@@ -1,7 +1,10 @@
 use std::io::Error;
 
 use opus::Channels::Mono;
-use sonora::{AudioProcessing, Config, StreamConfig, config::{AdaptiveDigital, EchoCanceller, GainController2}};
+use sonora::{
+    AudioProcessing, Config, StreamConfig,
+    config::{AdaptiveDigital, EchoCanceller, GainController2},
+};
 
 use crate::PipelineError;
 
@@ -79,13 +82,22 @@ impl MicResampler {
             .map_err(Error::other)?,
         );
         let scratch = vec![0.0; rubato::Resampler::output_frames_max(&*resampler)];
-        Ok(Self::Resample { resampler, pending: Vec::new(), scratch })
+        Ok(Self::Resample {
+            resampler,
+            pending: Vec::new(),
+            scratch,
+        })
     }
 
     /// Appends the 48 kHz version of `input` to `output`. Input that doesn't
     /// fill a whole chunk yet is kept for the next call.
     fn process(&mut self, input: &[f32], output: &mut Vec<f32>) -> Result<(), Error> {
-        let Self::Resample { resampler, pending, scratch } = self else {
+        let Self::Resample {
+            resampler,
+            pending,
+            scratch,
+        } = self
+        else {
             output.extend_from_slice(input);
             return Ok(());
         };
@@ -97,9 +109,11 @@ impl MicResampler {
         while pending.len() - consumed >= resampler.input_frames_next() {
             let frames_in = resampler.input_frames_next();
             let frames_out = scratch.len();
-            let chunk_in = InterleavedSlice::new(&pending[consumed..consumed + frames_in], 1, frames_in)
-                .map_err(Error::other)?;
-            let mut chunk_out = InterleavedSlice::new_mut(&mut scratch[..], 1, frames_out).map_err(Error::other)?;
+            let chunk_in =
+                InterleavedSlice::new(&pending[consumed..consumed + frames_in], 1, frames_in)
+                    .map_err(Error::other)?;
+            let mut chunk_out =
+                InterleavedSlice::new_mut(&mut scratch[..], 1, frames_out).map_err(Error::other)?;
             let (used, written) = resampler
                 .process_into_buffer(&chunk_in, &mut chunk_out, None)
                 .map_err(Error::other)?;
@@ -246,7 +260,9 @@ impl MicPipeline {
                 self.denoiser.process(&mut processed);
             }
 
-            let transmit = self.voice_gate.update(self.speech_detector.is_speech(&processed));
+            let transmit = self
+                .voice_gate
+                .update(self.speech_detector.is_speech(&processed));
             if transmit == Transmit::Start {
                 // Start each burst fresh rather than from the end of the
                 // previous one, which may have been minutes ago.
@@ -276,15 +292,20 @@ mod tests {
     fn audio_processing_accepts_48k_mono_frames() {
         let mut apm = audio_processing(Config::default());
         let mut capture_out = vec![0.0f32; MIC_FRAME_SAMPLES];
-        apm.process_capture_f32(&[&[0.1f32; MIC_FRAME_SAMPLES]], &mut [&mut capture_out]).unwrap();
+        apm.process_capture_f32(&[&[0.1f32; MIC_FRAME_SAMPLES]], &mut [&mut capture_out])
+            .unwrap();
         let mut render_out = [0i16; crate::speaker::SPEAKER_FRAME_SAMPLES];
-        apm.process_render_i16(&[1000i16; crate::speaker::SPEAKER_FRAME_SAMPLES], &mut render_out).unwrap();
+        apm.process_render_i16(
+            &[1000i16; crate::speaker::SPEAKER_FRAME_SAMPLES],
+            &mut render_out,
+        )
+        .unwrap();
     }
-
 
     #[test]
     fn mic_audio_at_48_khz_passes_through_unchanged() {
-        let mut resampler = MicResampler::new(DESIRED_INPUT_SAMPLE_RATE, DESIRED_INPUT_SAMPLE_RATE).unwrap();
+        let mut resampler =
+            MicResampler::new(DESIRED_INPUT_SAMPLE_RATE, DESIRED_INPUT_SAMPLE_RATE).unwrap();
         let input = sine(440.0, DESIRED_INPUT_SAMPLE_RATE, 4800);
 
         let mut output = Vec::new();
@@ -304,14 +325,17 @@ mod tests {
         }
 
         // About one second at 48 kHz: the clock is preserved…
-        assert!((47_000..=48_000).contains(&output.len()), "got {} samples", output.len());
+        assert!(
+            (47_000..=48_000).contains(&output.len()),
+            "got {} samples",
+            output.len()
+        );
         // …and so is the pitch. Treating 44.1 kHz audio as 48 kHz without
         // resampling would shift 440 Hz up to ~479 Hz (the "mousy" bug).
-        let settled = &output[4800..];   // skip the resampler's startup delay
+        let settled = &output[4800..]; // skip the resampler's startup delay
         assert!(tone_strength(settled, 440.0) > 0.4, "440 Hz missing");
         assert!(tone_strength(settled, 479.0) < 0.05, "pitch shifted up");
     }
-
 
     /// 10 ms frames of a speech-like sound: a 140 Hz voice with harmonics,
     /// pulsing at a syllable-ish 4 Hz.
@@ -320,10 +344,13 @@ mod tests {
             .map(|frame| {
                 (0..MIC_FRAME_SAMPLES)
                     .map(|i| {
-                        let t = (frame * MIC_FRAME_SAMPLES + i) as f32 / DESIRED_INPUT_SAMPLE_RATE as f32;
+                        let t = (frame * MIC_FRAME_SAMPLES + i) as f32
+                            / DESIRED_INPUT_SAMPLE_RATE as f32;
                         let envelope = 0.5 + 0.5 * (t * 4.0 * std::f32::consts::TAU).sin();
                         let voice: f32 = (1..25)
-                            .map(|k| (t * 140.0 * k as f32 * std::f32::consts::TAU).sin() / k as f32)
+                            .map(|k| {
+                                (t * 140.0 * k as f32 * std::f32::consts::TAU).sin() / k as f32
+                            })
                             .sum();
                         0.15 * envelope * voice
                     })
@@ -337,11 +364,13 @@ mod tests {
     /// the loudest output sample.
     fn voice_through_the_mic_processing(gain: f32) -> (f32, f32, f32) {
         let mut apm = audio_processing(apm_config());
-        let (mut input_energy, mut output_energy, mut peak, mut samples) = (0.0f32, 0.0f32, 0.0f32, 0usize);
+        let (mut input_energy, mut output_energy, mut peak, mut samples) =
+            (0.0f32, 0.0f32, 0.0f32, 0usize);
         for (n, frame) in voiced_frames(800).iter().enumerate() {
             let input: Vec<f32> = frame.iter().map(|s| s * gain).collect();
             let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
-            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            apm.process_capture_f32(&[&input], &mut [&mut output])
+                .unwrap();
             if n >= 700 {
                 input_energy += input.iter().map(|s| s * s).sum::<f32>();
                 output_energy += output.iter().map(|s| s * s).sum::<f32>();
@@ -349,14 +378,24 @@ mod tests {
                 samples += input.len();
             }
         }
-        ((input_energy / samples as f32).sqrt(), (output_energy / samples as f32).sqrt(), peak)
+        (
+            (input_energy / samples as f32).sqrt(),
+            (output_energy / samples as f32).sqrt(),
+            peak,
+        )
     }
 
     #[test]
     fn a_quiet_voice_is_brought_up_to_a_normal_level() {
         let (heard, sent, _) = voice_through_the_mic_processing(0.1);
-        eprintln!("quiet voice: in {heard}, out {sent}, boost {:.1} dB", 20.0 * (sent / heard).log10());
-        assert!(sent > 2.0 * heard, "a quiet voice was sent at {sent} from {heard}: barely louder");
+        eprintln!(
+            "quiet voice: in {heard}, out {sent}, boost {:.1} dB",
+            20.0 * (sent / heard).log10()
+        );
+        assert!(
+            sent > 2.0 * heard,
+            "a quiet voice was sent at {sent} from {heard}: barely louder"
+        );
     }
 
     #[test]
@@ -379,7 +418,8 @@ mod tests {
                 })
                 .collect();
             let mut output = vec![0.0f32; MIC_FRAME_SAMPLES];
-            apm.process_capture_f32(&[&input], &mut [&mut output]).unwrap();
+            apm.process_capture_f32(&[&input], &mut [&mut output])
+                .unwrap();
             if n >= 700 {
                 energy += output.iter().map(|s| s * s).sum::<f32>();
             }
@@ -393,7 +433,10 @@ mod tests {
     fn speech_detector_hears_a_voice() {
         let mut detector = SpeechDetector::new(DESIRED_INPUT_SAMPLE_RATE);
 
-        let speech = voiced_frames(10).iter().filter(|frame| detector.is_speech(frame)).count();
+        let speech = voiced_frames(10)
+            .iter()
+            .filter(|frame| detector.is_speech(frame))
+            .count();
 
         // The detector needs a frame or two to react.
         assert!(speech >= 8, "only {speech} of 10 voiced frames were speech");
@@ -414,7 +457,9 @@ mod tests {
     fn speech_detector_ignores_silence() {
         let mut detector = SpeechDetector::new(DESIRED_INPUT_SAMPLE_RATE);
 
-        let speech = (0..10).filter(|_| detector.is_speech(&[0.0; MIC_FRAME_SAMPLES])).count();
+        let speech = (0..10)
+            .filter(|_| detector.is_speech(&[0.0; MIC_FRAME_SAMPLES]))
+            .count();
 
         assert_eq!(speech, 0);
     }
@@ -435,7 +480,11 @@ mod tests {
         for _ in 0..VOICE_HOLD_FRAMES - 1 {
             assert_eq!(gate.update(false), Transmit::Continue);
         }
-        assert_eq!(gate.update(true), Transmit::Continue, "the pause should not end the burst");
+        assert_eq!(
+            gate.update(true),
+            Transmit::Continue,
+            "the pause should not end the burst"
+        );
     }
 
     #[test]
@@ -443,10 +492,24 @@ mod tests {
         let mut gate = VoiceGate::default();
 
         gate.update(true);
-        let after: Vec<Transmit> = (0..VOICE_HOLD_FRAMES + 1).map(|_| gate.update(false)).collect();
+        let after: Vec<Transmit> = (0..VOICE_HOLD_FRAMES + 1)
+            .map(|_| gate.update(false))
+            .collect();
 
-        assert!(after[..VOICE_HOLD_FRAMES - 1].iter().all(|t| *t == Transmit::Continue), "{after:?}");
-        assert_eq!(after[VOICE_HOLD_FRAMES - 1..], [Transmit::End, Transmit::Skip]);
-        assert_eq!(gate.update(true), Transmit::Start, "new speech starts a new burst");
+        assert!(
+            after[..VOICE_HOLD_FRAMES - 1]
+                .iter()
+                .all(|t| *t == Transmit::Continue),
+            "{after:?}"
+        );
+        assert_eq!(
+            after[VOICE_HOLD_FRAMES - 1..],
+            [Transmit::End, Transmit::Skip]
+        );
+        assert_eq!(
+            gate.update(true),
+            Transmit::Start,
+            "new speech starts a new burst"
+        );
     }
 }

@@ -1,12 +1,18 @@
 use std::str::FromStr;
 
-use cpal::{DeviceId, traits::{DeviceTrait, HostTrait, StreamTrait}};
+use cpal::{
+    DeviceId,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 use mumbo_audio::{
     PipelineError,
     mic::{DESIRED_INPUT_SAMPLE_RATE, MicFrameSink, MicPipeline, apm_config, audio_processing},
     speaker::{PLAYBACK_QUEUE_SAMPLES, SPEAKER_SAMPLE_RATE, SpeakerSource, top_up_output},
 };
-use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
+use ringbuf::{
+    HeapRb,
+    traits::{Consumer, Observer, Producer, Split},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -59,18 +65,20 @@ pub fn get_audio_input_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
     let default_device_id = default_device.and_then(|d| d.id().ok());
 
     let devices = host.input_devices()?;
-    let device_names = devices.filter_map(|d| {
-        let desc = d.description().ok()?;
-        let name = desc.name();
-        let id = d.id().ok()?;
-        let id_str = id.to_string();
+    let device_names = devices
+        .filter_map(|d| {
+            let desc = d.description().ok()?;
+            let name = desc.name();
+            let id = d.id().ok()?;
+            let id_str = id.to_string();
 
-        Some(AudioDevice {
-            id: id_str,
-            name: name.to_string(),
-            is_default: Some(&id) == default_device_id.as_ref(),
+            Some(AudioDevice {
+                id: id_str,
+                name: name.to_string(),
+                is_default: Some(&id) == default_device_id.as_ref(),
+            })
         })
-    }).collect();
+        .collect();
     Ok(device_names)
 }
 
@@ -81,18 +89,20 @@ pub fn get_audio_output_devices() -> Result<Vec<AudioDevice>, cpal::Error> {
     let default_device_id = default_device.and_then(|d| d.id().ok());
 
     let devices = host.output_devices()?;
-    let device_names = devices.filter_map(|d| {
-        let desc = d.description().ok()?;
-        let name = desc.name();
-        let id = d.id().ok()?;
-        let id_str = id.to_string();
+    let device_names = devices
+        .filter_map(|d| {
+            let desc = d.description().ok()?;
+            let name = desc.name();
+            let id = d.id().ok()?;
+            let id_str = id.to_string();
 
-        Some(AudioDevice {
-            id: id_str,
-            name: name.to_string(),
-            is_default: Some(&id) == default_device_id.as_ref(),
+            Some(AudioDevice {
+                id: id_str,
+                name: name.to_string(),
+                is_default: Some(&id) == default_device_id.as_ref(),
+            })
         })
-    }).collect();
+        .collect();
     Ok(device_names)
 }
 
@@ -130,7 +140,10 @@ fn resolve_device(
         .ok()
         .and_then(|id| host.device_by_id(&id));
     if found.is_none() {
-        log::warn!("Preferred audio device {:?} is not available; using the default", preferred.name);
+        log::warn!(
+            "Preferred audio device {:?} is not available; using the default",
+            preferred.name
+        );
     }
     found.or(default)
 }
@@ -147,11 +160,13 @@ fn output_stream_config(device: &cpal::Device) -> Result<cpal::StreamConfig, Aud
     };
     if config.sample_rate != SPEAKER_SAMPLE_RATE {
         // TODO: resample playback; at the wrong rate it plays at the wrong speed.
-        log::warn!("Speakers run at {} Hz, not {SPEAKER_SAMPLE_RATE} Hz", config.sample_rate);
+        log::warn!(
+            "Speakers run at {} Hz, not {SPEAKER_SAMPLE_RATE} Hz",
+            config.sample_rate
+        );
     }
     Ok(config)
 }
-
 
 /// A device the user prefers, as saved between runs. Only what is needed to
 /// find it again (`id`) and to name it while it is unplugged (`name`).
@@ -163,14 +178,21 @@ pub struct SavedDevice {
 
 impl From<&AudioDevice> for SavedDevice {
     fn from(device: &AudioDevice) -> Self {
-        Self { id: device.id.clone(), name: device.name.clone() }
+        Self {
+            id: device.id.clone(),
+            name: device.name.clone(),
+        }
     }
 }
 
 impl From<SavedDevice> for AudioDevice {
     fn from(saved: SavedDevice) -> Self {
         // Whether it is the system default is only known by listing devices.
-        Self { id: saved.id, name: saved.name, is_default: false }
+        Self {
+            id: saved.id,
+            name: saved.name,
+            is_default: false,
+        }
     }
 }
 
@@ -192,13 +214,25 @@ fn default_noise_suppression() -> bool {
 
 impl Default for SavedPreferences {
     fn default() -> Self {
-        Self { input: None, output: None, noise_suppression: default_noise_suppression() }
+        Self {
+            input: None,
+            output: None,
+            noise_suppression: default_noise_suppression(),
+        }
     }
 }
 
 impl SavedPreferences {
-    pub fn of(input: Option<&AudioDevice>, output: Option<&AudioDevice>, noise_suppression: bool) -> Self {
-        Self { input: input.map(SavedDevice::from), output: output.map(SavedDevice::from), noise_suppression }
+    pub fn of(
+        input: Option<&AudioDevice>,
+        output: Option<&AudioDevice>,
+        noise_suppression: bool,
+    ) -> Self {
+        Self {
+            input: input.map(SavedDevice::from),
+            output: output.map(SavedDevice::from),
+            noise_suppression,
+        }
     }
 
     /// Reads what an earlier run saved. Anything missing or unreadable counts as
@@ -227,7 +261,6 @@ pub struct AudioModule {
     noise_suppression: tokio::sync::watch::Sender<bool>,
 }
 
-
 fn find_device(devices: &[AudioDevice], id: &str) -> Result<AudioDevice, AudioError> {
     devices
         .iter()
@@ -244,8 +277,10 @@ impl AudioModule {
         let (input_devices_tx, _) = tokio::sync::watch::channel(input_devices);
         let (output_devices_tx, _) = tokio::sync::watch::channel(output_devices);
 
-        let (preferred_input_device_tx, _) = tokio::sync::watch::channel(saved.input.map(AudioDevice::from));
-        let (preferred_output_device_tx, _) = tokio::sync::watch::channel(saved.output.map(AudioDevice::from));
+        let (preferred_input_device_tx, _) =
+            tokio::sync::watch::channel(saved.input.map(AudioDevice::from));
+        let (preferred_output_device_tx, _) =
+            tokio::sync::watch::channel(saved.output.map(AudioDevice::from));
 
         let (noise_suppression_tx, _) = tokio::sync::watch::channel(saved.noise_suppression);
 
@@ -283,7 +318,9 @@ impl AudioModule {
     /// Prefers the listed input device with this `id` the next time audio
     /// starts. `None` goes back to following the system default.
     pub fn select_input_device(&self, id: Option<&str>) -> Result<(), AudioError> {
-        let device = id.map(|id| find_device(&self.input_devices.borrow(), id)).transpose()?;
+        let device = id
+            .map(|id| find_device(&self.input_devices.borrow(), id))
+            .transpose()?;
         self.set_preferred_input_device(device);
         Ok(())
     }
@@ -291,7 +328,9 @@ impl AudioModule {
     /// Prefers the listed output device with this `id`. `None` goes back to
     /// following the system default.
     pub fn select_output_device(&self, id: Option<&str>) -> Result<(), AudioError> {
-        let device = id.map(|id| find_device(&self.output_devices.borrow(), id)).transpose()?;
+        let device = id
+            .map(|id| find_device(&self.output_devices.borrow(), id))
+            .transpose()?;
         self.set_preferred_output_device(device);
         Ok(())
     }
@@ -309,15 +348,28 @@ impl AudioModule {
         // TODO: rebuild the stream if audio is already running.
     }
 
-    pub fn start(&self, mut on_mic_frame: impl MicFrameSink + 'static, mut speakers: impl SpeakerSource + 'static) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
+    pub fn start(
+        &self,
+        mut on_mic_frame: impl MicFrameSink + 'static,
+        mut speakers: impl SpeakerSource + 'static,
+    ) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
         let host = default_host();
-        let input_device = resolve_device(&host, self.preferred_input_device.borrow().as_ref(), host.default_input_device())
-            .ok_or(AudioError::NoAudioDevice)?;
-        let output_device = resolve_device(&host, self.preferred_output_device.borrow().as_ref(), host.default_output_device())
-            .ok_or(AudioError::NoAudioDevice)?;
+        let input_device = resolve_device(
+            &host,
+            self.preferred_input_device.borrow().as_ref(),
+            host.default_input_device(),
+        )
+        .ok_or(AudioError::NoAudioDevice)?;
+        let output_device = resolve_device(
+            &host,
+            self.preferred_output_device.borrow().as_ref(),
+            host.default_output_device(),
+        )
+        .ok_or(AudioError::NoAudioDevice)?;
         let output_config = output_stream_config(&output_device)?;
         let output_channels = output_config.channels as usize;
-        let (mut output_producer, mut output_consumer) = HeapRb::<i16>::new(SPEAKER_HEADROOM_SAMPLES).split();
+        let (mut output_producer, mut output_consumer) =
+            HeapRb::<i16>::new(SPEAKER_HEADROOM_SAMPLES).split();
 
         // TODO: better config detection. e.g. handling arbitrary sample rates & channel counts.
         let input_config = input_device
@@ -326,9 +378,7 @@ impl AudioModule {
             .find_map(|c| c.try_with_sample_rate(DESIRED_INPUT_SAMPLE_RATE));
         let input_config = match input_config {
             Some(supported) => supported.config(),
-            None => input_device
-                .default_input_config()?
-                .config(),
+            None => input_device.default_input_config()?.config(),
         };
 
         let input_channels = input_config.channels;
@@ -337,7 +387,8 @@ impl AudioModule {
         // Allocate enough headroom for ~200ms of audio.
         const HEADROOM_MS: u32 = 200;
         let headroom_samples: u32 = (input_rate * HEADROOM_MS) / 1000;
-        let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(headroom_samples as usize).split();
+        let (mut input_producer, mut input_consumer) =
+            HeapRb::<f32>::new(headroom_samples as usize).split();
 
         let apm_config = apm_config();
         let mut apm = audio_processing(apm_config.clone());
@@ -347,11 +398,20 @@ impl AudioModule {
         // TODO: measure actual network delay and update this value accordingly.
         apm.set_stream_delay_ms(50)?;
 
-        log::info!("Audio input: {:?}, {input_config:?}", input_device.description()?);
-        log::info!("Audio output: {:?}, {output_config:?}", output_device.description()?);
+        log::info!(
+            "Audio input: {:?}, {input_config:?}",
+            input_device.description()?
+        );
+        log::info!(
+            "Audio output: {:?}, {output_config:?}",
+            output_device.description()?
+        );
         log::info!("Audio processing config: {apm_config:?}");
         if input_config.sample_rate != DESIRED_INPUT_SAMPLE_RATE {
-            log::warn!("Mic runs at {} Hz; resampling to {DESIRED_INPUT_SAMPLE_RATE} Hz for Opus", input_config.sample_rate);
+            log::warn!(
+                "Mic runs at {} Hz; resampling to {DESIRED_INPUT_SAMPLE_RATE} Hz for Opus",
+                input_config.sample_rate
+            );
         }
 
         let task = async move {
@@ -374,7 +434,8 @@ impl AudioModule {
                 move |output: &mut [f32], _| {
                     // same value in every channel
                     for frame in output.chunks_mut(output_channels) {
-                        let sample = output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
+                        let sample =
+                            output_consumer.try_pop().unwrap_or(0) as f32 / i16::MAX as f32;
                         frame.fill(sample);
                     }
                 },
@@ -413,7 +474,6 @@ impl AudioModule {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,7 +484,11 @@ mod tests {
     fn check(devices: &[AudioDevice]) {
         let ids: HashSet<_> = devices.iter().map(|d| &d.id).collect();
         assert_eq!(ids.len(), devices.len(), "device ids must be unique");
-        assert!(devices.iter().all(|d| !d.id.is_empty() && !d.name.is_empty()));
+        assert!(
+            devices
+                .iter()
+                .all(|d| !d.id.is_empty() && !d.name.is_empty())
+        );
         let defaults = devices.iter().filter(|d| d.is_default).count();
         // Not "exactly one when any exist": ALSA on headless Linux lists devices
         // but reports a default that isn't among them.
@@ -433,12 +497,19 @@ mod tests {
 
     #[test]
     fn saved_preferences_round_trip_through_json() {
-        let selected = AudioDevice { id: "mic".into(), name: "Dock Mic".into(), is_default: true };
+        let selected = AudioDevice {
+            id: "mic".into(),
+            name: "Dock Mic".into(),
+            is_default: true,
+        };
         let saved = SavedPreferences::of(Some(&selected), None, false);
 
         let json = serde_json::to_value(&saved).unwrap();
         // is_default describes the moment it was saved, so it is not kept.
-        assert_eq!(json, serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null, "noise_suppression": false }));
+        assert_eq!(
+            json,
+            serde_json::json!({ "input": { "id": "mic", "name": "Dock Mic" }, "output": null, "noise_suppression": false })
+        );
 
         assert_eq!(SavedPreferences::from_stored(Some(json)), saved);
     }
@@ -446,14 +517,26 @@ mod tests {
     #[test]
     fn noise_suppression_is_on_unless_turned_off() {
         assert!(SavedPreferences::default().noise_suppression);
-        assert!(SavedPreferences::from_stored(Some(serde_json::json!({ "input": null }))).noise_suppression);
-        assert!(!SavedPreferences::from_stored(Some(serde_json::json!({ "noise_suppression": false }))).noise_suppression);
+        assert!(
+            SavedPreferences::from_stored(Some(serde_json::json!({ "input": null })))
+                .noise_suppression
+        );
+        assert!(
+            !SavedPreferences::from_stored(Some(serde_json::json!({ "noise_suppression": false })))
+                .noise_suppression
+        );
     }
 
     #[test]
     fn nothing_saved_means_the_system_default() {
-        assert_eq!(SavedPreferences::from_stored(None), SavedPreferences::default());
-        assert_eq!(SavedPreferences::from_stored(Some(serde_json::json!({}))), SavedPreferences::default());
+        assert_eq!(
+            SavedPreferences::from_stored(None),
+            SavedPreferences::default()
+        );
+        assert_eq!(
+            SavedPreferences::from_stored(Some(serde_json::json!({}))),
+            SavedPreferences::default()
+        );
     }
 
     #[test]
@@ -465,14 +548,21 @@ mod tests {
             serde_json::json!({ "input": { "id": "no name" } }),
             serde_json::json!({ "input": { "id": 1, "name": "x" } }),
         ] {
-            assert_eq!(SavedPreferences::from_stored(Some(garbage.clone())), SavedPreferences::default(), "{garbage}");
+            assert_eq!(
+                SavedPreferences::from_stored(Some(garbage.clone())),
+                SavedPreferences::default(),
+                "{garbage}"
+            );
         }
     }
 
     #[test]
     fn a_restored_preference_survives_its_device_being_unplugged() {
         let saved = SavedPreferences {
-            input: Some(SavedDevice { id: "dock-mic".into(), name: "Dock Mic".into() }),
+            input: Some(SavedDevice {
+                id: "dock-mic".into(),
+                name: "Dock Mic".into(),
+            }),
             output: None,
             noise_suppression: true,
         };
@@ -480,13 +570,26 @@ mod tests {
         let module = AudioModule::new(saved).unwrap();
 
         // Not necessarily in the device list (the dock may be unplugged), but still preferred.
-        assert!(module.input_devices.borrow().iter().all(|d| d.id != "dock-mic"));
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("dock-mic"));
+        assert!(
+            module
+                .input_devices
+                .borrow()
+                .iter()
+                .all(|d| d.id != "dock-mic")
+        );
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("dock-mic")
+        );
         assert_eq!(preferred_id(&module.preferred_output_device), None);
     }
 
     fn device(id: &str) -> AudioDevice {
-        AudioDevice { id: id.into(), name: id.into(), is_default: false }
+        AudioDevice {
+            id: id.into(),
+            name: id.into(),
+            is_default: false,
+        }
     }
 
     fn module_with(inputs: Vec<AudioDevice>, outputs: Vec<AudioDevice>) -> AudioModule {
@@ -506,7 +609,10 @@ mod tests {
 
         module.select_input_device(Some("b")).unwrap();
 
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("b")
+        );
     }
 
     #[test]
@@ -515,7 +621,10 @@ mod tests {
 
         module.select_output_device(Some("y")).unwrap();
 
-        assert_eq!(preferred_id(&module.preferred_output_device).as_deref(), Some("y"));
+        assert_eq!(
+            preferred_id(&module.preferred_output_device).as_deref(),
+            Some("y")
+        );
         assert_eq!(preferred_id(&module.preferred_input_device), None);
     }
 
@@ -524,10 +633,21 @@ mod tests {
         let module = module_with(vec![device("a")], vec![device("x")]);
         module.select_input_device(Some("a")).unwrap();
 
-        assert!(matches!(module.select_input_device(Some("nope")), Err(AudioError::UnknownDevice(id)) if id == "nope"));
-        assert!(matches!(module.select_output_device(Some("a")), Err(AudioError::UnknownDevice(_))), "inputs are not outputs");
+        assert!(
+            matches!(module.select_input_device(Some("nope")), Err(AudioError::UnknownDevice(id)) if id == "nope")
+        );
+        assert!(
+            matches!(
+                module.select_output_device(Some("a")),
+                Err(AudioError::UnknownDevice(_))
+            ),
+            "inputs are not outputs"
+        );
 
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("a"));
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("a")
+        );
         assert_eq!(preferred_id(&module.preferred_output_device), None);
     }
 
@@ -558,7 +678,10 @@ mod tests {
         module.select_input_device(Some("a")).unwrap();
         module.select_input_device(Some("b")).unwrap();
 
-        assert_eq!(preferred_id(&module.preferred_input_device).as_deref(), Some("b"));
+        assert_eq!(
+            preferred_id(&module.preferred_input_device).as_deref(),
+            Some("b")
+        );
     }
 
     #[test]
@@ -573,8 +696,16 @@ mod tests {
 
     #[test]
     fn listing_is_stable_between_calls() {
-        let a: Vec<_> = get_audio_input_devices().unwrap().into_iter().map(|d| d.id).collect();
-        let b: Vec<_> = get_audio_input_devices().unwrap().into_iter().map(|d| d.id).collect();
+        let a: Vec<_> = get_audio_input_devices()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        let b: Vec<_> = get_audio_input_devices()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
         assert_eq!(a, b);
     }
 
@@ -582,12 +713,19 @@ mod tests {
     fn serializes_to_the_shape_the_frontend_parses() {
         // src/audioDevices.test.ts parses this same fixture with the zod schema.
         let devices = vec![
-            AudioDevice { id: "built-in-mic".into(), name: "Built-in Microphone".into(), is_default: true },
-            AudioDevice { id: "usb-mic".into(), name: "USB Microphone".into(), is_default: false },
+            AudioDevice {
+                id: "built-in-mic".into(),
+                name: "Built-in Microphone".into(),
+                is_default: true,
+            },
+            AudioDevice {
+                id: "usb-mic".into(),
+                name: "USB Microphone".into(),
+                is_default: false,
+            },
         ];
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/audio_devices.json")).unwrap();
         assert_eq!(serde_json::to_value(devices).unwrap(), fixture);
     }
-
 }

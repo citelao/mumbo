@@ -1,4 +1,4 @@
-use bytes::{Bytes, Buf, BufMut};
+use bytes::{Buf, BufMut, Bytes};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MumbleFrame {
@@ -78,7 +78,11 @@ impl tokio_util::codec::Decoder for MumbleCodec {
 impl tokio_util::codec::Encoder<crate::ClientToServerMessage> for MumbleCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: crate::ClientToServerMessage, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: crate::ClientToServerMessage,
+        dst: &mut bytes::BytesMut,
+    ) -> Result<(), Self::Error> {
         let (msg_id, payload) = item.encode()?;
         let frame = MumbleFrame {
             type_id: msg_id,
@@ -91,8 +95,8 @@ impl tokio_util::codec::Encoder<crate::ClientToServerMessage> for MumbleCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::BytesMut;
     use bytes::BufMut;
+    use bytes::BytesMut;
     use tokio_util::codec::Decoder;
 
     mod frame_codec_tests {
@@ -181,9 +185,9 @@ mod tests {
     mod codec_tests {
         use tokio_util::codec::Encoder;
 
-use crate::raw;
+        use crate::raw;
 
-use super::*;
+        use super::*;
 
         #[test]
         fn test_decode_empty_buffer() {
@@ -212,7 +216,9 @@ use super::*;
                 udp_ping_var: Some(10.0),
                 timestamp: Some(11),
             };
-            codec.encode(crate::ClientToServerMessage::Ping(raw_ping), &mut buf).unwrap();
+            codec
+                .encode(crate::ClientToServerMessage::Ping(raw_ping), &mut buf)
+                .unwrap();
             let frame = codec.decode(&mut buf).unwrap().unwrap();
             let crate::ServerToClientMessage::Ping(m) = frame else {
                 panic!("Unexpected message type");

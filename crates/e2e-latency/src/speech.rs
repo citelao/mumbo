@@ -16,16 +16,25 @@
 
 use std::{
     error::Error,
-    sync::{Arc, Mutex, atomic::{AtomicU64, Ordering::Relaxed}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering::Relaxed},
+    },
     time::{Duration, Instant},
 };
 
+use mumble_protocol::{
+    client::Connection,
+    state::{MumbleEvent, TextMessage},
+};
 use mumbo_audio::{
     mic::{MicPipeline, apm_config, audio_processing},
     speaker::{Mixer, PLAYBACK_QUEUE_SAMPLES, SPEAKER_SAMPLE_RATE, top_up_output},
 };
-use mumble_protocol::{client::Connection, state::{MumbleEvent, TextMessage}};
-use ringbuf::{HeapRb, traits::{Consumer, Split}};
+use ringbuf::{
+    HeapRb,
+    traits::{Consumer, Split},
+};
 
 use crate::{
     common::{connect_with_retry, env_or, now_nanos},
@@ -48,11 +57,18 @@ fn nanos_after(base: u64, samples: usize, rate: u32) -> u64 {
 }
 
 pub async fn sender() -> Result<(), Box<dyn Error>> {
-    let wav = wav::parse(&std::fs::read(env_or("SPEECH_WAV", "/speech.wav".to_string()))?)?;
+    let wav = wav::parse(&std::fs::read(env_or(
+        "SPEECH_WAV",
+        "/speech.wav".to_string(),
+    ))?)?;
     let utterances: usize = env_or("SPEECH_UTTERANCES", 5);
     let noise_suppression: bool = env_or("NOISE_SUPPRESSION", true);
     let rate = wav.sample_rate;
-    let onset = wav.samples.iter().position(|s| s.abs() > AUDIBLE).ok_or("the speech file is silent")?;
+    let onset = wav
+        .samples
+        .iter()
+        .position(|s| s.abs() > AUDIBLE)
+        .ok_or("the speech file is silent")?;
 
     let lead = (LEAD_SILENCE.as_secs_f64() * rate as f64) as usize;
     let tail = (TAIL_SILENCE.as_secs_f64() * rate as f64) as usize;
@@ -67,7 +83,11 @@ pub async fn sender() -> Result<(), Box<dyn Error>> {
 
     // Held, unread, for the whole run: sending chat unwraps a send to `events`,
     // which panics if the receiver was dropped.
-    let Connection { client, events: _events, .. } = connect_with_retry("speech-sender".to_string()).await;
+    let Connection {
+        client,
+        events: _events,
+        ..
+    } = connect_with_retry("speech-sender".to_string()).await;
 
     let first_packet = Arc::new(AtomicU64::new(0));
     let mut sink = {
@@ -85,7 +105,10 @@ pub async fn sender() -> Result<(), Box<dyn Error>> {
     apm.set_stream_delay_ms(50)?;
     let mut pipeline = MicPipeline::new(rate)?;
 
-    eprintln!("sender: {utterances} utterances, {} ms of speech each, mic at {rate} Hz", wav.samples.len() * 1000 / rate as usize);
+    eprintln!(
+        "sender: {utterances} utterances, {} ms of speech each, mic at {rate} Hz",
+        wav.samples.len() * 1000 / rate as usize
+    );
     let (started, wall_start) = (Instant::now(), now_nanos());
     let mut ticker = tokio::time::interval(Duration::from_millis(10));
     let (mut fed, mut announced_start, mut announced_first) = (0usize, 0usize, 0usize);
@@ -96,8 +119,15 @@ pub async fn sender() -> Result<(), Box<dyn Error>> {
         // A new utterance starts at the beginning of its lead-in silence.
         if announced_start < utterances && due >= announced_start * per_utterance {
             first_packet.store(0, Relaxed);
-            let speech_start = nanos_after(wall_start, announced_start * per_utterance + lead + onset, rate);
-            client.send_channel_message(format!("e2e:start {announced_start} {speech_start}"), None)?;
+            let speech_start = nanos_after(
+                wall_start,
+                announced_start * per_utterance + lead + onset,
+                rate,
+            );
+            client.send_channel_message(
+                format!("e2e:start {announced_start} {speech_start}"),
+                None,
+            )?;
             announced_start += 1;
         }
 
@@ -126,9 +156,11 @@ struct Announced {
 
 fn parse_announcement(content: &str, announced: &mut Vec<Announced>) {
     let mut parts = content.split_whitespace();
-    let (Some(kind), Some(Ok(utterance)), Some(Ok(nanos))) =
-        (parts.next(), parts.next().map(str::parse::<usize>), parts.next().map(str::parse::<u64>))
-    else {
+    let (Some(kind), Some(Ok(utterance)), Some(Ok(nanos))) = (
+        parts.next(),
+        parts.next().map(str::parse::<usize>),
+        parts.next().map(str::parse::<u64>),
+    ) else {
         return;
     };
     if announced.len() <= utterance {
@@ -146,8 +178,12 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
     let max_total_ms: f64 = env_or("MAX_TOTAL_MS", 1000.0);
     let timeout = Duration::from_secs(env_or("PROBE_TIMEOUT_SECS", 90));
 
-    let Connection { client, mut audio, mut events, .. } =
-        connect_with_retry("speech-receiver".to_string()).await;
+    let Connection {
+        client,
+        mut audio,
+        mut events,
+        ..
+    } = connect_with_retry("speech-receiver".to_string()).await;
     eprintln!("receiver connected; waiting for {utterances} utterances");
 
     // Timestamp each utterance's first packet as it arrives from the server,
@@ -208,7 +244,11 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
     while onsets.len() < utterances {
         ticker.tick().await;
         if started.elapsed() > timeout {
-            return Err(format!("timed out after hearing {} of {utterances} utterances", onsets.len()).into());
+            return Err(format!(
+                "timed out after hearing {} of {utterances} utterances",
+                onsets.len()
+            )
+            .into());
         }
         if !top_up_output(&mut queue_in, PLAYBACK_QUEUE_SAMPLES, &mut mixer, &mut apm)? {
             return Err("connection closed before every utterance was heard".into());
@@ -229,7 +269,10 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
         let complete = {
             let announced = announced.lock().unwrap();
             announced.len() >= utterances
-                && announced.iter().take(utterances).all(|a| a.speech_start.is_some() && a.first_sent.is_some())
+                && announced
+                    .iter()
+                    .take(utterances)
+                    .all(|a| a.speech_start.is_some() && a.first_sent.is_some())
         };
         if complete {
             break;
@@ -237,10 +280,16 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    let (announced, arrivals) = (announced.lock().unwrap().clone(), arrivals.lock().unwrap().clone());
+    let (announced, arrivals) = (
+        announced.lock().unwrap().clone(),
+        arrivals.lock().unwrap().clone(),
+    );
     let ms = |from: u64, to: u64| (to as f64 - from as f64) / 1e6;
     let mut rows = Vec::new();
-    println!("{:>4} {:>10} {:>9} {:>9} {:>8}", "utt", "transmit", "network", "playback", "total");
+    println!(
+        "{:>4} {:>10} {:>9} {:>9} {:>8}",
+        "utt", "transmit", "network", "playback", "total"
+    );
     for i in 0..utterances {
         let (Some(start), Some(sent)) = (
             announced.get(i).and_then(|a| a.speech_start),
@@ -248,17 +297,40 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
         ) else {
             return Err(format!("never heard the sender's timestamps for utterance {i}").into());
         };
-        let row = [ms(start, sent), ms(sent, arrivals[i]), ms(arrivals[i], onsets[i]), ms(start, onsets[i])];
-        println!("{i:>4} {:>8.1}ms {:>7.1}ms {:>7.1}ms {:>6.1}ms", row[0], row[1], row[2], row[3]);
+        let row = [
+            ms(start, sent),
+            ms(sent, arrivals[i]),
+            ms(arrivals[i], onsets[i]),
+            ms(start, onsets[i]),
+        ];
+        println!(
+            "{i:>4} {:>8.1}ms {:>7.1}ms {:>7.1}ms {:>6.1}ms",
+            row[0], row[1], row[2], row[3]
+        );
         rows.push(row);
     }
     let mean = |col: usize| rows.iter().map(|r| r[col]).sum::<f64>() / rows.len() as f64;
-    println!("mean {:>8.1}ms {:>7.1}ms {:>7.1}ms {:>6.1}ms", mean(0), mean(1), mean(2), mean(3));
-    println!("speech_latency_ms: transmit={:.1} network={:.1} playback={:.1} total={:.1}", mean(0), mean(1), mean(2), mean(3));
+    println!(
+        "mean {:>8.1}ms {:>7.1}ms {:>7.1}ms {:>6.1}ms",
+        mean(0),
+        mean(1),
+        mean(2),
+        mean(3)
+    );
+    println!(
+        "speech_latency_ms: transmit={:.1} network={:.1} playback={:.1} total={:.1}",
+        mean(0),
+        mean(1),
+        mean(2),
+        mean(3)
+    );
 
     let worst = rows.iter().map(|r| r[3]).fold(0.0, f64::max);
     if worst > max_total_ms {
-        return Err(format!("slowest utterance took {worst:.1}ms to be heard; limit {max_total_ms}ms").into());
+        return Err(format!(
+            "slowest utterance took {worst:.1}ms to be heard; limit {max_total_ms}ms"
+        )
+        .into());
     }
     Ok(())
 }
@@ -275,8 +347,14 @@ mod tests {
         parse_announcement("e2e:start 0 7", &mut announced);
 
         assert_eq!(announced.len(), 2);
-        assert_eq!((announced[1].speech_start, announced[1].first_sent), (Some(100), Some(500)));
-        assert_eq!((announced[0].speech_start, announced[0].first_sent), (Some(7), None));
+        assert_eq!(
+            (announced[1].speech_start, announced[1].first_sent),
+            (Some(100), Some(500))
+        );
+        assert_eq!(
+            (announced[0].speech_start, announced[0].first_sent),
+            (Some(7), None)
+        );
     }
 
     #[test]

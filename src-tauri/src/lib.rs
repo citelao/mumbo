@@ -1,11 +1,10 @@
-
-use std::sync::Arc;
 use std::io::Error;
+use std::sync::Arc;
 
 use mumble_protocol as proto;
 use mumble_protocol::client::{Connection, ConnectionOptions, SelfMuteStatus};
-use tauri::{Emitter, Listener, Manager};
 use tauri::ipc::Channel;
+use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
@@ -23,13 +22,25 @@ struct AppState {
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 // `device_id` is the frontend's IPC arg name. `None` means the system default.
 #[tauri::command]
-fn set_audio_input_device(state: tauri::State<'_, AppState>, device_id: Option<String>) -> Result<(), String> {
-    state.audio_module.select_input_device(device_id.as_deref()).map_err(|e| e.to_string())
+fn set_audio_input_device(
+    state: tauri::State<'_, AppState>,
+    device_id: Option<String>,
+) -> Result<(), String> {
+    state
+        .audio_module
+        .select_input_device(device_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn set_audio_output_device(state: tauri::State<'_, AppState>, device_id: Option<String>) -> Result<(), String> {
-    state.audio_module.select_output_device(device_id.as_deref()).map_err(|e| e.to_string())
+fn set_audio_output_device(
+    state: tauri::State<'_, AppState>,
+    device_id: Option<String>,
+) -> Result<(), String> {
+    state
+        .audio_module
+        .select_output_device(device_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -110,16 +121,24 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
 #[tauri::command]
 fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
     if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.send_channel_message(message, None).map_err(|e| e.to_string())
+        client
+            .send_channel_message(message, None)
+            .map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
 }
 
 #[tauri::command]
-fn send_user_message(state: tauri::State<'_, AppState>, message: String, session: Vec<u32>) -> Result<(), String> {
+fn send_user_message(
+    state: tauri::State<'_, AppState>,
+    message: String,
+    session: Vec<u32>,
+) -> Result<(), String> {
     if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.send_user_message(message, session).map_err(|e| e.to_string())
+        client
+            .send_user_message(message, session)
+            .map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
@@ -172,11 +191,15 @@ struct Changes(Box<dyn ChangeSource + Send>);
 
 trait ChangeSource {
     /// Resolves to `false` once the sender is gone.
-    fn next_change<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
+    fn next_change<'a>(
+        &'a mut self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
 }
 
 impl<T: Send + Sync> ChangeSource for watch::Receiver<T> {
-    fn next_change<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+    fn next_change<'a>(
+        &'a mut self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
         Box::pin(async move { self.changed().await.is_ok() })
     }
 }
@@ -216,7 +239,10 @@ const SETTINGS_FILE: &str = "settings.json";
 const AUDIO_SETTINGS_KEY: &str = "audio";
 
 /// Saves the audio preferences each time one changes.
-fn save_audio_preferences(store: Arc<tauri_plugin_store::Store<tauri::Wry>>, audio: &audio::AudioModule) {
+fn save_audio_preferences(
+    store: Arc<tauri_plugin_store::Store<tauri::Wry>>,
+    audio: &audio::AudioModule,
+) {
     let input = audio.preferred_input_device();
     let output = audio.preferred_output_device();
     let noise_suppression = audio.noise_suppression();
@@ -226,9 +252,18 @@ fn save_audio_preferences(store: Arc<tauri_plugin_store::Store<tauri::Wry>>, aud
         noise_suppression.clone().map_changes(),
     ];
     for changes in changes {
-        let (store, input, output, noise_suppression) = (store.clone(), input.clone(), output.clone(), noise_suppression.clone());
+        let (store, input, output, noise_suppression) = (
+            store.clone(),
+            input.clone(),
+            output.clone(),
+            noise_suppression.clone(),
+        );
         tauri::async_runtime::spawn(forward_changes(changes, move || {
-            let saved = audio::SavedPreferences::of(input.borrow().as_ref(), output.borrow().as_ref(), *noise_suppression.borrow());
+            let saved = audio::SavedPreferences::of(
+                input.borrow().as_ref(),
+                output.borrow().as_ref(),
+                *noise_suppression.borrow(),
+            );
             store.set(AUDIO_SETTINGS_KEY, serde_json::json!(saved));
             if let Err(e) = store.save() {
                 log::warn!("Failed to save the preferred audio devices: {e}");
@@ -246,13 +281,19 @@ fn emit_to_ui<T: Clone + serde::Serialize>(app: &tauri::AppHandle, event: &str, 
 
 /// Emits each change of `changes` as `event`, and returns a function that emits
 /// the current value on demand.
-fn publish<T>(app: &tauri::AppHandle, event: &'static str, changes: watch::Receiver<T>) -> Box<dyn Fn() + Send>
+fn publish<T>(
+    app: &tauri::AppHandle,
+    event: &'static str,
+    changes: watch::Receiver<T>,
+) -> Box<dyn Fn() + Send>
 where
     T: Clone + serde::Serialize + Send + Sync + 'static,
 {
     let current = changes.clone();
     let on_change = app.clone();
-    tauri::async_runtime::spawn(forward_watch(changes, move |value| emit_to_ui(&on_change, event, value)));
+    tauri::async_runtime::spawn(forward_watch(changes, move |value| {
+        emit_to_ui(&on_change, event, value)
+    }));
     let on_demand = app.clone();
     Box::new(move || emit_to_ui(&on_demand, event, current.borrow().clone()))
 }
@@ -264,9 +305,21 @@ fn publish_audio_devices(app: &tauri::AppHandle, audio: &audio::AudioModule) {
     let republish = [
         publish(app, AUDIO_INPUT_DEVICES_EVENT, audio.input_devices()),
         publish(app, AUDIO_OUTPUT_DEVICES_EVENT, audio.output_devices()),
-        publish(app, AUDIO_INPUT_SELECTED_EVENT, audio.preferred_input_device()),
-        publish(app, AUDIO_OUTPUT_SELECTED_EVENT, audio.preferred_output_device()),
-        publish(app, AUDIO_NOISE_SUPPRESSION_EVENT, audio.noise_suppression()),
+        publish(
+            app,
+            AUDIO_INPUT_SELECTED_EVENT,
+            audio.preferred_input_device(),
+        ),
+        publish(
+            app,
+            AUDIO_OUTPUT_SELECTED_EVENT,
+            audio.preferred_output_device(),
+        ),
+        publish(
+            app,
+            AUDIO_NOISE_SUPPRESSION_EVENT,
+            audio.noise_suppression(),
+        ),
     ];
     app.listen(AUDIO_DEVICES_SUBSCRIBE_EVENT, move |_| {
         for emit_current in &republish {
@@ -379,15 +432,17 @@ async fn connect_internal(
     });
 
     let cloned_client = client.clone();
-    let audio_task = state.audio_module
-        .start(move |audio: &[u8], frame_counter: u64, is_terminator: bool| {
-            if let Err(e) = cloned_client.send_audio(audio, frame_counter, is_terminator) {
-                log::warn!("Failed to send mic audio: {e}");
-            }
-        }, mumbo_audio::speaker::Mixer::new(audio))
-        .map_err(|e|
-            Error::other(format!("Failed to start audio module: {}", e))
-        )?;
+    let audio_task = state
+        .audio_module
+        .start(
+            move |audio: &[u8], frame_counter: u64, is_terminator: bool| {
+                if let Err(e) = cloned_client.send_audio(audio, frame_counter, is_terminator) {
+                    log::warn!("Failed to send mic audio: {e}");
+                }
+            },
+            mumbo_audio::speaker::Mixer::new(audio),
+        )
+        .map_err(|e| Error::other(format!("Failed to start audio module: {}", e)))?;
     tauri::async_runtime::spawn(async move {
         if let Err(e) = audio_task.await {
             // TODO: better reporting.

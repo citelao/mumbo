@@ -27,20 +27,30 @@ pub fn parse(bytes: &[u8]) -> Result<Wav, Box<dyn Error>> {
                 let rate = u32::from_le_bytes(body[4..8].try_into()?);
                 let bits = u16::from_le_bytes(body[14..16].try_into()?);
                 if (tag, channels, bits) != (1, 1, 16) {
-                    return Err(format!("need mono 16-bit PCM, got tag {tag}, {channels} ch, {bits} bits").into());
+                    return Err(format!(
+                        "need mono 16-bit PCM, got tag {tag}, {channels} ch, {bits} bits"
+                    )
+                    .into());
                 }
                 format = Some(rate);
             }
             b"data" => {
                 let sample_rate = format.ok_or("data chunk before fmt chunk")?;
-                let body = if len == 0 || len == u32::MAX as usize { &bytes[body_start..] } else { body };
+                let body = if len == 0 || len == u32::MAX as usize {
+                    &bytes[body_start..]
+                } else {
+                    body
+                };
                 let samples = body
                     .as_chunks::<2>()
                     .0
                     .iter()
                     .map(|&s| i16::from_le_bytes(s) as f32 / 32768.0)
                     .collect();
-                return Ok(Wav { sample_rate, samples });
+                return Ok(Wav {
+                    sample_rate,
+                    samples,
+                });
             }
             _ => {}
         }

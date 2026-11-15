@@ -76,7 +76,6 @@ pub struct Channel {
 
     // ???
     pub can_enter: bool,
-
     // TODO: links, temporary? position, description_hash, max_users, can_enter
 }
 
@@ -188,17 +187,31 @@ impl MumbleState {
         Some(MumbleEvent::UsersChanged)
     }
 
-    pub fn apply(&mut self, message: crate::ServerToClientMessage) -> Result<Option<MumbleEvent>, Error> {
+    pub fn apply(
+        &mut self,
+        message: crate::ServerToClientMessage,
+    ) -> Result<Option<MumbleEvent>, Error> {
         match message {
             crate::ServerToClientMessage::Ping(_) => {
                 // Ignore for now.
                 // TODO: track round-trip time etc.
             }
-            
+
             crate::ServerToClientMessage::Reject(m) => {
-                log::error!("Server rejected connection: {} - {}", m.r#type().as_str_name(), m.reason());
+                log::error!(
+                    "Server rejected connection: {} - {}",
+                    m.r#type().as_str_name(),
+                    m.reason()
+                );
                 self.connection_status = ConnectionStatus::Failed;
-                return Err(Error::new(io::ErrorKind::PermissionDenied, format!("Server rejected connection: {} - {}", m.r#type().as_str_name(), m.reason())));
+                return Err(Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "Server rejected connection: {} - {}",
+                        m.r#type().as_str_name(),
+                        m.reason()
+                    ),
+                ));
             }
 
             // Signals the end of the initial server handshake.
@@ -206,7 +219,10 @@ impl MumbleState {
                 // The server sends one ServerSync per connection; a second would
                 // leave two users flagged as us.
                 if self.current_user_session.is_some() {
-                    return Err(Error::new(io::ErrorKind::InvalidData, "Duplicate ServerSync"));
+                    return Err(Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Duplicate ServerSync",
+                    ));
                 }
 
                 self.current_user_session = m.session;
@@ -222,14 +238,15 @@ impl MumbleState {
 
                 // May include a welcome message, which we can add to the chat messages.
                 if let Some(welcome_text) = m.welcome_text {
-                    self.chat_messages.push(TextMessage::ServerTextMessage(ServerTextMessage {
-                        timestamp: chrono::Utc::now(),
-                        content: welcome_text,
-                    }));
+                    self.chat_messages
+                        .push(TextMessage::ServerTextMessage(ServerTextMessage {
+                            timestamp: chrono::Utc::now(),
+                            content: welcome_text,
+                        }));
                     // TODO: support multiple events for this
                     return Ok(Some(MumbleEvent::ChatMessage));
                 }
-            },
+            }
 
             // TODO: unsure if this is a chat message.
             // crate::ServerToClientMessage::ServerConfig(_) => {
@@ -239,7 +256,6 @@ impl MumbleState {
             //         return Ok(Some(MumbleEvent::ChatMessage));
             //     }
             // }
-
             crate::ServerToClientMessage::UserState(m) => {
                 let Some(session) = m.session else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Missing session"));
@@ -250,18 +266,19 @@ impl MumbleState {
                 if let Some(channel_id) = m.channel_id
                     && !self.channels.contains_key(&channel_id)
                 {
-                    return Err(Error::new(io::ErrorKind::InvalidData, format!("Unknown channel: {channel_id}")));
+                    return Err(Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Unknown channel: {channel_id}"),
+                    ));
                 }
 
                 let current_user_session = self.current_user_session;
-                let user = self.users
-                    .entry(session)
-                    .or_insert_with(|| User {
-                        session,
-                        // ServerSync can (in theory) precede our own UserState.
-                        is_me: current_user_session == Some(session),
-                        ..Default::default()
-                    });
+                let user = self.users.entry(session).or_insert_with(|| User {
+                    session,
+                    // ServerSync can (in theory) precede our own UserState.
+                    is_me: current_user_session == Some(session),
+                    ..Default::default()
+                });
 
                 // Set any fields we know about!
                 merge(&mut user.name, m.name);
@@ -275,11 +292,17 @@ impl MumbleState {
                 merge(&mut user.recording, m.recording);
                 log::info!("Updated user: {} (session: {})", user.name, user.session);
                 return Ok(Some(MumbleEvent::UsersChanged));
-            },
+            }
             crate::ServerToClientMessage::UserRemove(m) => {
                 let removed = self.users.remove(&m.session);
                 if let Some(removed) = removed {
-                    log::info!("Removed user: {} (session: {}) for reason: {:?} (ban: {:?})", removed.name, removed.session, m.reason, m.ban);
+                    log::info!(
+                        "Removed user: {} (session: {}) for reason: {:?} (ban: {:?})",
+                        removed.name,
+                        removed.session,
+                        m.reason,
+                        m.ban
+                    );
                     return Ok(Some(MumbleEvent::UsersChanged));
                 } else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "User not found"));
@@ -294,12 +317,13 @@ impl MumbleState {
                 // There are a few fields that tell how the msg reached you, e.g. via DM or channel message.
                 // TODO: expose them.
 
-                self.chat_messages.push(TextMessage::ChatTextMessage(ChatTextMessage {
-                    timestamp: chrono::Utc::now(),
-                    content: m.message,
-                    actor: m.actor,
-                    session: m.session,
-                }));
+                self.chat_messages
+                    .push(TextMessage::ChatTextMessage(ChatTextMessage {
+                        timestamp: chrono::Utc::now(),
+                        content: m.message,
+                        actor: m.actor,
+                        session: m.session,
+                    }));
                 return Ok(Some(MumbleEvent::ChatMessage));
             }
 
@@ -309,12 +333,10 @@ impl MumbleState {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Channel ID missing"));
                 };
 
-                let channel = self.channels
-                    .entry(channel_id)
-                    .or_insert_with(|| Channel {
-                        channel_id,
-                        ..Default::default()
-                    });
+                let channel = self.channels.entry(channel_id).or_insert_with(|| Channel {
+                    channel_id,
+                    ..Default::default()
+                });
 
                 merge(&mut channel.name, m.name);
                 // The root channel never has a parent, so `None` only ever means "unchanged".
@@ -325,13 +347,21 @@ impl MumbleState {
                 merge(&mut channel.is_enter_restricted, m.is_enter_restricted);
                 merge(&mut channel.can_enter, m.can_enter);
 
-                log::info!("Updated channel: {} (ID: {})", channel.name, channel.channel_id);
+                log::info!(
+                    "Updated channel: {} (ID: {})",
+                    channel.name,
+                    channel.channel_id
+                );
                 return Ok(Some(MumbleEvent::ChannelsChanged));
             }
             crate::ServerToClientMessage::ChannelRemove(m) => {
                 let removed = self.channels.remove(&m.channel_id);
                 if let Some(removed) = removed {
-                    log::info!("Removed channel: {} (ID: {})", removed.name, removed.channel_id);
+                    log::info!(
+                        "Removed channel: {} (ID: {})",
+                        removed.name,
+                        removed.channel_id
+                    );
                     return Ok(Some(MumbleEvent::ChannelsChanged));
                 } else {
                     return Err(Error::new(io::ErrorKind::InvalidData, "Channel not found"));
@@ -360,17 +390,24 @@ mod tests {
 
     /// A voice packet from `session`, as the server relays it.
     fn voice(session: u32, is_terminator: bool) -> crate::ServerToClientMessage {
-        crate::ServerToClientMessage::UdpTunnel(crate::ServerToClientUdpMessage::Audio(crate::raw_udp::Audio {
-            sender_session: session,
-            opus_data: vec![1, 2, 3],
-            is_terminator,
-            ..Default::default()
-        }))
+        crate::ServerToClientMessage::UdpTunnel(crate::ServerToClientUdpMessage::Audio(
+            crate::raw_udp::Audio {
+                sender_session: session,
+                opus_data: vec![1, 2, 3],
+                is_terminator,
+                ..Default::default()
+            },
+        ))
     }
 
     /// Sessions of the users currently speaking.
     fn speaking(state: &MumbleState) -> Vec<u32> {
-        state.users().iter().filter(|u| u.is_speaking).map(|u| u.session).collect()
+        state
+            .users()
+            .iter()
+            .filter(|u| u.is_speaking)
+            .map(|u| u.session)
+            .collect()
     }
 
     /// Each chat line as (sender session, content); server messages have no sender.
@@ -390,20 +427,30 @@ mod tests {
         let mut state = MumbleState::default();
 
         // `actor` is the sender's session; the server fills it in for user messages.
-        for (actor, text) in [(Some(1), "hi"), (Some(2), "how's it going"), (None, "who said that?")] {
+        for (actor, text) in [
+            (Some(1), "hi"),
+            (Some(2), "how's it going"),
+            (None, "who said that?"),
+        ] {
             let event = state
-                .apply(crate::ServerToClientMessage::TextMessage(crate::raw::TextMessage {
-                    actor,
-                    message: text.to_string(),
-                    ..Default::default()
-                }))
+                .apply(crate::ServerToClientMessage::TextMessage(
+                    crate::raw::TextMessage {
+                        actor,
+                        message: text.to_string(),
+                        ..Default::default()
+                    },
+                ))
                 .unwrap();
             assert!(matches!(event, Some(MumbleEvent::ChatMessage)), "{event:?}");
         }
 
         assert_eq!(
             chat_log(&state),
-            [(Some(1), "hi"), (Some(2), "how's it going"), (None, "who said that?")]
+            [
+                (Some(1), "hi"),
+                (Some(2), "how's it going"),
+                (None, "who said that?")
+            ]
         );
     }
 
@@ -412,12 +459,14 @@ mod tests {
         let mut state = MumbleState::default();
 
         state
-            .apply(crate::ServerToClientMessage::TextMessage(crate::raw::TextMessage {
-                actor: Some(1),
-                session: vec![2, 3],
-                message: "psst".to_string(),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::TextMessage(
+                crate::raw::TextMessage {
+                    actor: Some(1),
+                    session: vec![2, 3],
+                    message: "psst".to_string(),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         assert!(
@@ -432,10 +481,12 @@ mod tests {
         let mut state = MumbleState::default();
 
         let event = state
-            .apply(crate::ServerToClientMessage::ServerSync(crate::raw::ServerSync {
-                welcome_text: Some("Welcome!".to_string()),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ServerSync(
+                crate::raw::ServerSync {
+                    welcome_text: Some("Welcome!".to_string()),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         assert_eq!(state.connection_status(), &ConnectionStatus::Connected);
@@ -451,7 +502,9 @@ mod tests {
     fn server_sync_without_welcome_text_connects_quietly() {
         let mut state = MumbleState::default();
 
-        let event = state.apply(crate::ServerToClientMessage::ServerSync(Default::default())).unwrap();
+        let event = state
+            .apply(crate::ServerToClientMessage::ServerSync(Default::default()))
+            .unwrap();
 
         assert_eq!(state.connection_status(), &ConnectionStatus::Connected);
         assert!(state.chat_messages().is_empty());
@@ -465,14 +518,19 @@ mod tests {
         let joined = state.apply(user_state(1, "Alice")).unwrap();
         let renamed = state.apply(user_state(1, "Alice Cooper")).unwrap();
         let left = state
-            .apply(crate::ServerToClientMessage::UserRemove(crate::raw::UserRemove {
-                session: 1,
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::UserRemove(
+                crate::raw::UserRemove {
+                    session: 1,
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         for event in [joined, renamed, left] {
-            assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+            assert!(
+                matches!(event, Some(MumbleEvent::UsersChanged)),
+                "{event:?}"
+            );
         }
         assert!(state.users().is_empty());
     }
@@ -488,7 +546,10 @@ mod tests {
             }))
             .unwrap_err();
 
-        assert!(error.to_string().contains("Invalid server password"), "{error}");
+        assert!(
+            error.to_string().contains("Invalid server password"),
+            "{error}"
+        );
         assert_eq!(state.connection_status(), &ConnectionStatus::Failed);
     }
 
@@ -501,10 +562,12 @@ mod tests {
         let mut state = MumbleState::default();
         for session in (1..=20).rev() {
             state
-                .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
-                    session: Some(session),
-                    ..Default::default()
-                }))
+                .apply(crate::ServerToClientMessage::UserState(
+                    crate::raw::UserState {
+                        session: Some(session),
+                        ..Default::default()
+                    },
+                ))
                 .unwrap();
         }
 
@@ -517,13 +580,15 @@ mod tests {
         let mut state = MumbleState::default();
         state.apply(channel_state(3, "Lobby", Some(0))).unwrap();
         state
-            .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
-                session: Some(7),
-                name: Some("Alice".to_string()),
-                channel_id: Some(3),
-                self_mute: Some(true),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::UserState(
+                crate::raw::UserState {
+                    session: Some(7),
+                    name: Some("Alice".to_string()),
+                    channel_id: Some(3),
+                    self_mute: Some(true),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/users.json")).unwrap();
@@ -538,22 +603,24 @@ mod tests {
         state.apply(channel_state(2, "Games", Some(0))).unwrap();
 
         // Create a user
-        state.apply(crate::ServerToClientMessage::UserState({
-            crate::raw::UserState{
-                session: Some(1),
-                name: Some("Alice".to_string()),
-                channel_id: Some(1),
-                mute: Some(false),
-                deaf: Some(false),
-                suppress: Some(false),
-                self_mute: Some(false),
-                self_deaf: Some(false),
-                priority_speaker: Some(false),
-                recording: Some(false),
-                ..Default::default()
-            }
-        })).unwrap();
-        
+        state
+            .apply(crate::ServerToClientMessage::UserState({
+                crate::raw::UserState {
+                    session: Some(1),
+                    name: Some("Alice".to_string()),
+                    channel_id: Some(1),
+                    mute: Some(false),
+                    deaf: Some(false),
+                    suppress: Some(false),
+                    self_mute: Some(false),
+                    self_deaf: Some(false),
+                    priority_speaker: Some(false),
+                    recording: Some(false),
+                    ..Default::default()
+                }
+            }))
+            .unwrap();
+
         // Check that the user was added correctly
         let user = state.users.get(&1).unwrap();
         assert_eq!(user.session, 1);
@@ -568,17 +635,19 @@ mod tests {
         assert!(!user.recording);
 
         // Change name & some state
-        state.apply(crate::ServerToClientMessage::UserState({
-            crate::raw::UserState {
-                session: Some(1),
-                name: Some("Alice Cooper".to_string()),
-                channel_id: Some(2),
-                mute: Some(true),
-                suppress: Some(true),
-                self_mute: Some(true),
-                ..Default::default()
-            }
-        })).unwrap();
+        state
+            .apply(crate::ServerToClientMessage::UserState({
+                crate::raw::UserState {
+                    session: Some(1),
+                    name: Some("Alice Cooper".to_string()),
+                    channel_id: Some(2),
+                    mute: Some(true),
+                    suppress: Some(true),
+                    self_mute: Some(true),
+                    ..Default::default()
+                }
+            }))
+            .unwrap();
 
         let user = state.users.get(&1).unwrap();
         assert_eq!(user.session, 1);
@@ -598,24 +667,28 @@ mod tests {
         let mut state = MumbleState::default();
 
         // Create a user
-        state.apply(crate::ServerToClientMessage::UserState({
-            crate::raw::UserState{
-                session: Some(1),
-                name: Some("Alice".to_string()),
-                ..Default::default()
-            }
-        })).unwrap();
+        state
+            .apply(crate::ServerToClientMessage::UserState({
+                crate::raw::UserState {
+                    session: Some(1),
+                    name: Some("Alice".to_string()),
+                    ..Default::default()
+                }
+            }))
+            .unwrap();
         let user = state.users.get(&1).unwrap();
         assert_eq!(user.session, 1);
         assert_eq!(user.name, "Alice");
 
         // Remove the user
-        state.apply(crate::ServerToClientMessage::UserRemove({
-            crate::raw::UserRemove {
-                session: 1,
-                ..Default::default()
-            }
-        })).unwrap();
+        state
+            .apply(crate::ServerToClientMessage::UserRemove({
+                crate::raw::UserRemove {
+                    session: 1,
+                    ..Default::default()
+                }
+            }))
+            .unwrap();
         assert!(!state.users.contains_key(&1));
     }
 
@@ -636,7 +709,10 @@ mod tests {
         let event = state.apply(voice(1, false)).unwrap();
 
         assert_eq!(speaking(&state), [1]);
-        assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+        assert!(
+            matches!(event, Some(MumbleEvent::UsersChanged)),
+            "{event:?}"
+        );
     }
 
     #[test]
@@ -648,7 +724,10 @@ mod tests {
         let event = state.apply(voice(1, true)).unwrap();
 
         assert_eq!(speaking(&state), Vec::<u32>::new());
-        assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+        assert!(
+            matches!(event, Some(MumbleEvent::UsersChanged)),
+            "{event:?}"
+        );
     }
 
     #[test]
@@ -685,11 +764,13 @@ mod tests {
 
         // E.g. Alice mutes herself mid-sentence; her audio is still arriving.
         state
-            .apply(crate::ServerToClientMessage::UserState(crate::raw::UserState {
-                session: Some(1),
-                self_mute: Some(true),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::UserState(
+                crate::raw::UserState {
+                    session: Some(1),
+                    self_mute: Some(true),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         assert_eq!(speaking(&state), [1]);
@@ -702,10 +783,12 @@ mod tests {
         state.apply(voice(1, false)).unwrap();
 
         state
-            .apply(crate::ServerToClientMessage::UserRemove(crate::raw::UserRemove {
-                session: 1,
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::UserRemove(
+                crate::raw::UserRemove {
+                    session: 1,
+                    ..Default::default()
+                },
+            ))
             .unwrap();
         state.apply(user_state(1, "Alice")).unwrap();
 
@@ -722,7 +805,10 @@ mod tests {
 
         assert_eq!(state.users().len(), 1, "voice must not create users");
         assert_eq!(speaking(&state), Vec::<u32>::new());
-        assert!(event.is_none(), "nothing changed, so nothing to report: {event:?}");
+        assert!(
+            event.is_none(),
+            "nothing changed, so nothing to report: {event:?}"
+        );
     }
 
     // Voice arrives 50-100 times a second per speaker; reporting each packet
@@ -732,9 +818,14 @@ mod tests {
         let mut state = MumbleState::default();
         state.apply(user_state(1, "Alice")).unwrap();
 
-        let events: Vec<_> = (0..5).map(|_| state.apply(voice(1, false)).unwrap()).collect();
+        let events: Vec<_> = (0..5)
+            .map(|_| state.apply(voice(1, false)).unwrap())
+            .collect();
 
-        assert!(matches!(events[0], Some(MumbleEvent::UsersChanged)), "{events:?}");
+        assert!(
+            matches!(events[0], Some(MumbleEvent::UsersChanged)),
+            "{events:?}"
+        );
         assert!(events[1..].iter().all(Option::is_none), "{events:?}");
     }
 
@@ -764,7 +855,12 @@ mod tests {
 
     /// Sessions of the users flagged as the current user.
     fn me(state: &MumbleState) -> Vec<u32> {
-        state.users().iter().filter(|u| u.is_me).map(|u| u.session).collect()
+        state
+            .users()
+            .iter()
+            .filter(|u| u.is_me)
+            .map(|u| u.session)
+            .collect()
     }
 
     // src/invoke/mumbleState.test.ts parses the same fixture with the zod
@@ -774,15 +870,17 @@ mod tests {
         let mut state = MumbleState::default();
         state.apply(channel_state(0, "Root", None)).unwrap();
         state
-            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
-                channel_id: Some(3),
-                name: Some("Lobby".to_string()),
-                parent: Some(0),
-                description: Some("Say hi".to_string()),
-                is_enter_restricted: Some(true),
-                can_enter: Some(true),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                crate::raw::ChannelState {
+                    channel_id: Some(3),
+                    name: Some("Lobby".to_string()),
+                    parent: Some(0),
+                    description: Some("Say hi".to_string()),
+                    is_enter_restricted: Some(true),
+                    can_enter: Some(true),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/channels.json")).unwrap();
@@ -809,7 +907,10 @@ mod tests {
         let renamed = state.apply(channel_state(1, "Hall", Some(0))).unwrap();
 
         for event in [created, renamed] {
-            assert!(matches!(event, Some(MumbleEvent::ChannelsChanged)), "{event:?}");
+            assert!(
+                matches!(event, Some(MumbleEvent::ChannelsChanged)),
+                "{event:?}"
+            );
         }
         assert_eq!(state.channels().len(), 1);
         assert_eq!(state.channels[&1].name, "Hall");
@@ -821,21 +922,25 @@ mod tests {
     fn renaming_a_channel_keeps_its_parent_and_description() {
         let mut state = MumbleState::default();
         state
-            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
-                channel_id: Some(1),
-                name: Some("Lobby".to_string()),
-                parent: Some(0),
-                description: Some("Say hi".to_string()),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                crate::raw::ChannelState {
+                    channel_id: Some(1),
+                    name: Some("Lobby".to_string()),
+                    parent: Some(0),
+                    description: Some("Say hi".to_string()),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         state
-            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
-                channel_id: Some(1),
-                name: Some("Hall".to_string()),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                crate::raw::ChannelState {
+                    channel_id: Some(1),
+                    name: Some("Hall".to_string()),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         let channel = &state.channels[&1];
@@ -848,22 +953,26 @@ mod tests {
     fn a_channel_remembers_that_it_is_enter_restricted() {
         let mut state = MumbleState::default();
         state
-            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
-                channel_id: Some(1),
-                name: Some("Vault".to_string()),
-                is_enter_restricted: Some(true),
-                can_enter: Some(false),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                crate::raw::ChannelState {
+                    channel_id: Some(1),
+                    name: Some("Vault".to_string()),
+                    is_enter_restricted: Some(true),
+                    can_enter: Some(false),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         // A later update that doesn't mention the flags must not clear them.
         state
-            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
-                channel_id: Some(1),
-                name: Some("Hall".to_string()),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                crate::raw::ChannelState {
+                    channel_id: Some(1),
+                    name: Some("Hall".to_string()),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         let channel = &state.channels[&1];
@@ -879,11 +988,13 @@ mod tests {
         state.apply(channel_state(2, "Games", Some(0))).unwrap();
 
         state
-            .apply(crate::ServerToClientMessage::ChannelState(crate::raw::ChannelState {
-                channel_id: Some(1),
-                parent: Some(2),
-                ..Default::default()
-            }))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                crate::raw::ChannelState {
+                    channel_id: Some(1),
+                    parent: Some(2),
+                    ..Default::default()
+                },
+            ))
             .unwrap();
 
         assert_eq!(state.channels[&1].parent, Some(2));
@@ -895,7 +1006,9 @@ mod tests {
         let mut state = MumbleState::default();
 
         let error = state
-            .apply(crate::ServerToClientMessage::ChannelState(Default::default()))
+            .apply(crate::ServerToClientMessage::ChannelState(
+                Default::default(),
+            ))
             .unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -907,10 +1020,15 @@ mod tests {
         state.apply(channel_state(1, "Lobby", Some(0))).unwrap();
 
         let event = state
-            .apply(crate::ServerToClientMessage::ChannelRemove(crate::raw::ChannelRemove { channel_id: 1 }))
+            .apply(crate::ServerToClientMessage::ChannelRemove(
+                crate::raw::ChannelRemove { channel_id: 1 },
+            ))
             .unwrap();
 
-        assert!(matches!(event, Some(MumbleEvent::ChannelsChanged)), "{event:?}");
+        assert!(
+            matches!(event, Some(MumbleEvent::ChannelsChanged)),
+            "{event:?}"
+        );
         assert!(state.channels().is_empty());
     }
 
@@ -919,7 +1037,9 @@ mod tests {
         let mut state = MumbleState::default();
 
         let error = state
-            .apply(crate::ServerToClientMessage::ChannelRemove(crate::raw::ChannelRemove { channel_id: 9 }))
+            .apply(crate::ServerToClientMessage::ChannelRemove(
+                crate::raw::ChannelRemove { channel_id: 9 },
+            ))
             .unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -935,14 +1055,26 @@ mod tests {
     fn removing_a_channel_after_the_server_moves_its_users_out() {
         let mut state = MumbleState::default();
         state.apply(channel_state(0, "Root", None)).unwrap();
-        state.apply(channel_state(1, "Another channel", Some(0))).unwrap();
+        state
+            .apply(channel_state(1, "Another channel", Some(0)))
+            .unwrap();
         state.apply(user_in_channel(5, 1)).unwrap();
 
         state.apply(user_in_channel(5, 0)).unwrap();
         let event = state.apply(channel_remove(1)).unwrap();
 
-        assert!(matches!(event, Some(MumbleEvent::ChannelsChanged)), "{event:?}");
-        assert_eq!(state.channels().iter().map(|c| c.channel_id).collect::<Vec<_>>(), [0]);
+        assert!(
+            matches!(event, Some(MumbleEvent::ChannelsChanged)),
+            "{event:?}"
+        );
+        assert_eq!(
+            state
+                .channels()
+                .iter()
+                .map(|c| c.channel_id)
+                .collect::<Vec<_>>(),
+            [0]
+        );
         assert_eq!(state.users[&5].channel_id, 0);
     }
 
@@ -950,7 +1082,9 @@ mod tests {
     fn the_current_user_follows_their_channel_being_removed() {
         let mut state = MumbleState::default();
         state.apply(channel_state(0, "Root", None)).unwrap();
-        state.apply(channel_state(1, "Another channel", Some(0))).unwrap();
+        state
+            .apply(channel_state(1, "Another channel", Some(0)))
+            .unwrap();
         state.apply(user_in_channel(22, 1)).unwrap();
         state.apply(server_sync(Some(22))).unwrap();
 
@@ -970,7 +1104,10 @@ mod tests {
 
         let event = state.apply(user_in_channel(1, 2)).unwrap();
 
-        assert!(matches!(event, Some(MumbleEvent::UsersChanged)), "{event:?}");
+        assert!(
+            matches!(event, Some(MumbleEvent::UsersChanged)),
+            "{event:?}"
+        );
         assert_eq!(state.users[&1].channel_id, 2);
     }
 

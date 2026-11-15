@@ -146,7 +146,10 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>) -> Self {
-        Self { packets, speakers: HashMap::new() }
+        Self {
+            packets,
+            speakers: HashMap::new(),
+        }
     }
 }
 
@@ -159,7 +162,9 @@ impl SpeakerSource for Mixer {
                     let sender = packet.sender_session;
                     let speaker = match self.speakers.entry(sender) {
                         std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                        std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            entry.insert(Speaker::new()?)
+                        }
                     };
                     if let Err(e) = speaker.insert_packet(sender, &packet.opus_data) {
                         log::warn!("Dropping audio from session {sender}: {e}");
@@ -210,7 +215,10 @@ mod tests {
     use super::*;
     use crate::mic::audio_processing;
     use crate::test_util::tone_strength;
-    use ringbuf::{HeapRb, traits::{Consumer, Observer, Split}};
+    use ringbuf::{
+        HeapRb,
+        traits::{Consumer, Observer, Split},
+    };
     use sonora::{Config, config::EchoCanceller};
 
     /// Opus-encodes `packets` × 20 ms of a sine tone, as a sender would.
@@ -298,7 +306,11 @@ mod tests {
     }
 
     fn audio_packet(session: u32, opus_data: Vec<u8>) -> proto::raw_udp::Audio {
-        proto::raw_udp::Audio { sender_session: session, opus_data, ..Default::default() }
+        proto::raw_udp::Audio {
+            sender_session: session,
+            opus_data,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -356,7 +368,9 @@ mod tests {
                 let packets = tone_packets(440.0, 0.5, 50); // one second
                 for (i, packet) in packets.iter().enumerate() {
                     // Frame numbers count 10 ms; a packet is 20 ms.
-                    client.send_audio(packet, i as u64 * 2, i == packets.len() - 1).unwrap();
+                    client
+                        .send_audio(packet, i as u64 * 2, i == packets.len() - 1)
+                        .unwrap();
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
             })
@@ -367,7 +381,10 @@ mod tests {
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(10));
         for _ in 0..250 {
             tick.tick().await;
-            let frame = mixer.next_frame().unwrap().expect("the listener stayed connected");
+            let frame = mixer
+                .next_frame()
+                .unwrap()
+                .expect("the listener stayed connected");
             mixed.extend(frame.map(|s| s as f32 / i16::MAX as f32));
         }
         talking.await.unwrap();
@@ -387,8 +404,15 @@ mod tests {
             .collect();
         // A 0.5-amplitude sine has an RMS of about 0.35.
         let loud = windows.iter().filter(|(rms, _)| *rms > 0.25).count();
-        assert!(loud >= 5, "the talker was heard in only {loud} of {} windows: {windows:.3?}", windows.len());
-        assert!(windows.iter().all(|(_, other)| *other < 0.02), "unrelated frequency in the mix");
+        assert!(
+            loud >= 5,
+            "the talker was heard in only {loud} of {} windows: {windows:.3?}",
+            windows.len()
+        );
+        assert!(
+            windows.iter().all(|(_, other)| *other < 0.02),
+            "unrelated frequency in the mix"
+        );
     }
 
     #[test]
@@ -453,7 +477,10 @@ mod tests {
         assert_eq!(consumer.occupied_len(), 3 * SPEAKER_FRAME_SAMPLES);
         let mut played = vec![0i16; consumer.occupied_len()];
         consumer.pop_slice(&mut played);
-        assert!(played.iter().all(|&s| s == 1000), "the speakers' audio should pass through unchanged");
+        assert!(
+            played.iter().all(|&s| s == 1000),
+            "the speakers' audio should pass through unchanged"
+        );
     }
 
     #[test]
@@ -490,14 +517,19 @@ mod tests {
         let more = top_up_output(&mut producer, 4000, &mut speakers, &mut apm).unwrap();
 
         assert!(!more);
-        assert_eq!(consumer.occupied_len(), 2 * SPEAKER_FRAME_SAMPLES, "frames before the end are still played");
+        assert_eq!(
+            consumer.occupied_len(),
+            2 * SPEAKER_FRAME_SAMPLES,
+            "frames before the end are still played"
+        );
     }
 
     #[test]
     fn top_up_passes_source_errors_on() {
         let (mut producer, _consumer) = ring(4800);
         let mut apm = audio_processing(Config::default());
-        let mut speakers = || -> Result<Option<Frame>, Error> { Err(Error::other("decoder broke")) };
+        let mut speakers =
+            || -> Result<Option<Frame>, Error> { Err(Error::other("decoder broke")) };
 
         let result = top_up_output(&mut producer, 1000, &mut speakers, &mut apm);
 
@@ -522,18 +554,24 @@ mod tests {
 
         let mut seed = 12345u32;
         let mut far_end = move || {
-            Ok(Some(std::array::from_fn::<i16, SPEAKER_FRAME_SAMPLES, _>(|_| {
-                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                ((seed >> 16) as i16) / 8 // white noise, about 12% of full scale
-            })))
+            Ok(Some(std::array::from_fn::<i16, SPEAKER_FRAME_SAMPLES, _>(
+                |_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    ((seed >> 16) as i16) / 8 // white noise, about 12% of full scale
+                },
+            )))
         };
 
         let (mut producer, mut consumer) = ring(4800);
-        let mut room = std::collections::VecDeque::from(vec![[0.0f32; SPEAKER_FRAME_SAMPLES]; ROOM_DELAY_FRAMES]);
+        let mut room = std::collections::VecDeque::from(vec![
+            [0.0f32; SPEAKER_FRAME_SAMPLES];
+            ROOM_DELAY_FRAMES
+        ]);
         let (mut echo, mut left) = (0.0, 0.0);
         for tick in 0..TICKS {
             if feed_render_through_top_up {
-                top_up_output(&mut producer, SPEAKER_FRAME_SAMPLES, &mut far_end, &mut apm).unwrap();
+                top_up_output(&mut producer, SPEAKER_FRAME_SAMPLES, &mut far_end, &mut apm)
+                    .unwrap();
             } else {
                 let frame: Frame = far_end().unwrap().unwrap();
                 producer.push_slice(&frame);
@@ -547,7 +585,8 @@ mod tests {
             let mic = room.pop_front().unwrap();
 
             let mut processed = [0.0f32; SPEAKER_FRAME_SAMPLES];
-            apm.process_capture_f32(&[&mic], &mut [&mut processed]).unwrap();
+            apm.process_capture_f32(&[&mic], &mut [&mut processed])
+                .unwrap();
             if tick >= TICKS - MEASURED_TICKS {
                 echo += energy(&mic);
                 left += energy(&processed);
@@ -560,7 +599,10 @@ mod tests {
     fn the_echo_canceller_removes_what_the_speakers_played() {
         let remaining = echo_remaining(true);
         eprintln!("echo remaining with the render reference: {remaining}");
-        assert!(remaining < 0.01, "{remaining} of the echo is still in the mic");
+        assert!(
+            remaining < 0.01,
+            "{remaining} of the echo is still in the mic"
+        );
     }
 
     #[test]
@@ -568,7 +610,10 @@ mod tests {
         // Guards the test above: it only means something if cancelling needs the reference.
         let remaining = echo_remaining(false);
         eprintln!("echo remaining without the render reference: {remaining}");
-        assert!(remaining > 0.2, "the echo went away without a reference: {remaining}");
+        assert!(
+            remaining > 0.2,
+            "the echo went away without a reference: {remaining}"
+        );
     }
 
     #[test]
