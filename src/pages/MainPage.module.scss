@@ -137,7 +137,7 @@ pre {
         // focus ring, but with no extra padding
         outline-offset: -2px;
 
-        // Grow with the message, then scroll, so a pasted image can't push
+        // Grow with the message, then scroll, so a long message can't push
         // the chat log off screen.
         max-height: 40vh;
         overflow-y: auto;
