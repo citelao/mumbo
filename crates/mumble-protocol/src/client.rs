@@ -391,7 +391,8 @@ async fn run(
                                 session: m.session.clone(),
                                 content: m.message.clone(),
                             }));
-                            events_tx.send(crate::state::MumbleEvent::ChatMessage).unwrap();
+                            // Only fails if nobody is listening.
+                            let _ = events_tx.send(crate::state::MumbleEvent::ChatMessage);
                         }
                         _ => {
                             // No-op
@@ -859,6 +860,23 @@ mod tests {
             (last.opus_data, last.frame_number, last.is_terminator),
             (vec![2], 8, true)
         );
+    }
+
+    #[tokio::test]
+    async fn connection_survives_a_dropped_event_receiver() {
+        let (connection, mut server) = connected().await;
+        let client = connection.client.clone();
+        drop(connection.events);
+
+        client.send_channel_message("hello".to_string(), Some(0)).unwrap();
+        server.receive_message::<raw::TextMessage>().await;
+        // The connection task must still be applying server messages.
+        server.send(user(3, "Bob")).await;
+        tokio::time::timeout(TIMEOUT, async {
+            while !user_names(&client).contains(&"Bob".to_string()) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("connection task died after the event receiver was dropped");
     }
 
     #[tokio::test]
