@@ -78,6 +78,14 @@ function paste(element: HTMLElement, { files = [], text = "" }: { files?: File[]
     element.dispatchEvent(event);
 }
 
+/** Drops `files` on `element`, as dragging them in from the OS would. */
+function drop(element: Element, files: File[]): Event {
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { types: ["Files"], files, getData: () => "" } });
+    element.dispatchEvent(event);
+    return event;
+}
+
 function pngFile() {
     return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" });
 }
@@ -244,6 +252,65 @@ describe("App", () => {
         await vi.waitFor(() =>
             expect(window.alert).toHaveBeenCalledWith("Failed to send image: This image is too large to send"),
         );
+    });
+
+    // Otherwise the webview opens the dropped file in place of the app.
+    it("doesn't navigate to files dropped on the login page", () => {
+        renderApp();
+        const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+        screen.getByRole("button", { name: "Connect" }).dispatchEvent(dragOver);
+        expect(dragOver.defaultPrevented).toBe(true);
+        expect(drop(screen.getByRole("button", { name: "Connect" }), [pngFile()]).defaultPrevented).toBe(true);
+    });
+
+    it("asks Rust to send an image dropped anywhere on the main page", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        const event = drop(screen.getByRole("button", { name: "Disconnect" }), [pngFile()]);
+
+        expect(event.defaultPrevented).toBe(true);
+        await vi.waitFor(() =>
+            expect(mockInvoke).toHaveBeenCalledWith("send_channel_image", {
+                image: expect.stringMatching(/^data:image\/png;base64,/),
+            }),
+        );
+    });
+
+    it("leaves images dropped on the chat editor to the editor", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        // jsdom has no layout, so ProseMirror itself ignores the drop: nothing
+        // should be sent at all, rather than once by the page as well.
+        drop(await chatEditor(), [pngFile()]);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(mockInvoke).not.toHaveBeenCalledWith("send_channel_image", expect.anything());
+    });
+
+    it("highlights the main page while a file is dragged over it", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+        const page = document.querySelector("main")!;
+
+        act(() => {
+            const dragEnter = new Event("dragenter", { bubbles: true });
+            Object.defineProperty(dragEnter, "dataTransfer", { value: { types: ["Files"] } });
+            page.dispatchEvent(dragEnter);
+        });
+        expect(page.dataset.dropTarget).toBe("true");
+
+        act(() => {
+            drop(page, [pngFile()]);
+        });
+        expect(page.dataset.dropTarget).toBeUndefined();
     });
 
     it("asks Rust to send the typed message to the channel on Enter", async () => {

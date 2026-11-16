@@ -12,6 +12,9 @@ import { Underline } from "@tiptap/extension-underline";
 import { Link } from "@tiptap/extension-link";
 import { FileHandler } from "@tiptap/extension-file-handler";
 
+/** The image types that can be sent, by pasting or dropping them. */
+export const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
 export interface ChatExtensionOptions {
     onSend: () => void;
     /** Sends a pasted or dropped image, as a data URL, as a message of its own. */
@@ -56,7 +59,7 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
         // No Image extension: images are sent on their own as soon as they're
         // pasted or dropped, and left out of pasted HTML.
         FileHandler.configure({
-            allowedMimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+            allowedMimeTypes: IMAGE_MIME_TYPES,
             // Otherwise, when the clipboard also has HTML for the image (e.g.
             // "Copy Image" in a browser), that gets pasted too.
             consumePasteEvent: true,
@@ -73,7 +76,7 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
 }
 
 /** Reads a single image file as a data URL and sends it. */
-function sendImageFile(files: File[], onSendImage: (dataUrl: string) => void) {
+export function sendImageFile(files: File[], onSendImage: (dataUrl: string) => void) {
     if (files.length !== 1) {
         alert("Images can only be sent one at a time.");
         return;
