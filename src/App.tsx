@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
-import type { ProtocolLogEntry } from "./ProtocolViewer";
+import { appendToProtocolLog, emptyProtocolLog, type ProtocolLog, type ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.scss";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
@@ -10,7 +10,7 @@ import SettingsStore, { Server, Settings } from "./settings";
 import { connect, disconnect, sendChannelMessage, setChannel, setSelfMute, sendUserMessage } from "./invoke";
 import type { Channel as MumbleChannel } from "./invoke/mumbleState";
 
-// Keeps the log (and React re-renders) bounded during long sessions.
+// Keeps each log feed (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
 
 let nextLogEntryId = 0;
@@ -33,7 +33,7 @@ interface AppProps {
 }
 
 function App(props: AppProps) {
-    const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
+    const [protocolLog, setProtocolLog] = useState<ProtocolLog>(emptyProtocolLog);
 
     const [isConnected, setIsConnected] = useState(false);
 
@@ -64,12 +64,7 @@ function App(props: AppProps) {
         const channel = new Channel<ServerToClientMessage>();
         channel.onmessage = (event) => {
             const entry = toLogEntry(event);
-            // TODO: don't exceed the maximum number of log entries for audio messages.
-            // if (entry.ok && entry.message.type === "UdpTunnel" && entry.message.data.type === "Audio") {
-            //     return;
-            // }
-
-            setProtocolLog((log) => [...log, entry].slice(-MAX_LOG_ENTRIES));
+            setProtocolLog((log) => appendToProtocolLog(log, entry, MAX_LOG_ENTRIES));
         };
         try {
             // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -121,7 +116,7 @@ function App(props: AppProps) {
     } else {
         return <MainPage
             protocolLog={protocolLog}
-            onClearProtocolLog={() => setProtocolLog([])}
+            onClearProtocolLog={() => setProtocolLog(emptyProtocolLog)}
             onSendMessage={sendChannelMessage}
             onSetSelfMute={setSelfMute}
             onDisconnect={onDisconnect}

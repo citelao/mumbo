@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, type User } from "../invoke/mumbleState";
-import { ProtocolViewer, type ProtocolLogEntry } from "../ProtocolViewer";
+import { ProtocolViewer, type ProtocolLog } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
@@ -12,7 +12,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { createChatExtensions, getMessageHtml } from '../chatEditor';
 
 export interface MainPageProps {
-    protocolLog: ProtocolLogEntry[];
+    protocolLog: ProtocolLog;
     onClearProtocolLog: () => void;
 
     onDisconnect: () => void;
@@ -247,7 +247,7 @@ export function MainPage(props: MainPageProps) {
                     }} />
                 </section>
             </main>
-            <ProtocolViewer entries={props.protocolLog} onClear={props.onClearProtocolLog} />
+            <ProtocolViewer log={props.protocolLog} onClear={props.onClearProtocolLog} />
         </>
     );
 }
