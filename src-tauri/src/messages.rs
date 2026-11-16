@@ -11,17 +11,6 @@ use mumble_protocol::state::MumbleState;
 /// smaller images keep theirs. Keep in sync with MainPage.module.scss.
 const MAX_DISPLAY_WIDTH: u32 = 800;
 const MAX_DISPLAY_HEIGHT: u32 = 600;
-/// Image pixels per displayed pixel, at most, so images are sharp on HiDPI
-/// displays. Both mumbo and the official client draw images at their `width`
-/// and `height` attributes, which we always set to the display size.
-const MAX_PIXEL_DENSITY: u32 = 2;
-const JPEG_QUALITY: u8 = 80;
-
-/// When an image must shrink to fit its share of the message, the fraction of
-/// that share to aim for (a little under, since the guess is rough), and the
-/// least to settle for (each try re-encodes the whole image).
-const TARGET_BUDGET_USE: f64 = 0.98;
-const MIN_BUDGET_USE: f64 = 0.95;
 
 // The official Mumble client's defaults, for anything the server's
 // ServerConfig leaves out (Murmur always sends all three):
@@ -54,88 +43,7 @@ impl MessageLimits {
                 .map_or(DEFAULT_IMAGE_MESSAGE_LENGTH, |l| l as usize),
         }
     }
-
-    /// Max total length of a message's image data (its `src` values), given
-    /// the length of everything else, or `None` if images are unlimited.
-    ///
-    /// Murmur rejects messages longer than image_message_length, then checks
-    /// only what's left after removing image data against message_length, so
-    /// the images can use all the rest. See `Server::isTextAllowed`:
-    /// https://github.com/mumble-voip/mumble/blob/ccf405905f8d14ef84f8bc9d8959c6f4b9881b8e/src/murmur/Server.cpp#L2497-L2555
-    fn image_budget(&self, other_length: usize) -> Option<usize> {
-        if self.image_message_length == 0 {
-            return None;
-        }
-        // Murmur counts UTF-16 code units; bytes are never fewer.
-        Some(self.image_message_length.saturating_sub(other_length))
-    }
 }
-
-/// `img`'s size shrunk to fit within `max_width`×`max_height`, keeping its
-/// aspect ratio; never larger than it is.
-fn fit(img: &DynamicImage, max_width: u32, max_height: u32) -> (u32, u32) {
-    let (width, height) = (img.width() as f64, img.height() as f64);
-    let scale = (max_width as f64 / width).min(max_height as f64 / height).min(1.0);
-    (((width * scale).round() as u32).max(1), ((height * scale).round() as u32).max(1))
-}
-
-fn display_size(img: &DynamicImage) -> (u32, u32) {
-    fit(img, MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT)
-}
-
-/// The most pixels `img` is sent with, if there's room.
-fn full_size(img: &DynamicImage) -> (u32, u32) {
-    fit(img, MAX_DISPLAY_WIDTH * MAX_PIXEL_DENSITY, MAX_DISPLAY_HEIGHT * MAX_PIXEL_DENSITY)
-}
-
-/// `img` resized to `size`, or as is if it's already that size.
-fn resized(img: &DynamicImage, (width, height): (u32, u32)) -> DynamicImage {
-    if (width, height) == (img.width(), img.height()) {
-        img.clone()
-    } else {
-        img.resize_exact(width, height, FilterType::Lanczos3)
-    }
-}
-
-// fn resize_images_to_fit(
-//     images: &[DynamicImage],
-//     budget: usize,
-// ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-//     // For each image, assign budget of available space proportionally to its
-//     // original size. Start with smallest images first, since they compress
-//     // less.
-
-//     // Tag each image with index to track original order.
-//     let images_with_index = images
-//         .iter()
-//         .enumerate()
-//         .collect::<Vec<_>>();
-// }
-
-/// Encodes each image as a data URL, together at most `budget` long.
-///
-/// Only a lone image is shrunk to fit. Most messages have one, and dividing
-/// the budget between several would shrink all of them; sending them
-/// separately is better.
-// fn encode_to_fit(
-//     images: &[DynamicImage],
-//     budget: Option<usize>,
-// ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-//     let urls = images
-//         .iter()
-//         .map(|img| smallest_data_url(&resized(img, full_size(img))))
-//         .collect::<Result<Vec<_>, _>>()?;
-//     let Some(budget) = budget else { return Ok(urls) };
-//     if urls.iter().map(String::len).sum::<usize>() <= budget {
-//         return Ok(urls);
-//     }
-//     match images {
-//         [image] => Ok(vec![
-//             shrink_to_fit(image, &urls[0], budget)?.ok_or("This image is too large to send")?,
-//         ]),
-//         _ => Err("These images are too large to send together; try sending them separately".into()),
-//     }
-// }
 
 #[derive(Debug, Clone)]
 struct ResizeResult {
@@ -188,51 +96,6 @@ fn resize_image_to_fit(
     let success = best_url.len() <= budget;
     return Ok(ResizeResult { success, best_url, width: best_width, height: best_height });
 }
-
-
-// /// Encodes `source` as a data URL at most `budget` long, as large as fits
-// /// within a few tries, or `None` if none did. `url` is its encoding at full
-// /// size, which is too long.
-// fn shrink_to_fit(
-//     source: &DynamicImage,
-//     url: &str,
-//     budget: usize,
-// ) -> Result<Option<String>, image::ImageError> {
-//     let full = full_size(source);
-//     let budget_f = budget as f64;
-
-//     // Scales relative to the full size: the largest known to fit, the
-//     // smallest known not to, and the one to try next.
-//     let (mut fits, mut too_big) = (0.0, 1.0);
-//     let mut best = None;
-//     let mut scale = 1.0;
-//     let mut length = url.len();
-//     for _ in 0..8 {
-//         // Encoded size is roughly proportional to pixel count, so guess from
-//         // the last try. It's only rough (shrinking smooths the image, which
-//         // then compresses better), so fall back to bisecting.
-//         let guess = scale * (budget_f * TARGET_BUDGET_USE / length as f64).sqrt();
-//         scale = if fits < guess && guess < too_big { guess } else { (fits + too_big) / 2.0 };
-
-//         let (width, height) = (full.0 as f64 * scale, full.1 as f64 * scale);
-//         if width < 1.0 || height < 1.0 {
-//             break;
-//         }
-//         let attempt = resized(source, (width as u32, height as u32));
-//         let url = smallest_data_url(&attempt)?;
-//         length = url.len();
-//         if length <= budget {
-//             if length as f64 >= budget_f * MIN_BUDGET_USE {
-//                 return Ok(Some(url));
-//             }
-//             fits = scale;
-//             best = Some(url);
-//         } else {
-//             too_big = scale;
-//         }
-//     }
-//     Ok(best)
-// }
 
 fn smallest_data_url(img: &DynamicImage) -> Result<String, image::ImageError> {
     let mut png = Vec::new();
@@ -337,10 +200,12 @@ pub fn sanitize_user_message(
         let scale = (MAX_DISPLAY_WIDTH as f64 / r.width as f64)
             .min(MAX_DISPLAY_HEIGHT as f64 / r.height as f64)
             .min(1.0);
+        let width = (r.width as f64 * scale).round() as u32;
+        let height = (r.height as f64 * scale).round() as u32;
 
         el.set_attribute("src", &r.best_url)?;
-        el.set_attribute("width", &(r.width as f64 * scale).to_string())?;
-        el.set_attribute("height", &(r.height as f64 * scale).to_string())?;
+        el.set_attribute("width", &width.to_string())?;
+        el.set_attribute("height", &height.to_string())?;
         Ok(())
     })?;
 
