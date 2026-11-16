@@ -12,6 +12,9 @@ use mumble_protocol::state::MumbleState;
 const MAX_DISPLAY_WIDTH: u32 = 800;
 const MAX_DISPLAY_HEIGHT: u32 = 600;
 
+/// JPEG quality for resized images.
+const JPEG_QUALITY: u8 = 85;
+
 // The official Mumble client's defaults, for anything the server's
 // ServerConfig leaves out (Murmur always sends all three):
 // https://github.com/mumble-voip/mumble/blob/ccf405905f8d14ef84f8bc9d8959c6f4b9881b8e/src/mumble/Global.cpp#L119-L121
@@ -137,6 +140,12 @@ pub fn sanitize_user_message(
     limits: &MessageLimits,
     message: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let is_unlimited_images = limits.image_message_length == 0;
+    if is_unlimited_images {
+        // Skip! `0` means unlimited size.
+        return Ok(message.to_string());
+    }
+
     // Two passes, since how much each image can be re-encoded to depends on
     // all of them: first decode them, then replace them in the same order.
     let mut images = vec![];
@@ -159,7 +168,8 @@ pub fn sanitize_user_message(
     })?;
 
     let text_length = message.len() - image_data_length;
-    if text_length > limits.message_length {
+    let is_unlimited_text = limits.message_length == 0;
+    if !is_unlimited_text && text_length > limits.message_length {
         log::warn!("Message exceeds text length limit {}/{} (non-image text)", text_length, limits.message_length);
     }
 
@@ -172,12 +182,14 @@ pub fn sanitize_user_message(
     // TODO: use visible area instead of URL length for image budgeting.
     let mut resize_order: Vec<usize> = (0..images.len()).collect();
     resize_order.sort_by_key(|&i| images[i].url.len());
+    let total_original_size: usize = images.iter().map(|img| img.url.len()).sum();
 
     let mut resize_results: Vec<Option<ResizeResult>> = vec![None; images.len()];
     let mut remaining_space = space_for_images;
+    let mut remaining_original = total_original_size;
     for i in resize_order {
         let image = &images[i];
-        let proportion = image.url.len() as f64 / space_for_images as f64;
+        let proportion = image.url.len() as f64 / remaining_original as f64;
         let budget = (proportion * remaining_space as f64) as usize;
         let resized = resize_image_to_fit(&image.image, budget)?;
         let best_url_len = resized.best_url.len();
@@ -186,6 +198,7 @@ pub fn sanitize_user_message(
         }
         resize_results[i] = Some(resized);
         remaining_space = remaining_space.saturating_sub(best_url_len);
+        remaining_original = remaining_original.saturating_sub(image.url.len());
     }
 
     let mut results = resize_results
