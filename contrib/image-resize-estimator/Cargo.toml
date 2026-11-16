@@ -9,3 +9,6 @@ publish = false
 [dependencies]
 image = "0.25.10"
 mumbo = { path = "../../src-tauri" }
+
+[build-dependencies]
+static_vcruntime = "3.0"
