@@ -2207,7 +2207,7 @@ name = "image-resize-estimator"
 version = "0.0.0"
 dependencies = [
  "image",
- "mumbo",
+ "mumble-messages",
 ]
 
 [[package]]
@@ -2768,6 +2768,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mumble-messages"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "data-url",
+ "image",
+ "log",
+ "mumble-protocol",
+ "tokio",
+]
+
+[[package]]
 name = "mumble-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2791,13 +2803,11 @@ dependencies = [
 name = "mumbo"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "bytes",
  "cpal",
- "data-url",
  "futures-util",
- "image",
  "log",
+ "mumble-messages",
  "mumble-protocol",
  "neteq",
  "nnnoiseless",

@@ -2,7 +2,7 @@
 
 Measures how the length of mumbo's image data URLs scales with image size, and
 compares ways of guessing how far to shrink an image so it fits the message
-budget. Use it to tune `resize_image_to_fit` in `src-tauri/src/messages.rs`, and
+budget. Use it to tune `resize_image_to_fit` in `crates/mumble-messages`, and
 re-run it when the encoder (formats, JPEG quality) or the pixel cap changes: it
 encodes with mumbo's own `smallest_data_url`.
 

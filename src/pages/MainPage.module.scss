@@ -160,7 +160,7 @@ pre {
 .editor,
 .chat {
     // Matches the largest image we send (MAX_DISPLAY_WIDTH × MAX_DISPLAY_HEIGHT in
-    // src-tauri/src/messages.rs); others' clients may send bigger ones.
+    // crates/mumble-messages); others' clients may send bigger ones.
     img {
         max-width: min(90%, 800px);
         max-height: 600px;

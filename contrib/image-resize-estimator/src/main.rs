@@ -1,6 +1,6 @@
 //! Measures how the length of mumbo's image data URLs scales with image size,
 //! and compares strategies for guessing how far to shrink an image so it fits
-//! a budget, to tune `resize_image_to_fit` in src-tauri/src/messages.rs.
+//! a budget, to tune `resize_image_to_fit` in crates/mumble-messages.
 //!
 //! Times are wall time, so run with --release for meaningful ones.
 //!
@@ -8,7 +8,7 @@
 //! to the encoder (formats, JPEG quality).
 
 use image::{DynamicImage, RgbImage, imageops::FilterType};
-use mumbo_lib::messages::{MAX_IMAGE_HEIGHT, MAX_IMAGE_WIDTH, smallest_data_url};
+use mumble_messages::{MAX_IMAGE_HEIGHT, MAX_IMAGE_WIDTH, smallest_data_url};
 
 /// Image budgets to test: the whole image limit of a default Murmur server
 /// (131072, less some text), and smaller shares as when several images split it.
@@ -17,7 +17,7 @@ const BUDGETS: [usize; 3] = [126_000, 60_000, 25_000];
 /// Scales at which to measure how length grows with size.
 const SCALES: [f64; 5] = [0.8, 0.6, 0.4, 0.25, 0.1];
 
-/// Encodes before giving up, as in messages.rs.
+/// Encodes before giving up, as in mumble-messages.
 const MAX_ENCODES: usize = 9;
 
 #[derive(Clone, Copy)]
@@ -46,7 +46,7 @@ fn scaled(img: &DynamicImage, scale: f64) -> DynamicImage {
     img.resize_exact(width, height, FilterType::Lanczos3)
 }
 
-/// `img` shrunk to mumbo's pixel cap, as messages.rs does before encoding.
+/// `img` shrunk to mumbo's pixel cap, as mumble-messages does before encoding.
 fn capped(img: &DynamicImage) -> DynamicImage {
     let scale = (MAX_IMAGE_WIDTH as f64 / img.width() as f64)
         .min(MAX_IMAGE_HEIGHT as f64 / img.height() as f64)
@@ -67,7 +67,7 @@ struct Outcome {
 }
 
 /// Shrinks `full` (whose encoding is `full_len` long and over `budget`) the
-/// way messages.rs does: guess a scale, and shrink further until it fits.
+/// way mumble-messages does: guess a scale, and shrink further until it fits.
 fn shrink(full: &DynamicImage, full_len: usize, budget: usize, strategy: Strategy) -> Outcome {
     let start = std::time::Instant::now();
     let mut outcome = Outcome { encodes: 0, work: 0.0, fill: 0.0, time: Default::default() };

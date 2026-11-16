@@ -11,7 +11,6 @@ use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
 
 pub mod audio;
-pub mod messages;
 #[cfg(test)]
 mod test_util;
 mod universal_mute;
@@ -130,8 +129,8 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
 fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
     let client = state.client.lock().unwrap();
     let client = client.as_ref().ok_or("No active connection")?;
-    let limits = crate::messages::MessageLimits::from_state(&client.state().lock().unwrap());
-    let message = crate::messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
+    let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
+    let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
     client
         .send_channel_message(message, None)
         .map_err(|e| e.to_string())
@@ -149,10 +148,10 @@ async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) ->
     let limits = {
         let client = state.client.lock().unwrap();
         let client = client.as_ref().ok_or("No active connection")?;
-        crate::messages::MessageLimits::from_state(&client.state().lock().unwrap())
+        mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap())
     };
     let message = tauri::async_runtime::spawn_blocking(move || {
-        crate::messages::prepare_image_message(&limits, &image).map_err(|e| e.to_string())
+        mumble_messages::prepare_image_message(&limits, &image).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -167,8 +166,8 @@ async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) ->
 fn send_user_message(state: tauri::State<'_, AppState>, message: String, session: Vec<u32>) -> Result<(), String> {
     let client = state.client.lock().unwrap();
     let client = client.as_ref().ok_or("No active connection")?;
-    let limits = crate::messages::MessageLimits::from_state(&client.state().lock().unwrap());
-    let message = crate::messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
+    let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
+    let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
     client
         .send_user_message(message, session)
         .map_err(|e| e.to_string())

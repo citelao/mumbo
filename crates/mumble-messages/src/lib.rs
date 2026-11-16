@@ -1,3 +1,6 @@
+//! Prepares Mumble text messages to send, rejecting what the server would and
+//! re-encoding images to fit its limits.
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use data_url::DataUrl;
 use image::codecs::{jpeg::JpegEncoder, png::PngEncoder};
@@ -12,7 +15,7 @@ pub const MAX_IMAGE_WIDTH: u32 = 1600;
 pub const MAX_IMAGE_HEIGHT: u32 = 1200;
 
 /// The largest size an image is displayed at, in CSS/Qt logical pixels;
-/// smaller images keep theirs. Keep in sync with MainPage.module.scss.
+/// smaller images keep theirs. Keep in sync with src/pages/MainPage.module.scss.
 const MAX_DISPLAY_WIDTH: u32 = 800;
 const MAX_DISPLAY_HEIGHT: u32 = 600;
 
