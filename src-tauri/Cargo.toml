@@ -44,6 +44,7 @@ sonora-agc2 = "0.2.0"
 sonora-simd = "0.2.0"
 thiserror = "2.0.21"
 nnnoiseless = { version = "0.5.2", default-features = false }
+mumble-messages = { path = "../crates/mumble-messages" }
 
 
 [dev-dependencies]

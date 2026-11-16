@@ -413,6 +413,20 @@ async fn run(
     Ok(())
 }
 
+/// `message` quoted for logs, with its middle elided if it's long: with an
+/// image it's ~128 KB of base64. Keeps both ends, e.g. `<img src="data:[...] />`.
+fn log_preview(message: &str) -> String {
+    const HEAD_CHARS: usize = 80;
+    const TAIL_CHARS: usize = 20;
+    let length = message.chars().count();
+    if length <= HEAD_CHARS + TAIL_CHARS {
+        return format!("\"{message}\"");
+    }
+    let head: String = message.chars().take(HEAD_CHARS).collect();
+    let tail: String = message.chars().skip(length - TAIL_CHARS).collect();
+    format!("\"{head}[...]{tail}\"")
+}
+
 impl MumbleClient {
     pub fn disconnect(&self) {
         self.cancel.cancel();
@@ -458,6 +472,12 @@ impl MumbleClient {
     /// Sends a text message to the specified channel.
     ///
     /// Defaults to the current user's channel.
+    ///
+    /// `message` must be well-formed XML (e.g. `<br />`, `<img ... />`, no
+    /// `&nbsp;`). Murmur re-parses messages longer than the server's
+    /// `message_length` as XML to measure them without their images, and
+    /// rejects them with `PermissionDenied { type: TextTooLong }` if that
+    /// parse fails. See `contrib/text-message-tester`.
     pub fn send_channel_message(
         &self,
         message: String,
@@ -473,10 +493,12 @@ impl MumbleClient {
                 .unwrap()
                 .channel_id
         };
+
         log::info!(
-            "Sending text message: {} to channel: {:?}",
-            message,
-            channel_id
+            "Sending text message to channel {:?} ({} characters): {}",
+            channel_id,
+            message.len(),
+            log_preview(&message)
         );
         self.send(crate::ClientToServerMessage::TextMessage(
             crate::raw::TextMessage {
@@ -489,12 +511,19 @@ impl MumbleClient {
     }
 
     /// Send a DM to one or more users specified by their session IDs.
+    ///
+    /// `message` must be well-formed XML; see [`Self::send_channel_message`].
     pub fn send_user_message(
         &self,
         message: String,
         session: Vec<u32>,
     ) -> Result<(), MumbleConnectionError> {
-        log::info!("Sending text message: {} to user: {:?}", message, session);
+        log::info!(
+            "Sending text message to users {:?} ({} characters): {}",
+            session,
+            message.len(),
+            log_preview(&message)
+        );
         self.send(crate::ClientToServerMessage::TextMessage(
             crate::raw::TextMessage {
                 message: message.clone(),
@@ -557,6 +586,26 @@ mod tests {
     use crate::{TcpMessageId, UdpMessageId, raw, raw_udp};
     use prost::Message;
     use std::time::Duration;
+
+    #[test]
+    fn log_preview_quotes_short_messages_whole() {
+        assert_eq!(log_preview("hi"), r#""hi""#);
+    }
+
+    /// Keeps both ends, so an image still shows its `<img src="data:...` and
+    /// its closing ` />`.
+    #[test]
+    fn log_preview_elides_the_middle_of_long_messages() {
+        let message = format!(r#"<img src="data:image/png;base64,{}" />"#, "A".repeat(200));
+        let preview = log_preview(&message);
+        assert_eq!(preview, format!(r#""{}[...]{}""#, &message[..80], &message[message.len() - 20..]));
+    }
+
+    #[test]
+    fn log_preview_counts_characters_not_bytes() {
+        let message = "é".repeat(150);
+        assert_eq!(log_preview(&message), format!(r#""{}[...]{}""#, "é".repeat(80), "é".repeat(20)));
+    }
     use tokio::io::DuplexStream;
     use tokio_util::codec::Framed;
 

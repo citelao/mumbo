@@ -1,0 +1,17 @@
+[package]
+name = "mumble-messages"
+version = "0.1.0"
+description = "Prepares Mumble text messages, including images, to fit a server's limits"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/citelao/mumbo"
+
+[dependencies]
+base64 = "0.23.1"
+data-url = "0.3.2"
+image = "0.25.10"
+log = "0.4.34"
+mumble-protocol = { path = "../mumble-protocol" }
+
+[dev-dependencies]
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }
