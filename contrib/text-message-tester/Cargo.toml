@@ -8,5 +8,5 @@ publish = false
 
 [dependencies]
 base64 = "0.23.1"
-mumble-protocol = { path = "../../crates/mumble-protocol" }
+mumbo-sdk.workspace = true
 tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }

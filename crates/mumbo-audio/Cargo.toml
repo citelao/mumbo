@@ -8,7 +8,7 @@ edition = "2024"
 # wires it to cpal; tests and the e2e harness wire it to files and clocks.
 
 [dependencies]
-mumble-protocol = { path = "../mumble-protocol" }
+mumbo-sdk.workspace = true
 log = "0.4.34"
 opus = "0.4.0"
 ringbuf = "0.5.3"

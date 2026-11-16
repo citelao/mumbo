@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Error;
 
-use mumble_protocol as proto;
+use mumbo_sdk as proto;
 use ringbuf::traits::Producer;
 use sonora::AudioProcessing;
 

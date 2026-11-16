@@ -1,8 +1,8 @@
 use std::io::Error;
 use std::sync::Arc;
 
-use mumble_protocol as proto;
-use mumble_protocol::client::{Connection, ConnectionOptions, SelfMuteStatus};
+use mumbo_sdk as proto;
+use mumbo_sdk::client::{Connection, ConnectionOptions, SelfMuteStatus};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
@@ -503,7 +503,7 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .level_for("mumbo_lib", log::LevelFilter::Debug)
-                .level_for("mumble_protocol", log::LevelFilter::Debug)
+                .level_for("mumbo_sdk", log::LevelFilter::Debug)
                 .with_colors(ColoredLevelConfig::default())
                 .build(),
         )

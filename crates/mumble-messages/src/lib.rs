@@ -5,7 +5,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use data_url::DataUrl;
 use image::codecs::{jpeg::JpegEncoder, png::PngEncoder};
 use image::{DynamicImage, ImageDecoder, ImageReader, imageops::FilterType};
-use mumble_protocol::state::MumbleState;
+use mumbo_sdk::state::MumbleState;
 use std::error::Error;
 use std::io::Cursor;
 
@@ -416,8 +416,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
     async fn the_server_delivers_prepared_images() {
-        use mumble_protocol::ServerToClientMessage;
-        use mumble_protocol::client::{ConnectionOptions, connect};
+        use mumbo_sdk::ServerToClientMessage;
+        use mumbo_sdk::client::{ConnectionOptions, connect};
         use std::time::{Duration, Instant};
         let connect = |role: &str| {
             connect(ConnectionOptions {

@@ -1212,8 +1212,8 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "e2e-latency"
 version = "0.1.0"
 dependencies = [
- "mumble-protocol",
  "mumbo-audio",
+ "mumbo-sdk",
  "ringbuf 0.5.3",
  "tokio",
 ]
@@ -2785,28 +2785,8 @@ dependencies = [
  "data-url",
  "image",
  "log",
- "mumble-protocol",
+ "mumbo-sdk",
  "tokio",
-]
-
-[[package]]
-name = "mumble-protocol"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "chrono",
- "futures-util",
- "log",
- "prost",
- "prost-build",
- "protoc-bin-vendored",
- "rustls",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tokio-util",
 ]
 
 [[package]]
@@ -2818,8 +2798,8 @@ dependencies = [
  "futures-util",
  "log",
  "mumble-messages",
- "mumble-protocol",
  "mumbo-audio",
+ "mumbo-sdk",
  "ringbuf 0.5.3",
  "rustls",
  "serde",
@@ -2842,7 +2822,7 @@ name = "mumbo-audio"
 version = "0.1.0"
 dependencies = [
  "log",
- "mumble-protocol",
+ "mumbo-sdk",
  "neteq",
  "nnnoiseless",
  "opus",
@@ -2853,6 +2833,26 @@ dependencies = [
  "sonora-simd",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "mumbo-sdk"
+version = "0.1.0"
+source = "git+https://github.com/citelao/mumbo-sdk?branch=main#404cccf43ef5263598be4b03e807e93e1073e3ea"
+dependencies = [
+ "bytes",
+ "chrono",
+ "futures-util",
+ "log",
+ "prost",
+ "prost-build",
+ "protoc-bin-vendored",
+ "rustls",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
 ]
 
 [[package]]
@@ -5176,7 +5176,7 @@ name = "text-message-tester"
 version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
- "mumble-protocol",
+ "mumbo-sdk",
  "tokio",
 ]
 

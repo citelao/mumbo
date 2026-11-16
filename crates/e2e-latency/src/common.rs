@@ -4,7 +4,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use mumble_protocol::client::{Connection, ConnectionOptions, connect};
+use mumbo_sdk::client::{Connection, ConnectionOptions, connect};
 
 pub fn env_or<T: FromStr>(key: &str, default: T) -> T
 where

@@ -23,7 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mumble_protocol::{
+use mumbo_sdk::{
     client::Connection,
     state::{MumbleEvent, TextMessage},
 };
