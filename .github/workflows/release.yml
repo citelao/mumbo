@@ -128,13 +128,16 @@ jobs:
           manifest-path: packaging/flatpak/com.citelao.mumbo.yml
           arch: ${{ matrix.arch }}
           cache-key: flatpak-builder-${{ matrix.arch }}-${{ hashFiles('packaging/flatpak/**', 'Cargo.lock', 'package-lock.json') }}
-          # The action can't set retention, so upload the bundle ourselves.
+          build-debug-bundle: true
+          # The action can't set retention, so upload the bundles ourselves.
           upload-artifact: false
 
       - uses: actions/upload-artifact@v4
         with:
           name: mumbo-${{ matrix.name }}-${{ matrix.arch }}.flatpak
-          path: mumbo-${{ matrix.name }}.flatpak
+          path: |
+            mumbo-${{ matrix.name }}.flatpak
+            mumbo-${{ matrix.name }}-debug.flatpak
           if-no-files-found: error
           retention-days: 1
 

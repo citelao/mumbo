@@ -18,10 +18,25 @@ function isAudio(entry: ProtocolLogEntry): boolean {
   return entry.ok && entry.message.type === "UdpTunnel" && entry.message.data.type === "Audio";
 }
 
-export function ProtocolViewer({ entries, onClear }: { entries: ProtocolLogEntry[]; onClear: () => void }) {
+/**
+ * Two separately capped feeds, so a long stretch of audio (hidden by
+ * default) can't push everything else out of the audio-free view.
+ */
+export type ProtocolLog = { all: ProtocolLogEntry[]; withoutAudio: ProtocolLogEntry[] };
+
+export const emptyProtocolLog: ProtocolLog = { all: [], withoutAudio: [] };
+
+export function appendToProtocolLog(log: ProtocolLog, entry: ProtocolLogEntry, maxEntries: number): ProtocolLog {
+  return {
+    all: [...log.all, entry].slice(-maxEntries),
+    withoutAudio: isAudio(entry) ? log.withoutAudio : [...log.withoutAudio, entry].slice(-maxEntries),
+  };
+}
+
+export function ProtocolViewer({ log, onClear }: { log: ProtocolLog; onClear: () => void }) {
   // Voice packets arrive ~50/s per speaker and drown out everything else.
   const [showAudio, setShowAudio] = useState(false);
-  const visible = showAudio ? entries : entries.filter((entry) => !isAudio(entry));
+  const visible = showAudio ? log.all : log.withoutAudio;
 
   // Follow new entries, unless the user has scrolled up to read older ones.
   const listRef = useRef<HTMLOListElement>(null);

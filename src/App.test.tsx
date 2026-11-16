@@ -151,6 +151,25 @@ describe("App", () => {
         expect(rows[1].className).toBe("protocol-viewer-invalid");
     });
 
+    it("keeps non-audio messages logged through a long stretch of audio", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        const channel = connectChannel();
+        const version = messages.find((message) => message.type === "Version")!;
+        const audio = messages.find((message) => message.type === "UdpTunnel" && (message.data as { type?: unknown }).type === "Audio")!;
+        act(() => {
+            channel.onmessage(version);
+            for (let i = 0; i < 1000; i++) {
+                channel.onmessage(audio);
+            }
+        });
+
+        expect(screen.getByText("Protocol log (1)")).toBeTruthy();
+    });
+
     it("shows the server's users and chat once connected", async () => {
         const user = userEvent.setup();
         fakeBackend({
