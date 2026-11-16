@@ -66,6 +66,45 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  # Tests marked `#[ignore]` because they need a live Mumble server (e.g.
+  # sending audio and images between two clients), against the same server
+  # image as dev/mumble-server. Linux only: service containers need a Linux
+  # runner, and what these test doesn't vary by OS.
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      mumble-server:
+        # Keep in sync with dev/mumble-server/compose.yaml.
+        image: docker.io/mumblevoip/mumble-server:v1.5.915
+        ports:
+          - 64738:64738/tcp
+          - 64738:64738/udp
+        env:
+          MUMBLE_SUPERUSER_PASSWORD: superuser
+          MUMBLE_CONFIG_SERVERPASSWORD: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/linux-deps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # `tauri::generate_context!` needs ../dist; see the rust job.
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npx vite build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e
+
+      # The container reports started before the server is listening.
+      - name: Wait for the Mumble server
+        run: timeout 60 bash -c 'until nc -z localhost 64738; do sleep 1; done'
+      - run: cargo test --workspace --locked -- --ignored
+      - run: cargo run -p text-message-tester --locked
+
   # Builds the app bundle for each platform, catching failures tests don't
   # (bundling, Info.plist merging, release-mode compile, platform-only code).
   build:
