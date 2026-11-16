@@ -9,9 +9,9 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use mumble_protocol::ServerToClientMessage;
-use mumble_protocol::client::{Connection, ConnectionOptions, connect};
-use mumble_protocol::raw::permission_denied::DenyType;
+use mumbo_sdk::ServerToClientMessage;
+use mumbo_sdk::client::{Connection, ConnectionOptions, connect};
+use mumbo_sdk::raw::permission_denied::DenyType;
 use std::time::Duration;
 
 fn options(username: &str) -> ConnectionOptions {
