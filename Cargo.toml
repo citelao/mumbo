@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/*"]
+members = ["src-tauri", "crates/*", "contrib/text-message-tester", "contrib/image-resize-estimator"]
 
 [profile.release]
 codegen-units = 1
@@ -8,3 +8,17 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Image encoding is ~10x slower unoptimized: sending an image from a debug build
+# takes seconds, and the image tests take 25s instead of 2.5s. Decoding is also
+# 20x slower: data-url takes 250 ms on a 10 MB PNG unoptimized, 14 ms optimized.
+[profile.dev.package]
+image = { opt-level = 3 }
+png = { opt-level = 3 }
+fdeflate = { opt-level = 3 }
+miniz_oxide = { opt-level = 3 }
+crc32fast = { opt-level = 3 }
+simd-adler32 = { opt-level = 3 }
+zune-jpeg = { opt-level = 3 }
+data-url = { opt-level = 3 }
+base64 = { opt-level = 3 }

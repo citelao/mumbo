@@ -16,6 +16,20 @@
             max-height: 35vh;
         }
     }
+
+    // While a file is dragged over the page: all of it is a drop target. Drawn
+    // like a native one (e.g. Finder's): a rounded ring in the system focus
+    // color, which follows the user's accent color.
+    position: relative;
+    &[data-drop-target]::after {
+        content: "";
+        position: absolute;
+        inset: 3px;
+        border: 3px solid var(--color-focus-ring);
+        border-radius: 6px;
+        // Over the content, but not in the way of drag events.
+        pointer-events: none;
+    }
 }
 
 .chat {
@@ -39,6 +53,8 @@
 
             // Tabular numbers for alignment
             font-variant-numeric: tabular-nums;
+
+            flex-shrink: 0;
         }
 
         .user {
@@ -121,7 +137,7 @@ pre {
 }
 
 .editor {
-    [contenteditable] {
+    & > [contenteditable="true"] {
         background-color: var(--color-input-background);
         color: var(--color-text);
         border: 1px solid var(--color-border);
@@ -131,6 +147,11 @@ pre {
 
         // focus ring, but with no extra padding
         outline-offset: -2px;
+
+        // Grow with the message, then scroll, so a long message can't push
+        // the chat log off screen.
+        max-height: 40vh;
+        overflow-y: auto;
     }
 
     p {
@@ -149,6 +170,16 @@ pre {
 
 .editor,
 .chat {
+    // Matches the largest image we send (MAX_DISPLAY_WIDTH × MAX_DISPLAY_HEIGHT in
+    // crates/mumble-messages); others' clients may send bigger ones.
+    img {
+        max-width: min(90%, 800px);
+        max-height: 600px;
+        // Images carry width/height attributes; keep their aspect ratio when
+        // max-width shrinks them.
+        height: auto;
+    }
+
     code {
         // Use the native monospace font for code blocks
         font-family: monospace;

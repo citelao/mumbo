@@ -44,6 +44,11 @@ export function sendChannelMessage(message: string): Promise<void> {
     return invoke("send_channel_message", { message });
 }
 
+/** Send an image, as a data URL, to the current channel as a message of its own. */
+export function sendChannelImage(image: string): Promise<void> {
+    return invoke("send_channel_image", { image });
+}
+
 /** Send a direct message to one or more users specified by their session IDs. */
 export function sendUserMessage(message: string, session: number[]): Promise<void> {
     return invoke("send_user_message", { message, session });

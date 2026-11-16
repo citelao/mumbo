@@ -72,10 +72,11 @@ Work tracker.
 - [x] Send DMs
 - [ ] Send actual DMs, with nice UI
 - [x] Support ~~mrkdwn &~~ wysiwyg chat messages
-- [ ] Support chat images. Mumble has no upload protocol: an image is a `TextMessage` whose HTML has `<img src="data:image/...;base64,...">`. Should be limited to `image_message_length`.
+- [x] Support chat images. Mumble has no upload protocol: an image is a `TextMessage` whose HTML has `<img src="data:image/...;base64,...">`. Should be limited to `image_message_length`.
 - [ ] Notifications?
 - [ ] Notification settings
 - [ ] TTS for messages?
+- [ ] Auto-scroll chat (when not scrolled away from the bottom)
 
 ## Home page
 

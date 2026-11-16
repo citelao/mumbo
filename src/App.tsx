@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { ServerToClientMessage } from "./protocol";
-import type { ProtocolLogEntry } from "./ProtocolViewer";
+import { appendToProtocolLog, emptyProtocolLog, type ProtocolLog, type ProtocolLogEntry } from "./ProtocolViewer";
 import "./App.scss";
 import LoginPage, { OnConnectParams, OnConnectResult } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 import SettingsStore, { Server, Settings } from "./settings";
-import { connect, disconnect, sendChannelMessage, setChannel, setSelfMute, sendUserMessage } from "./invoke";
+import { connect, disconnect, sendChannelMessage, sendChannelImage, setChannel, setSelfMute, sendUserMessage } from "./invoke";
 import type { Channel as MumbleChannel } from "./invoke/mumbleState";
 
-// Keeps the log (and React re-renders) bounded during long sessions.
+// Keeps each log feed (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
 
 let nextLogEntryId = 0;
@@ -33,9 +33,22 @@ interface AppProps {
 }
 
 function App(props: AppProps) {
-    const [protocolLog, setProtocolLog] = useState<ProtocolLogEntry[]>([]);
+    const [protocolLog, setProtocolLog] = useState<ProtocolLog>(emptyProtocolLog);
 
     const [isConnected, setIsConnected] = useState(false);
+
+    // With Tauri's own drag and drop off (so the chat editor gets HTML drop
+    // events), the webview opens any file dropped outside a drop target in
+    // place of the app.
+    useEffect(() => {
+        const preventNavigation = (event: DragEvent) => event.preventDefault();
+        window.addEventListener("dragover", preventNavigation);
+        window.addEventListener("drop", preventNavigation);
+        return () => {
+            window.removeEventListener("dragover", preventNavigation);
+            window.removeEventListener("drop", preventNavigation);
+        };
+    }, []);
 
     const [settings, setSettings] = useState<Settings | null>(null);
     useEffect(() => {
@@ -48,6 +61,22 @@ function App(props: AppProps) {
     const onRemoveRecentServer = async (server: Server) => {
         await props.settings.removeRecentServer(server);
         setSettings(await props.settings.getSettings());
+    };
+    const onSendMessage = async (message: string) => {
+        try {
+            await sendChannelMessage(message);
+        } catch (error) {
+            console.error(error);
+            alert("Failed to send message: " + error);
+        }
+    };
+    const onSendImage = async (image: string) => {
+        try {
+            await sendChannelImage(image);
+        } catch (error) {
+            console.error(error);
+            alert("Failed to send image: " + error);
+        }
     };
     const onSendUserMessage = async (message: string, session: number[]) => {
         try {
@@ -64,12 +93,7 @@ function App(props: AppProps) {
         const channel = new Channel<ServerToClientMessage>();
         channel.onmessage = (event) => {
             const entry = toLogEntry(event);
-            // TODO: don't exceed the maximum number of log entries for audio messages.
-            // if (entry.ok && entry.message.type === "UdpTunnel" && entry.message.data.type === "Audio") {
-            //     return;
-            // }
-
-            setProtocolLog((log) => [...log, entry].slice(-MAX_LOG_ENTRIES));
+            setProtocolLog((log) => appendToProtocolLog(log, entry, MAX_LOG_ENTRIES));
         };
         try {
             // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -121,8 +145,9 @@ function App(props: AppProps) {
     } else {
         return <MainPage
             protocolLog={protocolLog}
-            onClearProtocolLog={() => setProtocolLog([])}
-            onSendMessage={sendChannelMessage}
+            onClearProtocolLog={() => setProtocolLog(emptyProtocolLog)}
+            onSendMessage={onSendMessage}
+            onSendImage={onSendImage}
             onSetSelfMute={setSelfMute}
             onDisconnect={onDisconnect}
             onSetChannel={onSetChannel}

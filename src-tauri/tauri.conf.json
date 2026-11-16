@@ -15,7 +15,8 @@
         "title": "mumbo",
         "width": 700,
         "height": 500,
-        "visible": false
+        "visible": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

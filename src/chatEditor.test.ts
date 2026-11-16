@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
-import { createChatExtensions, getMessageHtml } from "./chatEditor";
+import { createChatExtensions, getMessageHtml, isMessageEmpty, type ChatExtensionOptions } from "./chatEditor";
 
 const editors: Editor[] = [];
 
-function makeEditor(onSend: () => void = () => {}) {
+function makeEditor({ onSend = () => {}, onSendImage = () => {} }: Partial<ChatExtensionOptions> = {}) {
     const editor = new Editor({
         element: document.body.appendChild(document.createElement("div")),
-        extensions: createChatExtensions({ onSend }),
+        extensions: createChatExtensions({ onSend, onSendImage }),
         content: "",
     });
     editors.push(editor);
@@ -34,15 +34,38 @@ function type(editor: Editor, text: string) {
     }
 }
 
-function paste(editor: Editor, { html, text }: { html?: string; text: string }) {
+function paste(editor: Editor, { html, text, files = [] }: { html?: string; text?: string; files?: File[] }) {
     const event = new Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(event, "clipboardData", {
         value: {
-            getData: (type: string) => (type === "text/html" ? (html ?? "") : type === "text/plain" ? text : ""),
-            types: html ? ["text/html", "text/plain"] : ["text/plain"],
+            getData: (type: string) =>
+                type === "text/html" ? (html ?? "") : type === "text/plain" ? (text ?? "") : "",
+            types: [
+                ...(files.length ? ["Files"] : []),
+                ...(html ? ["text/html"] : []),
+                ...(text ? ["text/plain"] : []),
+            ],
+            files,
         },
     });
     editor.view.dom.dispatchEvent(event);
+}
+
+function drop(editor: Editor, files: File[]) {
+    // jsdom has no layout, so ProseMirror can't find a drop position (and
+    // ignores the drop) unless we stub it: the start of the paragraph.
+    editor.view.posAtCoords = () => ({ pos: 1, inside: -1 });
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+        dataTransfer: { value: { types: ["Files"], files, getData: () => "" } },
+        clientX: { value: 0 },
+        clientY: { value: 0 },
+    });
+    editor.view.dom.dispatchEvent(event);
+}
+
+function pngFile() {
+    return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" });
 }
 
 describe("message HTML", () => {
@@ -74,7 +97,22 @@ describe("message HTML", () => {
         type(editor, "a");
         editor.commands.setHardBreak();
         type(editor, "b");
-        expect(getMessageHtml(editor)).toBe("a<br>b");
+        expect(getMessageHtml(editor)).toMatch(/^a<br ?\/>b$/);
+    });
+
+    // Murmur re-parses long messages (e.g. with images) as XML and rejects
+    // them as TextTooLong if that fails. See contrib/text-message-tester.
+    it.each([
+        ["a hard break", '<p>a<br>b</p>'],
+        ["a non-breaking space", "<p>a&nbsp;b</p>"],
+        ["an ampersand in text and a link", '<p>a &amp; <a href="https://example.com/?a=1&amp;b=2">b</a></p>'],
+    ])("is well-formed XML with %s", (_name, content) => {
+        const editor = makeEditor();
+        editor.commands.setContent(content);
+        const html = getMessageHtml(editor);
+        const xml = new DOMParser().parseFromString(`<document>${html}</document>`, "application/xml");
+        expect(xml.getElementsByTagName("parsererror")).toHaveLength(0);
+        expect(html).not.toContain("xmlns");
     });
 
     it("never contains <p> after pressing Enter-ish commands", () => {
@@ -85,6 +123,76 @@ describe("message HTML", () => {
         type(editor, "b");
         expect(editor.state.doc.childCount).toBe(1);
         expect(getMessageHtml(editor)).not.toContain("<p");
+    });
+});
+
+describe("isMessageEmpty", () => {
+    it("is true for an empty editor", () => {
+        expect(isMessageEmpty(makeEditor())).toBe(true);
+    });
+
+    it("is true for only whitespace and hard breaks", () => {
+        const editor = makeEditor();
+        type(editor, "  ");
+        editor.commands.setHardBreak();
+        type(editor, " ");
+        expect(isMessageEmpty(editor)).toBe(true);
+    });
+
+    it("is false for text", () => {
+        const editor = makeEditor();
+        type(editor, "hi");
+        expect(isMessageEmpty(editor)).toBe(false);
+    });
+});
+
+// Images are sent on their own as soon as they're pasted or dropped, never
+// mixed into the text.
+describe("images", () => {
+    it("sends a pasted image file at once, as a data URL", async () => {
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
+        type(editor, "hi");
+        paste(editor, { files: [pngFile()] });
+        await vi.waitFor(() => expect(onSendImage).toHaveBeenCalledOnce());
+        expect(onSendImage).toHaveBeenCalledWith(expect.stringMatching(/^data:image\/png;base64,/));
+        // The text being typed stays put.
+        expect(getMessageHtml(editor)).toBe("hi");
+    });
+
+    it("sends only the file when the clipboard also has HTML for it", async () => {
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
+        paste(editor, { files: [pngFile()], html: '<img src="https://example.com/image.png">' });
+        await vi.waitFor(() => expect(onSendImage).toHaveBeenCalledOnce());
+        expect(getMessageHtml(editor)).toBe("");
+    });
+
+    it("sends a dropped image file at once, as a data URL", async () => {
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
+        drop(editor, [pngFile()]);
+        await vi.waitFor(() => expect(onSendImage).toHaveBeenCalledOnce());
+        expect(onSendImage).toHaveBeenCalledWith(expect.stringMatching(/^data:image\/png;base64,/));
+        expect(getMessageHtml(editor)).toBe("");
+    });
+
+    it("refuses several images at once", async () => {
+        const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
+        paste(editor, { files: [pngFile(), pngFile()] });
+        await vi.waitFor(() => expect(alert).toHaveBeenCalledOnce());
+        // Give a file read the chance to finish and send.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(onSendImage).not.toHaveBeenCalled();
+        alert.mockRestore();
+    });
+
+    it("leaves images out of pasted HTML", () => {
+        const editor = makeEditor();
+        paste(editor, { html: '<p>a<img src="data:image/png;base64,AAAA">b</p>', text: "ab" });
+        expect(getMessageHtml(editor)).toBe("ab");
     });
 });
 
@@ -128,19 +236,19 @@ describe("formatting", () => {
 describe("keyboard", () => {
     it("Mod-Enter sends", () => {
         const onSend = vi.fn();
-        const editor = makeEditor(onSend);
+        const editor = makeEditor({ onSend });
         editor.commands.keyboardShortcut("Mod-Enter");
         expect(onSend).toHaveBeenCalledOnce();
     });
 
     it("Shift-Enter inserts a hard break instead of sending", () => {
         const onSend = vi.fn();
-        const editor = makeEditor(onSend);
+        const editor = makeEditor({ onSend });
         type(editor, "a");
         editor.commands.keyboardShortcut("Shift-Enter");
         type(editor, "b");
         expect(onSend).not.toHaveBeenCalled();
-        expect(getMessageHtml(editor)).toBe("a<br>b");
+        expect(getMessageHtml(editor)).toMatch(/^a<br ?\/>b$/);
     });
 });
 
@@ -225,7 +333,9 @@ describe("placeholder", () => {
 
 describe("hostile HTML", () => {
     const ALLOWED_TAGS = new Set(["A", "STRONG", "EM", "U", "CODE", "BR"]);
-    const ALLOWED_ATTRIBUTES: Record<string, string[]> = { A: ["href", "target", "rel"] };
+    const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
+        A: ["href", "target", "rel"],
+    };
 
     // Whatever goes in, only our small whitelist may come out.
     function expectOnlySafeHtml(html: string) {
@@ -244,6 +354,8 @@ describe("hostile HTML", () => {
 
     const hostile = [
         "<script>alert(1)</script>hi",
+        '<img src="https://evil.example/pixel.png">',
+        '<img src="data:text/html,<script>alert(1)</script>">',
         '<img src=x onerror="alert(1)">',
         '<svg onload="alert(1)"><circle/></svg>',
         '<iframe src="https://evil.example"></iframe>',

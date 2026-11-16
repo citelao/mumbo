@@ -12,6 +12,10 @@ $system: (
   "link": LinkText,
   "link-hover": ActiveText,
 
+  // The OS's focus ring color, which follows the accent color on macOS. Not
+  // standard, but supported by WebKit and Chromium: all of Tauri's webviews.
+  "focus-ring": -webkit-focus-ring-color,
+
   // No system color is reliably visible as a plain border in every webview
   // (ButtonBorder is faint or transparent in some), so tint the page background
   // with the text color. The same trick gives subtle highlights.
