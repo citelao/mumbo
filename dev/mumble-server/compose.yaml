@@ -1,6 +1,7 @@
 services:
   mumble-server:
-    image: docker.io/mumblevoip/mumble-server:latest
+    # Keep in sync with the e2e job in .github/workflows/ci.yml.
+    image: docker.io/mumblevoip/mumble-server:v1.5.915
     ports:
       - "64738:64738/tcp"
       - "64738:64738/udp" # forward, even though we only use TCP.
