@@ -124,28 +124,50 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
 
 #[tauri::command]
 fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client
-            .send_channel_message(message, None)
-            .map_err(|e| e.to_string())
-    } else {
-        Err("No active connection".into())
-    }
+    let client = state.client.lock().unwrap();
+    let client = client.as_ref().ok_or("No active connection")?;
+    let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
+    let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
+    client
+        .send_channel_message(message, None)
+        .map_err(|e| e.to_string())
+}
+
+/// Sends `image`, a data URL, to the current channel as a message of its own.
+///
+/// TODO: a `send_user_image` for DMs, once there's UI to write them.
+///
+/// Async, and re-encodes on a blocking-task thread: that takes long enough to
+/// visibly freeze the UI if done on the main thread, where Tauri runs non-async
+/// commands.
+#[tauri::command]
+async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) -> Result<(), String> {
+    let limits = {
+        let client = state.client.lock().unwrap();
+        let client = client.as_ref().ok_or("No active connection")?;
+        mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap())
+    };
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        mumble_messages::prepare_image_message(&limits, &image).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let client = state.client.lock().unwrap();
+    let client = client.as_ref().ok_or("No active connection")?;
+    client
+        .send_channel_message(message, None)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn send_user_message(
-    state: tauri::State<'_, AppState>,
-    message: String,
-    session: Vec<u32>,
-) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client
-            .send_user_message(message, session)
-            .map_err(|e| e.to_string())
-    } else {
-        Err("No active connection".into())
-    }
+fn send_user_message(state: tauri::State<'_, AppState>, message: String, session: Vec<u32>) -> Result<(), String> {
+    let client = state.client.lock().unwrap();
+    let client = client.as_ref().ok_or("No active connection")?;
+    let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
+    let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
+    client
+        .send_user_message(message, session)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -495,6 +517,7 @@ pub fn run() {
             get_channels,
             get_chat_messages,
             send_channel_message,
+            send_channel_image,
             send_user_message,
             set_self_mute,
             set_channel,

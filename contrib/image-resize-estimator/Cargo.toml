@@ -1,0 +1,13 @@
+[package]
+name = "image-resize-estimator"
+version = "0.0.0"
+description = "Measures how mumbo's image encoding scales, to tune how it shrinks images to fit"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+image = "0.25.10"
+# Not mumbo itself: on Windows, tauri-build breaks linking other binaries
+# against it (its static_vcruntime puts an empty msvcrt.lib on their path).
+mumble-messages = { path = "../../crates/mumble-messages" }

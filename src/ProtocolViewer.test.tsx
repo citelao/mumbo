@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ServerToClientMessage } from "./protocol";
-import { ProtocolViewer, type ProtocolLogEntry } from "./ProtocolViewer";
+import { appendToProtocolLog, emptyProtocolLog, ProtocolViewer, type ProtocolLog, type ProtocolLogEntry } from "./ProtocolViewer";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
 import fixture from "../crates/mumble-protocol/fixtures/server_to_client_messages.json";
 
@@ -38,11 +38,15 @@ function rowLabels(): string[] {
     });
 }
 
-const mixedEntries = [okEntry("Ping"), okEntry("UdpTunnel/Audio"), okEntry("UdpTunnel/Ping"), okEntry("UdpTunnel/Audio")];
+function logOf(entries: ProtocolLogEntry[], maxEntries = 500): ProtocolLog {
+    return entries.reduce((log, entry) => appendToProtocolLog(log, entry, maxEntries), emptyProtocolLog);
+}
+
+const mixedEntries = logOf([okEntry("Ping"), okEntry("UdpTunnel/Audio"), okEntry("UdpTunnel/Ping"), okEntry("UdpTunnel/Audio")]);
 
 describe("ProtocolViewer", () => {
     it("renders as a collapsed details element", () => {
-        const { container } = render(<ProtocolViewer entries={[]} onClear={vi.fn()} />);
+        const { container } = render(<ProtocolViewer log={emptyProtocolLog} onClear={vi.fn()} />);
         const details = container.querySelector("details.protocol-viewer") as HTMLDetailsElement;
         expect(details).toBeTruthy();
         expect(details.open).toBe(false);
@@ -50,7 +54,7 @@ describe("ProtocolViewer", () => {
     });
 
     it("hides audio packets by default and counts only visible entries", () => {
-        render(<ProtocolViewer entries={mixedEntries} onClear={vi.fn()} />);
+        render(<ProtocolViewer log={mixedEntries} onClear={vi.fn()} />);
         expect((screen.getByLabelText("Show audio packets") as HTMLInputElement).checked).toBe(false);
         expect(rowLabels()).toEqual(["Ping", "UdpTunnel/Ping"]);
         expect(screen.getByText("Protocol log (2)")).toBeTruthy();
@@ -58,7 +62,7 @@ describe("ProtocolViewer", () => {
 
     it("shows audio packets once toggled on", async () => {
         const user = userEvent.setup();
-        render(<ProtocolViewer entries={mixedEntries} onClear={vi.fn()} />);
+        render(<ProtocolViewer log={mixedEntries} onClear={vi.fn()} />);
 
         await user.click(screen.getByLabelText("Show audio packets"));
 
@@ -70,7 +74,7 @@ describe("ProtocolViewer", () => {
     });
 
     it("labels invalid entries and shows their error", () => {
-        render(<ProtocolViewer entries={[okEntry("Version"), invalidEntry()]} onClear={vi.fn()} />);
+        render(<ProtocolViewer log={logOf([okEntry("Version"), invalidEntry()])} onClear={vi.fn()} />);
 
         expect(rowLabels()).toEqual(["Version", "Invalid message"]);
         const invalidRow = screen.getAllByRole("listitem")[1];
@@ -82,10 +86,20 @@ describe("ProtocolViewer", () => {
     it("calls onClear when Clear is clicked", async () => {
         const user = userEvent.setup();
         const onClear = vi.fn();
-        render(<ProtocolViewer entries={mixedEntries} onClear={onClear} />);
+        render(<ProtocolViewer log={mixedEntries} onClear={onClear} />);
 
         await user.click(screen.getByRole("button", { name: "Clear" }));
 
         expect(onClear).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("appendToProtocolLog", () => {
+    it("caps the audio-free feed separately from the full feed", () => {
+        const log = logOf([okEntry("Ping"), okEntry("UdpTunnel/Audio"), okEntry("UdpTunnel/Audio"), okEntry("UdpTunnel/Audio")], 2);
+
+        const labels = (entries: ProtocolLogEntry[]) => entries.map((entry) => (entry.ok ? entry.message.type : "invalid"));
+        expect(labels(log.all)).toEqual(["UdpTunnel", "UdpTunnel"]);
+        expect(labels(log.withoutAudio)).toEqual(["Ping"]);
     });
 });

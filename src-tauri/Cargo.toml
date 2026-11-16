@@ -38,6 +38,7 @@ ringbuf = "0.5.3"
 tauri-plugin-store = "2"
 sonora = "0.2.0"
 thiserror = "2.0.21"
+mumble-messages = { path = "../crates/mumble-messages" }
 
 
 [dev-dependencies]
