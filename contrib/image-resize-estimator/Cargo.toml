@@ -1,0 +1,11 @@
+[package]
+name = "image-resize-estimator"
+version = "0.0.0"
+description = "Measures how mumbo's image encoding scales, to tune how it shrinks images to fit"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+image = "0.25.10"
+mumbo = { path = "../../src-tauri" }
