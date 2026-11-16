@@ -1,5 +1,17 @@
 # Image resize estimator
 
+## Human summary
+
+Test how resizing images affects the length of their data URLs, since that limit is what Murmur messages care about.
+
+Goal is to estimate scaling factor `k`, such that `output length ∝ scale^k` (where `scale` is the % you adjust both width & height, e.g. 50% scale is half width & half height). That way, you can roughly determine your scaling factor given the desired output length you want (e.g. if `k=2`, then scaling by `0.5x` would reduce length by `4x`).
+
+In practice, k varies. It is ~1.4-1.6 for photos, 1.6-2.1 for screenshots of text, and 2.6-2.8 for noise. Assuming length is proportional to pixel count (`k=2`) will under-compress on images (yielding an image that is over-budget and must be resized again), whereas it will over-compress on noise (yielding an under-budget image). Our code aims to be under budget to avoid repeated re-encoding, so we chose approx 2 with a 95% margin, which works out to a `k` of ~1.86. (Technically, our code's `k` is dependent on image size vs budget, but I'm not particularly interested in changing it).
+
+It seems like a decent value for now.
+
+## Summary
+
 Measures how the length of mumbo's image data URLs scales with image size, and
 compares ways of guessing how far to shrink an image so it fits the message
 budget. Use it to tune `resize_image_to_fit` in `crates/mumble-messages`, and
