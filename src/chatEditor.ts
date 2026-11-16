@@ -10,11 +10,12 @@ import { Italic } from "@tiptap/extension-italic";
 import { Code } from "@tiptap/extension-code";
 import { Underline } from "@tiptap/extension-underline";
 import { Link } from "@tiptap/extension-link";
-import { Image } from "@tiptap/extension-image";
 import { FileHandler } from "@tiptap/extension-file-handler";
 
 export interface ChatExtensionOptions {
     onSend: () => void;
+    /** Sends a pasted or dropped image, as a data URL, as a message of its own. */
+    onSendImage: (dataUrl: string) => void;
 }
 
 export function createChatExtensions(options: ChatExtensionOptions): Extensions {
@@ -52,27 +53,15 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
         }),
         Underline,
 
-        Image.extend({
-            // Only embedded images. The official Mumble client won't load
-            // remote ones (it shows a black square), and loading them here
-            // would let a pasted image track us.
-            parseHTML() {
-                return [{ tag: 'img[src^="data:image/"]' }];
-            },
-        }).configure({
-            inline: true,
-        }),
+        // No Image extension: images are sent on their own as soon as they're
+        // pasted or dropped, and left out of pasted HTML.
         FileHandler.configure({
             allowedMimeTypes: ["image/png", "image/jpeg", "image/gif", "image/webp"],
             // Otherwise, when the clipboard also has HTML for the image (e.g.
             // "Copy Image" in a browser), that gets pasted too.
             consumePasteEvent: true,
-            onDrop: (currentEditor, files, pos) => {
-                insertImageFiles(currentEditor, files, () => pos);
-            },
-            onPaste: (currentEditor, files) => {
-                insertImageFiles(currentEditor, files, () => currentEditor.state.selection.anchor);
-            },
+            onDrop: (_editor, files) => sendImageFile(files, options.onSendImage),
+            onPaste: (_editor, files) => sendImageFile(files, options.onSendImage),
         }),
 
         UndoRedo,
@@ -83,43 +72,30 @@ export function createChatExtensions(options: ChatExtensionOptions): Extensions 
     ];
 }
 
-/**
- * Inserts each file as an embedded (data: URL) image. Files are read
- * asynchronously, so `position` is called once each is ready.
- */
-function insertImageFiles(editor: Editor, files: File[], position: () => number) {
-    for (const file of files) {
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result !== "string") return;
-            editor
-                .chain()
-                .insertContentAt(position(), { type: "image", attrs: { src: reader.result } })
-                .focus()
-                .run();
-        };
-        reader.readAsDataURL(file);
+/** Reads a single image file as a data URL and sends it. */
+function sendImageFile(files: File[], onSendImage: (dataUrl: string) => void) {
+    if (files.length !== 1) {
+        alert("Images can only be sent one at a time.");
+        return;
     }
+    const reader = new FileReader();
+    reader.onload = () => {
+        if (typeof reader.result !== "string") return;
+        onSendImage(reader.result);
+    };
+    reader.readAsDataURL(files[0]);
 }
 
-/**
- * Whether there's nothing worth sending: no non-whitespace text and no images.
- */
+/** Whether there's nothing worth sending: no non-whitespace text. */
 export function isMessageEmpty(editor: Editor): boolean {
-    // getText() ignores images, so look for them separately.
-    let hasImage = false;
-    editor.state.doc.descendants((node) => {
-        if (node.type.name === "image") hasImage = true;
-        return !hasImage;
-    });
-    return !hasImage && editor.getText().trim().length === 0;
+    return editor.getText().trim().length === 0;
 }
 
 /**
  * The message as XHTML to send over Mumble: the contents of the single
  * paragraph, never wrapped in `<p>`.
  *
- * Must be well-formed XML (`<br />`, `<img ... />`, no `&nbsp;`): Murmur
+ * Must be well-formed XML (`<br />`, no `&nbsp;`): Murmur
  * re-parses messages over its text length limit as XML, and rejects them as
  * `TextTooLong` if that fails. See contrib/text-message-tester.
  */

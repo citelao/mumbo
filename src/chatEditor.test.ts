@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Editor } from "@tiptap/core";
-import { createChatExtensions, getMessageHtml, isMessageEmpty } from "./chatEditor";
+import { createChatExtensions, getMessageHtml, isMessageEmpty, type ChatExtensionOptions } from "./chatEditor";
 
 const editors: Editor[] = [];
 
-function makeEditor(onSend: () => void = () => {}) {
+function makeEditor({ onSend = () => {}, onSendImage = () => {} }: Partial<ChatExtensionOptions> = {}) {
     const editor = new Editor({
         element: document.body.appendChild(document.createElement("div")),
-        extensions: createChatExtensions({ onSend }),
+        extensions: createChatExtensions({ onSend, onSendImage }),
         content: "",
     });
     editors.push(editor);
@@ -68,14 +68,6 @@ function pngFile() {
     return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" });
 }
 
-function imageSources(editor: Editor): string[] {
-    const sources: string[] = [];
-    editor.state.doc.descendants((node) => {
-        if (node.type.name === "image") sources.push(node.attrs.src);
-    });
-    return sources;
-}
-
 describe("message HTML", () => {
     it("is empty for an empty editor", () => {
         expect(getMessageHtml(makeEditor())).toBe("");
@@ -112,7 +104,6 @@ describe("message HTML", () => {
     // them as TextTooLong if that fails. See contrib/text-message-tester.
     it.each([
         ["a hard break", '<p>a<br>b</p>'],
-        ["an image", '<p><img src="data:image/png;base64,AAAA"></p>'],
         ["a non-breaking space", "<p>a&nbsp;b</p>"],
         ["an ampersand in text and a link", '<p>a &amp; <a href="https://example.com/?a=1&amp;b=2">b</a></p>'],
     ])("is well-formed XML with %s", (_name, content) => {
@@ -153,36 +144,55 @@ describe("isMessageEmpty", () => {
         type(editor, "hi");
         expect(isMessageEmpty(editor)).toBe(false);
     });
-
-    it("is false for just an image", () => {
-        const editor = makeEditor();
-        editor.commands.setContent('<img src="data:image/png;base64,AAAA">');
-        expect(isMessageEmpty(editor)).toBe(false);
-    });
 });
 
+// Images are sent on their own as soon as they're pasted or dropped, never
+// mixed into the text.
 describe("images", () => {
-    it("pastes an image file as a data URL", async () => {
-        const editor = makeEditor();
+    it("sends a pasted image file at once, as a data URL", async () => {
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
+        type(editor, "hi");
         paste(editor, { files: [pngFile()] });
-        await vi.waitFor(() => expect(imageSources(editor)).toHaveLength(1));
-        expect(imageSources(editor)[0]).toMatch(/^data:image\/png;base64,/);
+        await vi.waitFor(() => expect(onSendImage).toHaveBeenCalledOnce());
+        expect(onSendImage).toHaveBeenCalledWith(expect.stringMatching(/^data:image\/png;base64,/));
+        // The text being typed stays put.
+        expect(getMessageHtml(editor)).toBe("hi");
     });
 
-    it("pastes only the file when the clipboard also has HTML for it", async () => {
-        const editor = makeEditor();
+    it("sends only the file when the clipboard also has HTML for it", async () => {
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
         paste(editor, { files: [pngFile()], html: '<img src="https://example.com/image.png">' });
-        await vi.waitFor(() => expect(imageSources(editor)).toHaveLength(1));
-        // Give a second, unwanted insertion the chance to show up.
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(imageSources(editor)).toEqual([expect.stringMatching(/^data:image\/png;base64,/)]);
+        await vi.waitFor(() => expect(onSendImage).toHaveBeenCalledOnce());
+        expect(getMessageHtml(editor)).toBe("");
     });
 
-    it("drops an image file as a data URL", async () => {
-        const editor = makeEditor();
+    it("sends a dropped image file at once, as a data URL", async () => {
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
         drop(editor, [pngFile()]);
-        await vi.waitFor(() => expect(imageSources(editor)).toHaveLength(1));
-        expect(imageSources(editor)[0]).toMatch(/^data:image\/png;base64,/);
+        await vi.waitFor(() => expect(onSendImage).toHaveBeenCalledOnce());
+        expect(onSendImage).toHaveBeenCalledWith(expect.stringMatching(/^data:image\/png;base64,/));
+        expect(getMessageHtml(editor)).toBe("");
+    });
+
+    it("refuses several images at once", async () => {
+        const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+        const onSendImage = vi.fn();
+        const editor = makeEditor({ onSendImage });
+        paste(editor, { files: [pngFile(), pngFile()] });
+        await vi.waitFor(() => expect(alert).toHaveBeenCalledOnce());
+        // Give a file read the chance to finish and send.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(onSendImage).not.toHaveBeenCalled();
+        alert.mockRestore();
+    });
+
+    it("leaves images out of pasted HTML", () => {
+        const editor = makeEditor();
+        paste(editor, { html: '<p>a<img src="data:image/png;base64,AAAA">b</p>', text: "ab" });
+        expect(getMessageHtml(editor)).toBe("ab");
     });
 });
 
@@ -226,14 +236,14 @@ describe("formatting", () => {
 describe("keyboard", () => {
     it("Mod-Enter sends", () => {
         const onSend = vi.fn();
-        const editor = makeEditor(onSend);
+        const editor = makeEditor({ onSend });
         editor.commands.keyboardShortcut("Mod-Enter");
         expect(onSend).toHaveBeenCalledOnce();
     });
 
     it("Shift-Enter inserts a hard break instead of sending", () => {
         const onSend = vi.fn();
-        const editor = makeEditor(onSend);
+        const editor = makeEditor({ onSend });
         type(editor, "a");
         editor.commands.keyboardShortcut("Shift-Enter");
         type(editor, "b");
@@ -322,10 +332,9 @@ describe("placeholder", () => {
 });
 
 describe("hostile HTML", () => {
-    const ALLOWED_TAGS = new Set(["A", "STRONG", "EM", "U", "CODE", "BR", "IMG"]);
+    const ALLOWED_TAGS = new Set(["A", "STRONG", "EM", "U", "CODE", "BR"]);
     const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
         A: ["href", "target", "rel"],
-        IMG: ["src", "alt", "title", "width", "height"],
     };
 
     // Whatever goes in, only our small whitelist may come out.
@@ -339,11 +348,6 @@ describe("hostile HTML", () => {
             }
             if (el.tagName === "A") {
                 expect(el.getAttribute("href") ?? "").toMatch(/^(https?:|mailto:)/i);
-            }
-            // Only embedded images: remote ones would load (and track) in our
-            // webview, and the official client won't load them anyway.
-            if (el.tagName === "IMG") {
-                expect(el.getAttribute("src") ?? "").toMatch(/^data:image\//);
             }
         }
     }

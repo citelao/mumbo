@@ -22,4 +22,3 @@ simd-adler32 = { opt-level = 3 }
 zune-jpeg = { opt-level = 3 }
 data-url = { opt-level = 3 }
 base64 = { opt-level = 3 }
-lol_html = { opt-level = 3 }

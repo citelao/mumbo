@@ -82,7 +82,7 @@ function renderMainPage(
     onSetChannel: (channel: Channel) => void = () => {},
     onSendUserMessage: (message: string, session: number[]) => void = () => {},
 ) {
-    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} onSetChannel={onSetChannel} onSendUserMessage={onSendUserMessage} />);
+    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSendImage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} onSetChannel={onSetChannel} onSendUserMessage={onSendUserMessage} />);
 }
 
 describe("MainPage", () => {

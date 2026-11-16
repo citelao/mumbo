@@ -17,6 +17,8 @@ export interface MainPageProps {
 
     onDisconnect: () => void;
     onSendMessage: (message: string) => void;
+    /** Sends an image, as a data URL, as a message of its own. */
+    onSendImage: (image: string) => void;
     onSetSelfMute: (muted: boolean) => void;
     onSetChannel: (channel: MumbleChannel) => void;
     onSendUserMessage: (message: string, session: number[]) => void;
@@ -178,7 +180,10 @@ export function MainPage(props: MainPageProps) {
     };
 
     const editor = useEditor({
-        extensions: createChatExtensions({ onSend: () => sendCurrentMessage() }),
+        extensions: createChatExtensions({
+            onSend: () => sendCurrentMessage(),
+            onSendImage: (image) => props.onSendImage(image),
+        }),
         content: '',
     });
 

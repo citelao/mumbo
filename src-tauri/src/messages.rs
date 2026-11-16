@@ -2,10 +2,8 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use data_url::DataUrl;
 use image::codecs::{jpeg::JpegEncoder, png::PngEncoder};
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::FilterType};
-use lol_html::errors::RewritingError;
-use lol_html::html_content::Element;
-use lol_html::{element, HandlerResult, HtmlRewriter, Settings};
 use mumble_protocol::state::MumbleState;
+use std::error::Error;
 use std::io::Cursor;
 
 // Maximum allowed image dimensions.
@@ -66,36 +64,27 @@ fn fit((width, height): (u32, u32), (max_width, max_height): (u32, u32)) -> (u32
 
 #[derive(Debug, Clone)]
 struct ResizeResult {
-    pub success: bool,
-
-    // Best URL. If successful, this is within budget. If not, the closest we got.
-    pub best_url: String,
+    pub url: String,
     pub height: u32,
     pub width: u32,
 }
 
-/// A decoded image from the message, and the data URL it came from.
-struct SourceImage {
-    image: DynamicImage,
-    format: ImageFormat,
-    url: String,
-}
-
 /// Encode `image` as a data URL at most `budget` long, shrinking it from `full`
-/// (its full-size encoding) as needed. Best effort.
+/// (its full-size encoding) as needed. Best effort: if it can't, returns the
+/// closest it got.
 fn resize_image_to_fit(
     image: &DynamicImage,
     full: ResizeResult,
     budget: usize,
 ) -> Result<ResizeResult, image::ImageError> {
     let budget_f = budget as f64;
-    let ResizeResult { mut best_url, width: mut best_width, height: mut best_height, .. } = full;
+    let ResizeResult { url: mut best_url, width: mut best_width, height: mut best_height } = full;
     let mut best_scale_factor = best_width as f64 / image.width() as f64;
 
     const MAX_ITER: usize = 8;
     for _ in 0..MAX_ITER {
         if best_url.len() <= budget {
-            return Ok(ResizeResult { success: true, best_url, width: best_width, height: best_height });
+            break;
         }
 
         // How badly the current encoding exceeds the budget.
@@ -120,8 +109,7 @@ fn resize_image_to_fit(
         best_width = width;
     }
 
-    let success = best_url.len() <= budget;
-    Ok(ResizeResult { success, best_url, width: best_width, height: best_height })
+    Ok(ResizeResult { url: best_url, width: best_width, height: best_height })
 }
 
 /// Encode `img` as a PNG or JPEG data URL, whichever is shorter; JPEG only if
@@ -149,169 +137,93 @@ pub fn smallest_data_url(img: &DynamicImage) -> Result<String, image::ImageError
     })
 }
 
-/// Runs `on_img` on each `<img>` in `html`, returning the rewritten HTML.
-fn rewrite(
-    html: &str,
-    mut on_img: impl FnMut(&mut Element<'_, '_>) -> HandlerResult,
-) -> Result<Vec<u8>, RewritingError> {
-    let mut output = vec![];
-    let mut rewriter = HtmlRewriter::new(
-        Settings::new().append_element_content_handler(element!("img", |el| on_img(el))),
-        |c: &[u8]| output.extend_from_slice(c),
-    );
-    rewriter.write(html.as_bytes())?;
-    rewriter.end()?;
-    Ok(output)
-}
+/// The message that sends `message` (HTML from the chat editor), as long as the
+/// server would accept it.
+pub fn prepare_text_message(limits: &MessageLimits, message: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    // Images are sent on their own, with `prepare_image_message`. A literal
+    // "<img" only appears in tags; in text it's escaped as "&lt;img".
+    if message.contains("<img") {
+        return Err("Images must be sent on their own".into());
+    }
 
-pub fn sanitize_user_message(
-    limits: &MessageLimits,
-    message: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Images are big; throw an error if trying to send them to a server that
-    // doesn't even support them. A literal "<img" only appears in tags; in text
-    // it's escaped as "&lt;img".
+    // Rejects what the server would; see `Server::isTextAllowed`:
+    // https://github.com/mumble-voip/mumble/blob/ccf405905f8d14ef84f8bc9d8959c6f4b9881b8e/src/murmur/Server.cpp#L2497-L2555
+    // Murmur counts UTF-16 code units; bytes are never fewer.
     //
     // TODO: check messages' length when HTML isn't allowed, which Murmur
     // measures after stripping it to plain text.
-    if !limits.allow_html && message.contains("<img") {
+    let too_long = |limit: usize| limit != 0 && message.len() > limit;
+    if too_long(limits.message_length) || too_long(limits.image_message_length) {
+        return Err("This message is too long to send".into());
+    }
+    Ok(message.to_string())
+}
+
+/// The message that sends `data_url`'s image on its own, shrunk to fit the
+/// server's limit.
+///
+/// Murmur also checks a message's text (everything but the `src`s) against
+/// `message_length`, plus ~49 characters of its own markup (measured with
+/// contrib/text-message-tester). The tag's ~40 characters are far under any
+/// real limit, so that isn't checked here.
+pub fn prepare_image_message(limits: &MessageLimits, data_url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    // Murmur would strip the `<img>`, leaving nothing.
+    if !limits.allow_html {
         return Err("This server doesn't allow images".into());
     }
 
-    // `0` means unlimited size: send images as they are.
-    let is_unlimited_images = limits.image_message_length == 0;
+    let (body, _fragment) = DataUrl::process(data_url)?.decode_to_vec()?;
+    // Detects the format from the data itself.
+    let reader = ImageReader::new(Cursor::new(&body)).with_guessed_format()?;
+    let format = reader.format().ok_or("Unrecognized image format")?;
+    // Rebuilt rather than sent as given: base64 can't contain a `"` that would
+    // end the `src` attribute early.
+    let original_url = format!("data:{};base64,{}", format.to_mime_type(), STANDARD.encode(&body));
 
-    // Two passes, since how much each image should be re-encoded to depends on
-    // all of them: first decode them, then replace them in the same order.
-    let mut sources = vec![];
-    let mut image_data_length = 0;
-    rewrite(message, |el| {
-        let src = el.get_attribute("src").unwrap_or_default();
-        if !src.starts_with("data:") {
-            // The official client won't load remote images.
-            return Err("Only embedded (data: URL) images can be sent".into());
-        }
-        // `get_attribute` decodes entities (e.g. `&amp;`), but our data URLs are
-        // base64, so non-issue.
-        image_data_length += src.len();
-        if !is_unlimited_images {
-            let (body, _fragment) = DataUrl::process(&src)?.decode_to_vec()?;
-            // Detects the format from the data itself.
-            let reader = ImageReader::new(Cursor::new(&body)).with_guessed_format()?;
-            let format = reader.format().ok_or("Unrecognized image format")?;
-            // Turn the image upright if its EXIF data says it's stored rotated
-            // or flipped (common for phone photos).
-            let mut decoder = reader.into_decoder()?;
-            let orientation = decoder.orientation()?;
-            let mut image = DynamicImage::from_decoder(decoder)?;
-            image.apply_orientation(orientation);
-            sources.push(SourceImage { image, format, url: src });
-        }
-        Ok(())
-    })?;
-
-    // Image space is the remaining space after accounting for text length.
-    let text_length = message.len() - image_data_length;
-    let space_for_images = limits.image_message_length.saturating_sub(text_length);
-
-    let (output, sent_text_length) = if is_unlimited_images {
-        // Sent as is.
-        (message.to_string(), text_length)
-    } else {
-        // Encoding large images takes real clock time (e.g. ~2s for a 3200x3200
-        // PNG), so start with a sensible max size.
-        let mut results = sources
-            .iter()
-            .map(|source| {
-                let image = &source.image;
-                let (width, height) = fit((image.width(), image.height()), (MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT));
-                let is_full_size = (width, height) == (image.width(), image.height());
-                let best_url = if is_full_size {
-                    if source.format == ImageFormat::Gif {
-                        // For full-size GIFs, keep as is to preserve animation.
-                        source.url.clone()
-                    } else {
-                        smallest_data_url(image)?
-                    }
-                } else {
-                    smallest_data_url(&image.resize_exact(width, height, FilterType::Lanczos3))?
-                };
-                Ok(ResizeResult { success: true, best_url, width, height })
-            })
-            .collect::<Result<Vec<_>, image::ImageError>>()?;
-
-        if results.iter().map(|r| r.best_url.len()).sum::<usize>() > space_for_images {
-            // Best-effort, simple resize to fit images within the available
-            // space for images. Resize from smallest to largest, since small
-            // images shrink less.
-            //
-            // Shares are by displayed area, so larger images get more bytes.
-            let displayed_area = |image: &DynamicImage| {
-                let (width, height) = fit((image.width(), image.height()), (MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT));
-                width as u64 * height as u64
-            };
-            let mut resize_order: Vec<usize> = (0..sources.len()).collect();
-            resize_order.sort_by_key(|&i| displayed_area(&sources[i].image));
-
-            let mut remaining_space = space_for_images;
-            let mut remaining_area: u64 = sources.iter().map(|s| displayed_area(&s.image)).sum();
-            for i in resize_order {
-                let image = &sources[i].image;
-                let area = displayed_area(image);
-                let proportion = area as f64 / remaining_area as f64;
-                let budget = (proportion * remaining_space as f64) as usize;
-                let resized = resize_image_to_fit(image, results[i].clone(), budget)?;
-                if !resized.success {
-                    return Err(match sources.len() {
-                        1 => "This image is too large to send".into(),
-                        _ => "These images are too large to send together; try sending them separately".into(),
-                    });
-                }
-                remaining_space = remaining_space.saturating_sub(resized.best_url.len());
-                remaining_area -= area;
-                results[i] = resized;
-            }
-        }
-
-        let sent_image_data_length: usize = results.iter().map(|r| r.best_url.len()).sum();
-        let mut results = results.into_iter();
-        let output = rewrite(message, |el| {
-            let r = results.next().ok_or("Message changed between passes")?;
-
-            // At most MAX_DISPLAY_*.
-            let (width, height) = fit((r.width, r.height), (MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT));
-
-            el.set_attribute("src", &r.best_url)?;
-            el.set_attribute("width", &width.to_string())?;
-            el.set_attribute("height", &height.to_string())?;
-            Ok(())
-        })?;
-        let output = String::from_utf8(output)?;
-        // Includes the width/height we added, which Murmur counts as text.
-        let sent_text_length = output.len() - sent_image_data_length;
-        (output, sent_text_length)
-    };
-
-    // Reject what the server would, as far as we can tell before sending; see
-    // `Server::isTextAllowed`:
-    // https://github.com/mumble-voip/mumble/blob/ccf405905f8d14ef84f8bc9d8959c6f4b9881b8e/src/murmur/Server.cpp#L2497-L2555
-    //
-    // Murmur counts UTF-16 code units; bytes are never fewer.
-    let too_long = !is_unlimited_images && output.len() > limits.image_message_length;
-    // Over message_length, Murmur checks only the text, re-serialized with
-    // some markup of its own (e.g. the `<document>` it wraps it in to parse).
-    // Measured with contrib/text-message-tester --find-limits. Slightly
-    // conservative: that also counted its `<img src="" />` as overhead.
-    const XML_CHECK_OVERHEAD: usize = 49;
-    let text_too_long = limits.message_length != 0
-        && output.len() > limits.message_length
-        && sent_text_length + XML_CHECK_OVERHEAD > limits.message_length;
-    if too_long || text_too_long {
-        return Err("This message is too long to send".into());
+    // `0` means unlimited size: send it as is.
+    let is_unlimited_image_size = limits.image_message_length == 0;
+    if is_unlimited_image_size {
+        return Ok(format!(r#"<img src="{original_url}" />"#));
     }
 
-    log::info!("Sending message: {} characters, {} of them text", output.len(), sent_text_length);
-    Ok(output)
+    // Turn the image upright if its EXIF data says it's stored rotated or
+    // flipped (common for phone photos).
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut image = DynamicImage::from_decoder(decoder)?;
+    image.apply_orientation(orientation);
+
+    // Encoding large images takes real clock time (e.g. ~2s for a 3200x3200
+    // PNG), so start with a sensible max size.
+    let (width, height) = fit((image.width(), image.height()), (MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT));
+    let is_full_size = (width, height) == (image.width(), image.height());
+    let url = if is_full_size {
+        if format == ImageFormat::Gif {
+            // For full-size GIFs, keep as is to preserve animation.
+            original_url
+        } else {
+            smallest_data_url(&image)?
+        }
+    } else {
+        smallest_data_url(&image.resize_exact(width, height, FilterType::Lanczos3))?
+    };
+
+    let img_tag = |url: &str, width: u32, height: u32| {
+        format!(r#"<img src="{url}" width="{width}" height="{height}" />"#)
+    };
+    // The rest of the tag counts too. Displayed sizes are at most MAX_DISPLAY_*,
+    // so never have more digits.
+    let tag_length = img_tag("", MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT).len();
+    let budget = limits.image_message_length.saturating_sub(tag_length);
+    let resized = resize_image_to_fit(&image, ResizeResult { url, width, height }, budget)?;
+    if resized.url.len() > budget {
+        return Err("This image is too large to send".into());
+    }
+
+    let (width, height) = fit((resized.width, resized.height), (MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT));
+    let message = img_tag(&resized.url, width, height);
+    log::info!("Sending image: {} characters", message.len());
+    Ok(message)
 }
 
 #[cfg(test)]
@@ -378,25 +290,22 @@ mod tests {
     }
 
     #[test]
-    fn keeps_img_self_closing() {
-        let message = format!(r#"hi<br /><img src="{}" />"#, png_data_url(&gradient(40, 30)));
-        let sent = sanitize_user_message(&LIMITS, &message).unwrap();
-        assert!(sent.starts_with("hi<br /><img src=\"data:image/"), "{sent:.40}");
-        assert!(sent.ends_with(" />"), "{}", &sent[sent.len() - 10..]);
+    fn sends_an_img_tag() {
+        let sent = prepare_image_message(&LIMITS, &png_data_url(&gradient(40, 30))).unwrap();
+        assert!(sent.starts_with(r#"<img src="data:image/"#), "{sent:.40}");
+        assert!(sent.ends_with(r#" width="40" height="30" />"#), "{}", &sent[sent.len() - 30..]);
     }
 
     #[test]
     fn does_not_upscale_small_images() {
-        let message = format!(r#"<img src="{}" />"#, png_data_url(&gradient(100, 50)));
-        let sent = sanitize_user_message(&LIMITS, &message).unwrap();
+        let sent = prepare_image_message(&LIMITS, &png_data_url(&gradient(100, 50))).unwrap();
         let images = sent_images(&sent);
         assert_eq!((images[0].width(), images[0].height()), (100, 50));
     }
 
     #[test]
     fn sends_compressible_images_at_2x_for_hidpi_displays() {
-        let message = format!(r#"<img src="{}" />"#, png_data_url(&gradient(1600, 1200)));
-        let sent = sanitize_user_message(&LIMITS, &message).unwrap();
+        let sent = prepare_image_message(&LIMITS, &png_data_url(&gradient(1600, 1200))).unwrap();
         let images = sent_images(&sent);
         assert_eq!((images[0].width(), images[0].height()), (1600, 1200));
         assert_eq!(displayed_sizes(&sent), [("800".into(), "600".into())]);
@@ -406,8 +315,7 @@ mod tests {
     /// back up to the original's.
     #[test]
     fn does_not_stretch_shrunk_images() {
-        let message = format!(r#"<img src="{}" />"#, png_data_url(&noise(1600, 1200)));
-        let sent = sanitize_user_message(&LIMITS, &message).unwrap();
+        let sent = prepare_image_message(&LIMITS, &png_data_url(&noise(1600, 1200))).unwrap();
         let image = &sent_images(&sent)[0];
         assert!(image.width() < 800);
         assert_eq!(displayed_sizes(&sent), [(image.width().to_string(), image.height().to_string())]);
@@ -417,96 +325,53 @@ mod tests {
     /// the budget (real photos land at ~95%; see contrib/image-resize-estimator).
     #[test]
     fn shrinks_incompressible_images_to_fit() {
-        let message = format!(r#"<img src="{}" />"#, png_data_url(&noise(1600, 1200)));
-        let sent = sanitize_user_message(&LIMITS, &message).unwrap();
+        let sent = prepare_image_message(&LIMITS, &png_data_url(&noise(1600, 1200))).unwrap();
         assert!(sent.len() <= LIMITS.image_message_length, "{}", sent.len());
     }
 
-    /// The budget is split by how big images look, not how well they happen to
-    /// compress: otherwise a smooth image beside a noisy one gets almost none.
     #[test]
-    fn images_of_the_same_size_get_the_same_share() {
-        let message = format!(
-            r#"<img src="{}" /><img src="{}" />"#,
-            png_data_url(&gradient(800, 600)),
-            png_data_url(&noise(800, 600))
-        );
-        let sent = sent_images(&sanitize_user_message(&LIMITS, &message).unwrap());
-        assert_eq!((sent[0].width(), sent[0].height()), (800, 600));
-    }
-
-    #[test]
-    fn sends_several_images_that_fit_as_is() {
-        let src = png_data_url(&gradient(400, 300));
-        let message = format!(r#"<img src="{src}" /><img src="{src}" />"#);
-        let sent = sent_images(&sanitize_user_message(&LIMITS, &message).unwrap());
-        let sizes: Vec<_> = sent.iter().map(|i| (i.width(), i.height())).collect();
-        assert_eq!(sizes, [(400, 300), (400, 300)]);
-    }
-
-    #[test]
-    fn shrinks_several_images_to_fit_together() {
-        let src = png_data_url(&noise(800, 600));
-        let message = format!(r#"<img src="{src}" /><img src="{src}" />"#);
-        let sent = sanitize_user_message(&LIMITS, &message).unwrap();
-        assert_eq!(sent_images(&sent).len(), 2);
-        assert!(sent.len() <= LIMITS.image_message_length, "{}", sent.len());
-    }
-
-    /// Splitting the budget only when needed: a small image's share of the
-    /// area is too small for its encoding's fixed overhead.
-    #[test]
-    fn keeps_images_that_fit_together_as_is() {
-        let message = format!(
-            r#"<img src="{}" /><img src="{}" />"#,
-            png_data_url(&noise(64, 64)),
-            png_data_url(&gradient(1600, 1200))
-        );
-        let sent = sent_images(&sanitize_user_message(&LIMITS, &message).unwrap());
-        let sizes: Vec<_> = sent.iter().map(|i| (i.width(), i.height())).collect();
-        assert_eq!(sizes, [(64, 64), (1600, 1200)]);
+    fn rejects_images_too_large_to_shrink_to_fit() {
+        let limits = MessageLimits { image_message_length: 100, ..LIMITS };
+        assert!(prepare_image_message(&limits, &png_data_url(&noise(64, 64))).is_err());
     }
 
     #[test]
     fn sends_images_unchanged_when_unlimited() {
         let limits = MessageLimits { image_message_length: 0, ..LIMITS };
-        let message = format!(r#"<img src="{}" />"#, png_data_url(&noise(1600, 1200)));
-        assert_eq!(sanitize_user_message(&limits, &message).unwrap(), message);
+        let url = png_data_url(&noise(1600, 1200));
+        assert_eq!(prepare_image_message(&limits, &url).unwrap(), format!(r#"<img src="{url}" />"#));
     }
 
+    /// Murmur strips the `<img>`, so nothing would arrive.
     #[test]
     fn rejects_images_when_the_server_disallows_html() {
         let limits = MessageLimits { allow_html: false, ..LIMITS };
-        let message = format!(r#"hi<img src="{}" />"#, png_data_url(&gradient(40, 30)));
-        let error = sanitize_user_message(&limits, &message).unwrap_err();
+        let error = prepare_image_message(&limits, &png_data_url(&gradient(40, 30))).unwrap_err();
         assert!(error.to_string().contains("images"), "{error}");
     }
 
+    /// The `src` is quoted as given, so it must not be able to close the quote.
     #[test]
-    fn rejects_images_with_no_room_left_by_the_text() {
-        let text = "a".repeat(LIMITS.image_message_length - 100);
-        let message = format!(r#"{text}<img src="{}" />"#, png_data_url(&noise(64, 64)));
-        assert!(sanitize_user_message(&LIMITS, &message).is_err());
+    fn rejects_data_urls_that_are_not_images() {
+        assert!(prepare_image_message(&LIMITS, r#"data:image/png,"><script>"#).is_err());
     }
 
     #[test]
     fn sends_text_up_to_message_length() {
         let message = "a".repeat(LIMITS.message_length);
-        assert_eq!(sanitize_user_message(&LIMITS, &message).unwrap(), message);
+        assert_eq!(prepare_text_message(&LIMITS, &message).unwrap(), message);
     }
 
-    /// Murmur rejects text over message_length outright, and alongside images
-    /// checks the text with some markup of its own added.
     #[test]
     fn rejects_text_too_long_to_send() {
-        let text_only = "a".repeat(LIMITS.message_length + 1);
-        assert!(sanitize_user_message(&LIMITS, &text_only).is_err());
+        assert!(prepare_text_message(&LIMITS, &"a".repeat(LIMITS.message_length + 1)).is_err());
+    }
 
-        let img = format!(r#"<img src="{}" />"#, png_data_url(&noise(64, 64)));
-        let with_image = format!("{}{img}", "a".repeat(LIMITS.message_length - 10));
-        assert!(sanitize_user_message(&LIMITS, &with_image).is_err());
-        let fits = format!("{}{img}", "a".repeat(LIMITS.message_length - 200));
-        sanitize_user_message(&LIMITS, &fits).unwrap();
+    /// Images are sent on their own, with `prepare_image_message`.
+    #[test]
+    fn rejects_images_in_text() {
+        let message = format!(r#"hi<img src="{}" />"#, png_data_url(&gradient(40, 30)));
+        assert!(prepare_text_message(&LIMITS, &message).is_err());
     }
 
     /// JPEG has no alpha, and transparent pixels would come out as whatever
@@ -519,8 +384,7 @@ mod tests {
             let [r, g, b] = noisy.get_pixel(x, y).0;
             image::Rgba([r, g, b, if x < 200 { 0 } else { 255 }])
         });
-        let message = format!(r#"<img src="{}" />"#, png_data_url(&DynamicImage::ImageRgba8(rgba)));
-        let sent = sent_images(&sanitize_user_message(&LIMITS, &message).unwrap());
+        let sent = sent_images(&prepare_image_message(&LIMITS, &png_data_url(&DynamicImage::ImageRgba8(rgba))).unwrap());
         assert_eq!(sent[0].to_rgba8().get_pixel(10, 10).0[3], 0);
     }
 
@@ -541,8 +405,8 @@ mod tests {
         let stored = gradient(100, 50);
         encoder.write_image(stored.as_bytes(), 100, 50, image::ExtendedColorType::Rgb8).unwrap();
 
-        let message = format!(r#"<img src="data:image/jpeg;base64,{}" />"#, STANDARD.encode(&jpeg));
-        let sent = sent_images(&sanitize_user_message(&LIMITS, &message).unwrap());
+        let url = format!("data:image/jpeg;base64,{}", STANDARD.encode(&jpeg));
+        let sent = sent_images(&prepare_image_message(&LIMITS, &url).unwrap());
         assert_eq!((sent[0].width(), sent[0].height()), (50, 100));
     }
 
@@ -558,8 +422,8 @@ mod tests {
                 encoder.encode_frame(image::Frame::new(frame)).unwrap();
             }
         }
-        let src = format!("data:image/gif;base64,{}", STANDARD.encode(&gif));
-        let sent = sanitize_user_message(&LIMITS, &format!(r#"<img src="{src}" />"#)).unwrap();
-        assert!(sent.contains(&src), "{sent:.60}");
+        let url = format!("data:image/gif;base64,{}", STANDARD.encode(&gif));
+        let sent = prepare_image_message(&LIMITS, &url).unwrap();
+        assert!(sent.contains(&url), "{sent:.60}");
     }
 }
