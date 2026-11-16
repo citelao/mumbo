@@ -480,10 +480,12 @@ impl MumbleClient {
                 .channel_id
         };
 
+        // Trimmed (`.100` cuts at 100 chars): with images it's ~128 KB of base64.
         log::info!(
-            "Sending text message: {} to channel: {:?}",
-            message,
-            channel_id
+            "Sending text message to channel {:?} ({} characters): {:.100}",
+            channel_id,
+            message.len(),
+            message
         );
         self.send(crate::ClientToServerMessage::TextMessage(
             crate::raw::TextMessage {
@@ -503,7 +505,12 @@ impl MumbleClient {
         message: String,
         session: Vec<u32>,
     ) -> Result<(), MumbleConnectionError> {
-        log::info!("Sending text message: {} to user: {:?}", message, session);
+        log::info!(
+            "Sending text message to users {:?} ({} characters): {:.100}",
+            session,
+            message.len(),
+            message
+        );
         self.send(crate::ClientToServerMessage::TextMessage(
             crate::raw::TextMessage {
                 message: message.clone(),
