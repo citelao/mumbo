@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { MainPage } from "./MainPage";
+import { emptyProtocolLog } from "../ProtocolViewer";
 import type { Channel } from "../invoke/mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
 import users from "../../crates/mumble-protocol/fixtures/users.json";
@@ -82,7 +83,7 @@ function renderMainPage(
     onSetChannel: (channel: Channel) => void = () => {},
     onSendUserMessage: (message: string, session: number[]) => void = () => {},
 ) {
-    return render(<MainPage protocolLog={[]} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} onSetChannel={onSetChannel} onSendUserMessage={onSendUserMessage} />);
+    return render(<MainPage protocolLog={emptyProtocolLog} onClearProtocolLog={() => {}} onSendMessage={async () => {}} onSetSelfMute={onSetSelfMute} onDisconnect={onDisconnect} onSetChannel={onSetChannel} onSendUserMessage={onSendUserMessage} />);
 }
 
 describe("MainPage", () => {
