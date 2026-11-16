@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use data_url::DataUrl;
 use image::codecs::{jpeg::JpegEncoder, png::PngEncoder};
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::FilterType};
+use image::{DynamicImage, ImageDecoder, ImageReader, imageops::FilterType};
 use mumble_protocol::state::MumbleState;
 use std::error::Error;
 use std::io::Cursor;
@@ -197,13 +197,9 @@ pub fn prepare_image_message(limits: &MessageLimits, data_url: &str) -> Result<S
     // PNG), so start with a sensible max size.
     let (width, height) = fit((image.width(), image.height()), (MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT));
     let is_full_size = (width, height) == (image.width(), image.height());
+    // GIFs too: the official client only shows their first frame anyway.
     let url = if is_full_size {
-        if format == ImageFormat::Gif {
-            // For full-size GIFs, keep as is to preserve animation.
-            original_url
-        } else {
-            smallest_data_url(&image)?
-        }
+        smallest_data_url(&image)?
     } else {
         smallest_data_url(&image.resize_exact(width, height, FilterType::Lanczos3))?
     };
@@ -229,7 +225,7 @@ pub fn prepare_image_message(limits: &MessageLimits, data_url: &str) -> Result<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::RgbImage;
+    use image::{ImageFormat, RgbImage};
 
     const LIMITS: MessageLimits = MessageLimits {
         allow_html: true,
@@ -498,18 +494,6 @@ mod tests {
         }
     }
 
-    /// Only GIFs within MAX_IMAGE_* keep their animation; resizing one keeps
-    /// just its first frame.
-    #[test]
-    fn sends_gifs_too_large_to_keep_as_still_images() {
-        let mut gif = Vec::new();
-        gradient(1700, 100).write_to(&mut Cursor::new(&mut gif), ImageFormat::Gif).unwrap();
-        let url = format!("data:image/gif;base64,{}", STANDARD.encode(&gif));
-        let sent = prepare_image_message(&LIMITS, &url).unwrap();
-        assert!(!sent.contains("data:image/gif"), "{sent:.40}");
-        assert_eq!(sent_images(&sent)[0].width(), MAX_IMAGE_WIDTH);
-    }
-
     /// The format comes from the data itself, not the URL's possibly wrong type.
     #[test]
     fn labels_images_by_their_content() {
@@ -521,9 +505,10 @@ mod tests {
         assert!(sent.starts_with(r#"<img src="data:image/jpeg;base64,"#), "{sent:.40}");
     }
 
-    /// Re-encoding would keep only the first frame.
+    /// The official client only shows a GIF's first frame anyway, and most are
+    /// too large to send as they are, so every GIF goes as a still image.
     #[test]
-    fn sends_gifs_that_fit_as_is() {
+    fn sends_gifs_as_still_images() {
         use image::codecs::gif::GifEncoder;
         let mut gif = Vec::new();
         {
@@ -535,6 +520,8 @@ mod tests {
         }
         let url = format!("data:image/gif;base64,{}", STANDARD.encode(&gif));
         let sent = prepare_image_message(&LIMITS, &url).unwrap();
-        assert!(sent.contains(&url), "{sent:.60}");
+        assert!(!sent.contains("data:image/gif"), "{sent:.40}");
+        // The first frame.
+        assert_eq!(sent_images(&sent)[0].to_rgb8().get_pixel(0, 0).0, [0, 0, 0]);
     }
 }
