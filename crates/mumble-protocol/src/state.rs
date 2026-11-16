@@ -142,7 +142,7 @@ pub enum MumbleEvent {
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct MumbleState {
     // Configuration state
-    pub allow_html: bool,
+    pub allow_html: Option<bool>,
     pub message_length: Option<u32>,
     pub image_message_length: Option<u32>,
 
@@ -257,7 +257,7 @@ impl MumbleState {
             crate::ServerToClientMessage::ServerConfig(m) => {
                 let mut changed = false;
                 if let Some(allow_html) = m.allow_html {
-                    self.allow_html = allow_html;
+                    self.allow_html = Some(allow_html);
                     changed = true;
                 }
                 if let Some(message_length) = m.message_length {
