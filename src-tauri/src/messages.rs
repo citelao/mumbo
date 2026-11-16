@@ -7,6 +7,11 @@ use lol_html::html_content::Element;
 use lol_html::{element, HandlerResult, HtmlRewriter, Settings};
 use mumble_protocol::state::MumbleState;
 
+// Maximum allowed image dimensions.
+// Bigger than display size, assuming 2x scaling for high-DPI displays.
+const MAX_IMAGE_WIDTH: u32 = 1600;
+const MAX_IMAGE_HEIGHT: u32 = 1200;
+
 /// The largest size an image is displayed at, in CSS/Qt logical pixels;
 /// smaller images keep theirs. Keep in sync with MainPage.module.scss.
 const MAX_DISPLAY_WIDTH: u32 = 800;
@@ -48,6 +53,16 @@ impl MessageLimits {
     }
 }
 
+/// Fit dimensions within the given maximum width and height, preserving aspect ratio.
+fn fit((width, height): (u32, u32), (max_width, max_height): (u32, u32)) -> (u32, u32) {
+    let scale = (max_width as f64 / width as f64)
+        .min(max_height as f64 / height as f64)
+        .min(1.0);
+    let width = (width as f64 * scale).round() as u32;
+    let height = (height as f64 * scale).round() as u32;
+    (width.max(1), height.max(1))
+}
+
 #[derive(Debug, Clone)]
 struct ResizeResult {
     pub success: bool,
@@ -64,9 +79,17 @@ fn resize_image_to_fit(
     budget: usize,
 ) -> Result<ResizeResult, Box<dyn std::error::Error + Send + Sync>> {
     let budget_f = budget as f64;
-    let mut best_url = smallest_data_url(image)?;
-    let (mut best_height, mut best_width) = (image.height(), image.width());
-    let mut best_scale_factor = 1.0;
+
+    // Encoding large images takes real clock time (e.g. ~2s for a 3200x3200
+    // PNG), so start with a sensible max size.
+    let (mut best_width, mut best_height) = fit((image.width(), image.height()), (MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT));
+    let resized = if best_width == image.width() && best_height == image.height() {
+        image
+    } else {
+        &image.resize_exact(best_width, best_height, FilterType::Lanczos3)
+    };
+    let mut best_url = smallest_data_url(&resized)?;
+    let mut best_scale_factor = best_width as f64 / image.width() as f64;
 
     const MAX_ITER: usize = 8;
     for _ in 0..MAX_ITER {
@@ -210,11 +233,7 @@ pub fn sanitize_user_message(
 
         // Compute the scale factor to fit the image within the maximum display
         // dimensions, preserving aspect ratio.
-        let scale = (MAX_DISPLAY_WIDTH as f64 / r.width as f64)
-            .min(MAX_DISPLAY_HEIGHT as f64 / r.height as f64)
-            .min(1.0);
-        let width = (r.width as f64 * scale).round() as u32;
-        let height = (r.height as f64 * scale).round() as u32;
+        let (width, height) = fit((r.width, r.height), (MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT));
 
         el.set_attribute("src", &r.best_url)?;
         el.set_attribute("width", &width.to_string())?;
