@@ -37,6 +37,19 @@ function App(props: AppProps) {
 
     const [isConnected, setIsConnected] = useState(false);
 
+    // With Tauri's own drag and drop off (so the chat editor gets HTML drop
+    // events), the webview opens any file dropped outside a drop target in
+    // place of the app.
+    useEffect(() => {
+        const preventNavigation = (event: DragEvent) => event.preventDefault();
+        window.addEventListener("dragover", preventNavigation);
+        window.addEventListener("drop", preventNavigation);
+        return () => {
+            window.removeEventListener("dragover", preventNavigation);
+            window.removeEventListener("drop", preventNavigation);
+        };
+    }, []);
+
     const [settings, setSettings] = useState<Settings | null>(null);
     useEffect(() => {
         (async () => {

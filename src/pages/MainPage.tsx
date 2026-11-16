@@ -9,7 +9,7 @@ import type { Channel as MumbleChannel } from "../invoke/mumbleState";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
-import { createChatExtensions, getMessageHtml, isMessageEmpty } from '../chatEditor';
+import { createChatExtensions, getMessageHtml, IMAGE_MIME_TYPES, isMessageEmpty, sendImageFile } from '../chatEditor';
 
 export interface MainPageProps {
     protocolLog: ProtocolLogEntry[];
@@ -40,6 +40,40 @@ export function MainPage(props: MainPageProps) {
     const [channels, setChannels] = useState<Channel[]>([]);
     const [chatMessages, setChatMessages] = useState<TextMessage[]>([]);
     const [selfMuted, setSelfMuted] = useState(false);
+    const [isDraggingFile, setIsDraggingFile] = useState(false);
+
+    // The whole page is a drop target for images, not just the editor.
+    useEffect(() => {
+        // dragenter/dragleave fire for every child crossed, so count them.
+        let depth = 0;
+        const onDragEnter = (event: DragEvent) => {
+            if (!event.dataTransfer?.types.includes("Files")) return;
+            depth++;
+            setIsDraggingFile(true);
+        };
+        const onDragLeave = () => {
+            depth = Math.max(0, depth - 1);
+            if (depth === 0) setIsDraggingFile(false);
+        };
+        const onDrop = (event: DragEvent) => {
+            depth = 0;
+            setIsDraggingFile(false);
+            // Drops on the editor never get here: its FileHandler sends them
+            // and stops their propagation.
+            const files = Array.from(event.dataTransfer?.files ?? []).filter((f) => IMAGE_MIME_TYPES.includes(f.type));
+            if (files.length === 0) return;
+            event.preventDefault();
+            sendImageFile(files, props.onSendImage);
+        };
+        window.addEventListener("dragenter", onDragEnter);
+        window.addEventListener("dragleave", onDragLeave);
+        window.addEventListener("drop", onDrop);
+        return () => {
+            window.removeEventListener("dragenter", onDragEnter);
+            window.removeEventListener("dragleave", onDragLeave);
+            window.removeEventListener("drop", onDrop);
+        };
+    }, [props.onSendImage]);
 
     useEffect(() => {
         let stopped = false;
@@ -189,7 +223,7 @@ export function MainPage(props: MainPageProps) {
 
     return (
         <>
-            <main className={[styles.container, "container"].join(" ")}>
+            <main className={[styles.container, "container"].join(" ")} data-drop-target={isDraggingFile || undefined}>
                 <section className={styles["user-list"]}>
                     <section>
                         <ul>
