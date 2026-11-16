@@ -126,36 +126,44 @@ fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::Tex
         .unwrap_or_default()
 }
 
-#[tauri::command]
-fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        let message = crate::messages::sanitize_user_message(&client.state().lock().unwrap(), &message)
-            .map_err(|e| e.to_string())?;
-
-        client
-            .send_channel_message(message, None)
-            .map_err(|e| e.to_string())
-    } else {
-        Err("No active connection".into())
-    }
+/// Sanitizes `message` on a blocking-task thread: re-encoding images takes long
+/// enough to visibly freeze the UI if done on the main thread, where Tauri runs
+/// non-async commands.
+async fn sanitize_off_main_thread(state: &AppState, message: String) -> Result<String, String> {
+    let limits = {
+        let client = state.client.lock().unwrap();
+        let client = client.as_ref().ok_or("No active connection")?;
+        crate::messages::MessageLimits::from_state(&client.state().lock().unwrap())
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::messages::sanitize_user_message(&limits, &message).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn send_user_message(
+async fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
+    let message = sanitize_off_main_thread(&state, message).await?;
+    let client = state.client.lock().unwrap();
+    let client = client.as_ref().ok_or("No active connection")?;
+    client
+        .send_channel_message(message, None)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn send_user_message(
     state: tauri::State<'_, AppState>,
     message: String,
     session: Vec<u32>,
 ) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        let message = crate::messages::sanitize_user_message(&client.state().lock().unwrap(), &message)
-            .map_err(|e| e.to_string())?;
-
-        client
-            .send_user_message(message, session)
-            .map_err(|e| e.to_string())
-    } else {
-        Err("No active connection".into())
-    }
+    let message = sanitize_off_main_thread(&state, message).await?;
+    let client = state.client.lock().unwrap();
+    let client = client.as_ref().ok_or("No active connection")?;
+    client
+        .send_user_message(message, session)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
