@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import App from "./App";
@@ -54,6 +54,32 @@ function fakeSettings(): SettingsStore {
         saveSettings: async () => {},
         addRecentServer: async () => {},
     } as unknown as SettingsStore;
+}
+
+/** The chat editor's editable element. */
+async function chatEditor(): Promise<HTMLElement> {
+    return vi.waitFor(() => {
+        const editor = document.querySelector<HTMLElement>('[contenteditable="true"]');
+        if (editor === null) throw new Error("no chat editor yet");
+        return editor;
+    });
+}
+
+/** Pastes into `element` as the OS clipboard would, with `files` and/or `text`. */
+function paste(element: HTMLElement, { files = [], text = "" }: { files?: File[]; text?: string }) {
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+        value: {
+            getData: (type: string) => (type === "text/plain" ? text : ""),
+            types: [...(files.length ? ["Files"] : []), ...(text ? ["text/plain"] : [])],
+            files,
+        },
+    });
+    element.dispatchEvent(event);
+}
+
+function pngFile() {
+    return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" });
 }
 
 function renderApp() {
@@ -185,6 +211,72 @@ describe("App", () => {
 
         await vi.waitFor(() => expect(window.alert).toHaveBeenCalledWith("Failed to send user message: No active connection"));
         expect(console.error).toHaveBeenCalledWith("No active connection");
+    });
+
+    it("asks Rust to send a pasted image to the channel", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        paste(await chatEditor(), { files: [pngFile()] });
+
+        await vi.waitFor(() =>
+            expect(mockInvoke).toHaveBeenCalledWith("send_channel_image", {
+                image: expect.stringMatching(/^data:image\/png;base64,/),
+            }),
+        );
+    });
+
+    it("tells the user when sending an image fails", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        const answer = mockInvoke.getMockImplementation()!;
+        mockInvoke.mockImplementation(async (command, args) => {
+            if (command === "send_channel_image") throw "This image is too large to send";
+            return answer(command, args);
+        });
+        renderApp();
+        await connect(user);
+
+        paste(await chatEditor(), { files: [pngFile()] });
+
+        await vi.waitFor(() =>
+            expect(window.alert).toHaveBeenCalledWith("Failed to send image: This image is too large to send"),
+        );
+    });
+
+    it("asks Rust to send the typed message to the channel on Enter", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        const editor = await chatEditor();
+        paste(editor, { text: "hello" });
+        fireEvent.keyUp(editor, { key: "Enter" });
+
+        expect(mockInvoke).toHaveBeenCalledWith("send_channel_message", { message: "hello" });
+    });
+
+    it("tells the user when sending a message fails", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        const answer = mockInvoke.getMockImplementation()!;
+        mockInvoke.mockImplementation(async (command, args) => {
+            if (command === "send_channel_message") throw "This message is too long to send";
+            return answer(command, args);
+        });
+        renderApp();
+        await connect(user);
+
+        const editor = await chatEditor();
+        paste(editor, { text: "hello" });
+        fireEvent.keyUp(editor, { key: "Enter" });
+
+        await vi.waitFor(() =>
+            expect(window.alert).toHaveBeenCalledWith("Failed to send message: This message is too long to send"),
+        );
     });
 
     it("returns to the login page after disconnecting", async () => {

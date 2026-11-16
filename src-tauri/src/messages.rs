@@ -410,6 +410,117 @@ mod tests {
         assert_eq!((sent[0].width(), sent[0].height()), (50, 100));
     }
 
+    /// Needs the dev server from dev/mumble-server (`npm run mumble:up`), on
+    /// localhost:64738 with password "test". Run with `cargo test -- --ignored`.
+    /// The other tests only know the limits we think Murmur has: this checks it
+    /// actually delivers the tag we build, as large as we make it.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn the_server_delivers_prepared_images() {
+        use mumble_protocol::ServerToClientMessage;
+        use mumble_protocol::client::{ConnectionOptions, connect};
+        use std::time::{Duration, Instant};
+        let connect = |role: &str| {
+            connect(ConnectionOptions {
+                server: "localhost".into(),
+                port: Some(64738),
+                password: Some("test".into()),
+                // Unique names: a duplicate name kicks the earlier session.
+                username: Some(format!("mumbo-e2e-image-{role}-{}", std::process::id())),
+            })
+        };
+        let mut sender = connect("sender").await.expect("connecting the sender");
+        let mut listener = connect("listener").await.expect("connecting the listener");
+
+        // The limits arrive in ServerConfig, just after connecting.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let limits = loop {
+            let limits = {
+                let state = sender.client.state();
+                let state = state.lock().unwrap();
+                state.image_message_length.map(|_| MessageLimits::from_state(&state))
+            };
+            if let Some(limits) = limits {
+                break limits;
+            }
+            assert!(Instant::now() < deadline, "the server never sent its message limits");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+
+        // Over the limit at full size, so it's shrunk to fit.
+        let message = prepare_image_message(&limits, &png_data_url(&noise(1600, 1200))).unwrap();
+        sender.client.send_channel_message(message.clone(), None).unwrap();
+
+        // The server never acknowledges a message: wait to see it arrive, or be
+        // denied.
+        let delivered = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                // Matching on the message in the branch pattern would disable
+                // that branch after the first message of any other kind.
+                tokio::select! {
+                    received = listener.debug.recv() => {
+                        if let Ok(ServerToClientMessage::TextMessage(m)) = received
+                            && m.message == message
+                        {
+                            return Ok(());
+                        }
+                    }
+                    sent = sender.debug.recv() => {
+                        if let Ok(ServerToClientMessage::PermissionDenied(denied)) = sent {
+                            return Err(format!("{denied:?}"));
+                        }
+                    }
+                }
+            }
+        })
+        .await;
+        sender.client.disconnect();
+        listener.client.disconnect();
+        match delivered {
+            Ok(Ok(())) => {}
+            Ok(Err(denied)) => panic!("the server denied the image: {denied}"),
+            Err(_) => panic!("the image never arrived"),
+        }
+    }
+
+    /// The formats the chat editor accepts (`allowedMimeTypes` in
+    /// src/chatEditor.ts). WebP depends on one of the image crate's default
+    /// features.
+    #[test]
+    fn accepts_every_format_the_editor_allows() {
+        for format in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Gif, ImageFormat::WebP] {
+            let mut bytes = Vec::new();
+            gradient(40, 30).write_to(&mut Cursor::new(&mut bytes), format).unwrap();
+            let url = format!("data:{};base64,{}", format.to_mime_type(), STANDARD.encode(&bytes));
+            let sent = prepare_image_message(&LIMITS, &url).unwrap_or_else(|e| panic!("{format:?}: {e}"));
+            let image = &sent_images(&sent)[0];
+            assert_eq!((image.width(), image.height()), (40, 30), "{format:?}");
+        }
+    }
+
+    /// Only GIFs within MAX_IMAGE_* keep their animation; resizing one keeps
+    /// just its first frame.
+    #[test]
+    fn sends_gifs_too_large_to_keep_as_still_images() {
+        let mut gif = Vec::new();
+        gradient(1700, 100).write_to(&mut Cursor::new(&mut gif), ImageFormat::Gif).unwrap();
+        let url = format!("data:image/gif;base64,{}", STANDARD.encode(&gif));
+        let sent = prepare_image_message(&LIMITS, &url).unwrap();
+        assert!(!sent.contains("data:image/gif"), "{sent:.40}");
+        assert_eq!(sent_images(&sent)[0].width(), MAX_IMAGE_WIDTH);
+    }
+
+    /// The format comes from the data itself, not the URL's possibly wrong type.
+    #[test]
+    fn labels_images_by_their_content() {
+        let limits = MessageLimits { image_message_length: 0, ..LIMITS };
+        let mut jpeg = Vec::new();
+        gradient(40, 30).write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg).unwrap();
+        let mislabeled = format!("data:image/png;base64,{}", STANDARD.encode(&jpeg));
+        let sent = prepare_image_message(&limits, &mislabeled).unwrap();
+        assert!(sent.starts_with(r#"<img src="data:image/jpeg;base64,"#), "{sent:.40}");
+    }
+
     /// Re-encoding would keep only the first frame.
     #[test]
     fn sends_gifs_that_fit_as_is() {
