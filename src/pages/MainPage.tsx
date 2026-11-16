@@ -58,8 +58,8 @@ export function MainPage(props: MainPageProps) {
         const onDrop = (event: DragEvent) => {
             depth = 0;
             setIsDraggingFile(false);
-            // The editor sends images dropped on it itself.
-            if (event.target instanceof Element && event.target.closest(`.${styles.editor}`)) return;
+            // Drops on the editor never get here: its FileHandler sends them
+            // and stops their propagation.
             const files = Array.from(event.dataTransfer?.files ?? []).filter((f) => IMAGE_MIME_TYPES.includes(f.type));
             if (files.length === 0) return;
             event.preventDefault();

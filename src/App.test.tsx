@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { Editor } from "@tiptap/core";
 import App from "./App";
 import type SettingsStore from "./settings";
 import users from "../crates/mumble-protocol/fixtures/users.json";
@@ -279,18 +280,23 @@ describe("App", () => {
         );
     });
 
-    it("leaves images dropped on the chat editor to the editor", async () => {
+    it("sends an image dropped on the chat editor only once", async () => {
         const user = userEvent.setup();
         fakeBackend();
         renderApp();
         await connect(user);
+        const editorElement = await chatEditor();
+        // jsdom has no layout, so ProseMirror can't find a drop position (and
+        // throws) unless we stub it. Tiptap hangs the editor off its element.
+        const { editor } = editorElement as HTMLElement & { editor: Editor };
+        editor.view.posAtCoords = () => ({ pos: 1, inside: -1 });
 
-        // jsdom has no layout, so ProseMirror itself ignores the drop: nothing
-        // should be sent at all, rather than once by the page as well.
-        drop(await chatEditor(), [pngFile()]);
+        drop(editorElement, [pngFile()]);
+
+        await vi.waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("send_channel_image", expect.anything()));
+        // Give a second send, from the page as well as the editor, the chance to show up.
         await new Promise((resolve) => setTimeout(resolve, 20));
-
-        expect(mockInvoke).not.toHaveBeenCalledWith("send_channel_image", expect.anything());
+        expect(mockInvoke.mock.calls.filter(([command]) => command === "send_channel_image")).toHaveLength(1);
     });
 
     it("highlights the main page while a file is dragged over it", async () => {
