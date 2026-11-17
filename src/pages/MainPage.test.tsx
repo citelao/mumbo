@@ -9,8 +9,8 @@ import { MainPage } from "./MainPage";
 import { emptyProtocolLog } from "../ProtocolViewer";
 import type { Channel } from "../invoke/mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import users from "../../crates/mumble-protocol/fixtures/users.json";
-import channels from "../../crates/mumble-protocol/fixtures/channels.json";
+import users from "../../fixtures/mumbo-sdk/users.json";
+import channels from "../../fixtures/mumbo-sdk/channels.json";
 
 // There's no Tauri runtime under vitest.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));

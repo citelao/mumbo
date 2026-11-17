@@ -6,9 +6,9 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Editor } from "@tiptap/core";
 import App from "./App";
 import type SettingsStore from "./settings";
-import users from "../crates/mumble-protocol/fixtures/users.json";
-import channels from "../crates/mumble-protocol/fixtures/channels.json";
-import messages from "../crates/mumble-protocol/fixtures/server_to_client_messages.json";
+import users from "../fixtures/mumbo-sdk/users.json";
+import channels from "../fixtures/mumbo-sdk/channels.json";
+import messages from "../fixtures/mumbo-sdk/server_to_client_messages.json";
 
 // There's no Tauri runtime under vitest. The fake Channel only needs to hold
 // the `onmessage` handler so tests can push messages through it.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Mirrors `mumble_protocol::ServerToClientMessage` as serialized by serde.
+// Mirrors `mumbo_sdk::ServerToClientMessage` as serialized by serde.
 // Rust's `Option<T>` serializes as `null` (not a missing key), so optional
 // proto fields are `.nullable()`. Objects are strict so that fields added or
 // renamed on the Rust side fail parsing instead of silently passing through.

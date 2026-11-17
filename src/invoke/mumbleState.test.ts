@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Channel, User } from "./mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import fixture from "../../crates/mumble-protocol/fixtures/users.json";
-import channelFixture from "../../crates/mumble-protocol/fixtures/channels.json";
+import fixture from "../../fixtures/mumbo-sdk/users.json";
+import channelFixture from "../../fixtures/mumbo-sdk/channels.json";
 
 describe("Channel", () => {
   it("parses Rust's channels", () => {
