@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Channel, User } from "./mumbleState";
+import { Channel, TextMessage, User } from "./mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
 import fixture from "../../fixtures/mumbo-sdk/users.json";
 import channelFixture from "../../fixtures/mumbo-sdk/channels.json";
+import chatFixture from "../../fixtures/mumbo-sdk/chat_messages.json";
 
 describe("Channel", () => {
   it("parses Rust's channels", () => {
@@ -64,5 +65,18 @@ describe("User", () => {
   it("rejects missing fields", () => {
     const { name: _name, ...user } = fixture[0];
     expect(User.safeParse(user).success).toBe(false);
+  });
+});
+
+describe("TextMessage", () => {
+  it("parses Rust's chat messages", () => {
+    const result = z.array(TextMessage).safeParse(chatFixture);
+    expect(result.error?.issues).toBeUndefined();
+  });
+
+  it("covers every variant in the fixture", () => {
+    const fixtureTypes = new Set(chatFixture.map((message) => message.type));
+    const schemaTypes = TextMessage.options.map((option) => option.shape.type.value);
+    expect(fixtureTypes).toEqual(new Set(schemaTypes));
   });
 });

@@ -34,7 +34,7 @@ export const Channel = z.strictObject({
   parent: z.number().int().nonnegative().nullable(),
 
   name: z.string(),
-  description: z.string().nullable(),
+  description: z.string(),
 
   is_enter_restricted: z.boolean(),
   can_enter: z.boolean()
@@ -52,14 +52,14 @@ export async function fetchChannels(): Promise<Channel[]> {
 export const TextMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("ChatTextMessage"),
-    timestamp: z.string(),
+    timestamp: z.iso.datetime({ offset: true }),
     actor: z.number().int().nonnegative().nullable(),
     session: z.array(z.number().int().nonnegative()),
     content: z.string(),
   }),
   z.strictObject({
     type: z.literal("ServerTextMessage"),
-    timestamp: z.string(),
+    timestamp: z.iso.datetime({ offset: true }),
     content: z.string(),
   }),
 ]);

@@ -202,5 +202,271 @@
       "max_users": null,
       "recording_allowed": null
     }
+  },
+  {
+    "type": "Unknown",
+    "data": {
+      "type_id": 99,
+      "payload": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "type": "Version",
+    "data": {
+      "version_v1": 67071,
+      "version_v2": 281496499716096,
+      "release": "1.5.735",
+      "os": "Linux",
+      "os_version": "Ubuntu 24.04"
+    }
+  },
+  {
+    "type": "UdpTunnel",
+    "data": {
+      "type": "Audio",
+      "data": {
+        "sender_session": 7,
+        "frame_number": 42,
+        "opus_data": [
+          3,
+          4
+        ],
+        "positional_data": [
+          1.5,
+          0.0,
+          -2.0
+        ],
+        "volume_adjustment": 0.5,
+        "is_terminator": true,
+        "header": {
+          "Target": 1
+        }
+      }
+    }
+  },
+  {
+    "type": "UdpTunnel",
+    "data": {
+      "type": "Ping",
+      "data": {
+        "timestamp": 123,
+        "request_extended_information": true,
+        "server_version_v2": 281496499716096,
+        "user_count": 3,
+        "max_user_count": 100,
+        "max_bandwidth_per_user": 558000
+      }
+    }
+  },
+  {
+    "type": "Ping",
+    "data": {
+      "timestamp": 123,
+      "good": 40,
+      "late": 1,
+      "lost": 2,
+      "resync": 0,
+      "udp_packets": 43,
+      "tcp_packets": 45,
+      "udp_ping_avg": 10.5,
+      "udp_ping_var": 1.25,
+      "tcp_ping_avg": 12.5,
+      "tcp_ping_var": 2.5
+    }
+  },
+  {
+    "type": "Reject",
+    "data": {
+      "type": 4,
+      "reason": "Wrong server password"
+    }
+  },
+  {
+    "type": "ServerSync",
+    "data": {
+      "session": 5,
+      "max_bandwidth": 558000,
+      "welcome_text": "Welcome to <b>Mumbo</b>!",
+      "permissions": 14
+    }
+  },
+  {
+    "type": "ChannelRemove",
+    "data": {
+      "channel_id": 4
+    }
+  },
+  {
+    "type": "ChannelState",
+    "data": {
+      "channel_id": 4,
+      "parent": 0,
+      "name": "Games",
+      "links": [
+        3
+      ],
+      "description": "Play together",
+      "links_add": [
+        5
+      ],
+      "links_remove": [
+        6
+      ],
+      "temporary": true,
+      "position": -1,
+      "description_hash": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "max_users": 10,
+      "is_enter_restricted": true,
+      "can_enter": false
+    }
+  },
+  {
+    "type": "UserRemove",
+    "data": {
+      "session": 7,
+      "actor": 5,
+      "reason": "Spamming",
+      "ban": true
+    }
+  },
+  {
+    "type": "UserState",
+    "data": {
+      "session": 7,
+      "actor": 5,
+      "name": "Alice",
+      "user_id": 12,
+      "channel_id": 3,
+      "mute": false,
+      "deaf": false,
+      "suppress": true,
+      "self_mute": true,
+      "self_deaf": false,
+      "texture": [
+        137,
+        80,
+        78,
+        71
+      ],
+      "plugin_context": [
+        1,
+        2
+      ],
+      "plugin_identity": "alice@game",
+      "comment": "Hello!",
+      "hash": "a1b2c3d4",
+      "comment_hash": [
+        5,
+        6
+      ],
+      "texture_hash": [
+        7,
+        8
+      ],
+      "priority_speaker": false,
+      "recording": false,
+      "temporary_access_tokens": [
+        "letmein"
+      ],
+      "listening_channel_add": [
+        4
+      ],
+      "listening_channel_remove": [
+        2
+      ],
+      "listening_volume_adjustment": [
+        {
+          "listening_channel": 4,
+          "volume_adjustment": 0.5
+        }
+      ]
+    }
+  },
+  {
+    "type": "TextMessage",
+    "data": {
+      "actor": 5,
+      "session": [
+        7
+      ],
+      "channel_id": [
+        3
+      ],
+      "tree_id": [
+        0
+      ],
+      "message": "Hi all"
+    }
+  },
+  {
+    "type": "PermissionDenied",
+    "data": {
+      "permission": 4,
+      "channel_id": 3,
+      "session": 5,
+      "reason": "Invalid username",
+      "type": 8,
+      "name": "Al!ce"
+    }
+  },
+  {
+    "type": "CryptSetup",
+    "data": {
+      "key": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "client_nonce": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "server_nonce": [
+        9,
+        10,
+        11,
+        12
+      ]
+    }
+  },
+  {
+    "type": "PermissionQuery",
+    "data": {
+      "channel_id": 3,
+      "permissions": 14,
+      "flush": true
+    }
+  },
+  {
+    "type": "CodecVersion",
+    "data": {
+      "alpha": -2147483637,
+      "beta": 0,
+      "prefer_alpha": true,
+      "opus": true
+    }
+  },
+  {
+    "type": "ServerConfig",
+    "data": {
+      "max_bandwidth": 558000,
+      "welcome_text": "Welcome!",
+      "allow_html": true,
+      "message_length": 5000,
+      "image_message_length": 131072,
+      "max_users": 100,
+      "recording_allowed": true
+    }
   }
 ]
