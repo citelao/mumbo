@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { ServerToClientMessage } from "./protocol";
 import { appendToProtocolLog, emptyProtocolLog, ProtocolViewer, type ProtocolLog, type ProtocolLogEntry } from "./ProtocolViewer";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import fixture from "../crates/mumble-protocol/fixtures/server_to_client_messages.json";
+import fixture from "../fixtures/mumbo-sdk/server_to_client_messages.json";
 
 afterEach(cleanup);
 

@@ -62,6 +62,18 @@ jobs:
           key: ${{ matrix.os }}
 
       - run: cargo test --workspace --locked
+      # Lives here rather than in `frontend` because it reads the SDK checkout
+      # that cargo has already fetched. Output doesn't vary by OS.
+      - name: Check mumbo-sdk fixtures are in sync
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          npm run sync:fixtures
+          if [ -n "$(git status --porcelain -- fixtures/mumbo-sdk)" ]; then
+            git status --short -- fixtures/mumbo-sdk
+            git diff -- fixtures/mumbo-sdk
+            echo "::error::fixtures/mumbo-sdk is stale; run \`npm run sync:fixtures\` and commit the result."
+            exit 1
+          fi
       # Lints don't vary by OS; once is enough.
       - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
