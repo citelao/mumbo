@@ -6,6 +6,9 @@ import { createAppMenu, fetchThemeMenuItem } from "./appMenu";
 import { setTheme } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+// Tauri only has menus on desktop; calling the menu API on mobile rejects.
+const isMobile = ["ios", "android"].includes(import.meta.env.TAURI_ENV_PLATFORM ?? "");
+
 // The window starts hidden; always show it, even if startup fails, so an error
 // doesn't leave the app invisible.
 try {
@@ -17,21 +20,23 @@ try {
     // tauri.conf.json), so the first paint is never in the wrong theme.
     await setTheme(initialTheme === "system" ? null : initialTheme);
 
-    const menu = await createAppMenu(async (theme) => {
-        console.log(`Theme selected: ${theme}`);
-        await settingsStore.setTheme(theme);
+    if (!isMobile) {
+        const menu = await createAppMenu(async (theme) => {
+            console.log(`Theme selected: ${theme}`);
+            await settingsStore.setTheme(theme);
 
-        // TODO: respond to the actual event.
-        for (const t of ['system', 'light', 'dark'] as const) {
-            const item = await fetchThemeMenuItem(menu, t);
-            item.setChecked(t === theme);
-        }
+            // TODO: respond to the actual event.
+            for (const t of ['system', 'light', 'dark'] as const) {
+                const item = await fetchThemeMenuItem(menu, t);
+                item.setChecked(t === theme);
+            }
 
-        const appTheme = (theme === "system") ? null : theme;
-        await setTheme(appTheme);
-    }, initialTheme);
-    const previous = await menu.setAsAppMenu();
-    previous?.close();
+            const appTheme = (theme === "system") ? null : theme;
+            await setTheme(appTheme);
+        }, initialTheme);
+        const previous = await menu.setAsAppMenu();
+        previous?.close();
+    }
 
     // TODO: event doesn't fire.
     //

@@ -17,6 +17,9 @@ export default defineConfig(() => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+  // Expose the Tauri CLI's build-time env (e.g. `TAURI_ENV_PLATFORM`) to the
+  // frontend, so it can skip desktop-only APIs on mobile.
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,

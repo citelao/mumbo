@@ -50,5 +50,11 @@ mumbo-sdk.workspace = true
 [dev-dependencies]
 tokio = { version = "1.53.3", features = ["macros", "rt"] }
 
+[target."cfg(target_os = \"ios\")".dependencies]
+# Already used by cpal; we only add the session category it doesn't set.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
+
 [target."cfg(windows)".dependencies]
 windows = { version = "0.62.2", features = ["ApplicationModel_Calls", "Foundation"] }
