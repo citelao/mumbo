@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Mirrors `mumble_protocol::ServerToClientMessage` as serialized by serde.
+// Mirrors `mumbo_sdk::ServerToClientMessage` as serialized by serde.
 // Rust's `Option<T>` serializes as `null` (not a missing key), so optional
 // proto fields are `.nullable()`. Objects are strict so that fields added or
 // renamed on the Rust side fail parsing instead of silently passing through.
@@ -9,6 +9,7 @@ const u32 = z.number().int().nonnegative();
 // JSON numbers are f64: u64 values above 2^53 lose precision in transit.
 const u64 = z.number().int().nonnegative();
 const i32 = z.number().int();
+const u16 = z.number().int().min(0).max(65535);
 const bytes = z.array(z.number().int().min(0).max(255));
 
 const Version = z.strictObject({
@@ -197,6 +198,8 @@ export const ServerToClientMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("PermissionQuery"), data: PermissionQuery }),
   z.strictObject({ type: z.literal("CodecVersion"), data: CodecVersion }),
   z.strictObject({ type: z.literal("ServerConfig"), data: ServerConfig }),
+  // A message type the SDK doesn't decode, passed through raw.
+  z.strictObject({ type: z.literal("Unknown"), data: z.strictObject({ type_id: u16, payload: bytes }) }),
 ]);
 
 export type ServerToClientMessage = z.infer<typeof ServerToClientMessage>;

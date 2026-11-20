@@ -1,0 +1,14 @@
+[
+  {
+    "type": "ChatTextMessage",
+    "timestamp": "2026-01-02T03:04:05Z",
+    "actor": 7,
+    "session": [2, 3],
+    "content": "Hi <b>there</b>"
+  },
+  {
+    "type": "ServerTextMessage",
+    "timestamp": "2026-01-02T03:04:05.678Z",
+    "content": "Welcome!"
+  }
+]

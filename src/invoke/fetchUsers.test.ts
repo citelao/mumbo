@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { fetchChatMessages, fetchUsers } from "./mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import fixture from "../../crates/mumble-protocol/fixtures/users.json";
+import fixture from "../../fixtures/mumbo-sdk/users.json";
 
 // There's no Tauri runtime under vitest.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -42,7 +42,7 @@ describe("fetchUsers", () => {
 });
 
 describe("fetchChatMessages", () => {
-  // Shaped like serde's output for `mumble_protocol::state::TextMessage`.
+  // Shaped like serde's output for `mumbo_sdk::state::TextMessage`.
   const messages = [
     { type: "ServerTextMessage", timestamp: "2026-10-19T05:31:31.123456Z", content: "Welcome!" },
     { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:32Z", actor: 5, session: [], content: "hi" },
