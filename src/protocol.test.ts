@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ServerToClientMessage } from "./protocol";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import fixture from "../crates/mumble-protocol/fixtures/server_to_client_messages.json";
+import fixture from "../fixtures/mumbo-sdk/server_to_client_messages.json";
 
 describe("ServerToClientMessage", () => {
   it.each(fixture.map((message) => [message.type, message]))("parses Rust's %s", (_type, message) => {

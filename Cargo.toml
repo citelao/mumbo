@@ -2,6 +2,9 @@
 resolver = "3"
 members = ["src-tauri", "crates/*", "contrib/text-message-tester", "contrib/image-resize-estimator"]
 
+[workspace.dependencies]
+mumbo-sdk = { git = "https://github.com/citelao/mumbo-sdk", branch = "main" }
+
 [profile.release]
 codegen-units = 1
 lto = true

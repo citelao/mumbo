@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import DOMPurify from "dompurify";
 
-// Mirrors `mumble_protocol::state::User` as serialized by serde. Strict, so
+// Mirrors `mumbo_sdk::state::User` as serialized by serde. Strict, so
 // fields added or renamed on the Rust side fail parsing instead of passing
 // through unnoticed.
 export const User = z.strictObject({
@@ -28,13 +28,13 @@ export async function fetchUsers(): Promise<User[]> {
   return z.array(User).parse(await invoke<unknown>("get_users"));
 }
 
-// Mirrors `mumble_protocol::state::Channel` as serialized by serde.
+// Mirrors `mumbo_sdk::state::Channel` as serialized by serde.
 export const Channel = z.strictObject({
   channel_id: z.number().int().nonnegative(),
   parent: z.number().int().nonnegative().nullable(),
 
   name: z.string(),
-  description: z.string().nullable(),
+  description: z.string(),
 
   is_enter_restricted: z.boolean(),
   can_enter: z.boolean()
@@ -46,20 +46,20 @@ export async function fetchChannels(): Promise<Channel[]> {
   return z.array(Channel).parse(await invoke<unknown>("get_channels"));
 }
 
-// Mirrors `mumble_protocol::state::TextMessage` as serialized by serde: an
+// Mirrors `mumbo_sdk::state::TextMessage` as serialized by serde: an
 // internally tagged enum, with `Option` fields sent as `null` and `DateTime`s
 // as RFC 3339 strings.
 export const TextMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("ChatTextMessage"),
-    timestamp: z.string(),
+    timestamp: z.iso.datetime({ offset: true }),
     actor: z.number().int().nonnegative().nullable(),
     session: z.array(z.number().int().nonnegative()),
     content: z.string(),
   }),
   z.strictObject({
     type: z.literal("ServerTextMessage"),
-    timestamp: z.string(),
+    timestamp: z.iso.datetime({ offset: true }),
     content: z.string(),
   }),
 ]);
