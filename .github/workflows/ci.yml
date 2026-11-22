@@ -117,6 +117,11 @@ jobs:
       - run: npx tauri build --bundles ${{ matrix.bundles }} -- --locked
         shell: bash
 
+      # A bundle whose signature doesn't seal Info.plist/resources is reported
+      # by Gatekeeper as "damaged" once downloaded, so it can't be opened.
+      - if: runner.os == 'macOS'
+        run: codesign --verify --strict --verbose=2 target/release/bundle/macos/mumbo.app
+
   # Builds the flatpak from source in the GNOME SDK, as the release does.
   flatpak:
     runs-on: ubuntu-latest
