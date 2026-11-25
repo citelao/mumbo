@@ -1,9 +1,13 @@
 .container {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    // `safe` starts from the top when the page is taller than the window,
+    // instead of centering it and clipping both ends.
+    justify-content: safe center;
     align-items: center;
     height: 100vh;
+    // The window itself doesn't scroll (see App.scss), so the page must.
+    overflow-y: auto;
 }
 
 .sub-container {
@@ -13,6 +17,16 @@
 
 .user-count.error {
     color: var(--color-error);
+}
+
+.disconnected {
+    margin: 0;
+    color: var(--color-error);
+}
+
+.disconnect-detail {
+    display: block;
+    opacity: 0.8;
 }
 
 .recent-servers {

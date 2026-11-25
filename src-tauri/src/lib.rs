@@ -19,6 +19,10 @@ mod universal_mute;
 use universal_mute::UniversalMuter;
 
 struct MumbleConnection {
+    /// Tells this connection apart from later ones, which may replace it in
+    /// `AppState` before it finishes ending.
+    id: u64,
+
     client: proto::client::MumbleClient,
 
     /// Volume adjustments keyed by user session ID.
@@ -26,6 +30,108 @@ struct MumbleConnection {
     /// TODO: store these one time in the Mixer?
     /// TODO: key by an immutable user ID, for durable adjustments between connections.
     volume_adjustments: watch::Sender<HashMap<u32, f32>>
+}
+
+/// Global, the next connection ID to assign to a new `MumbleConnection`, to tell them apart.
+static NEXT_CONNECTION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Tells the UI the connection it was showing has ended.
+#[derive(Clone, serde::Serialize)]
+struct Disconnected {
+    reason: DisconnectReason,
+}
+
+/// Why a connection ended, for the UI to explain however it likes.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum DisconnectReason {
+    /// The server removed us: an admin kicked or banned us, or we connected
+    /// again from elsewhere with the same name.
+    Removed {
+        reason: Option<String>,
+        /// The admin who did it, if anyone.
+        by: Option<String>,
+        banned: bool,
+    },
+    /// The server ended the connection cleanly without saying why.
+    ServerClosed,
+    /// The connection broke, e.g. because the server went away.
+    ConnectionLost { detail: String },
+}
+
+/// Passes each of a connection's events to `on_event` until the connection
+/// ends, then says why it ended. `removals` is a subscription to the
+/// connection's debug feed: the only place the server's notice that it
+/// removed us, with its reason, shows up.
+async fn follow_until_disconnected(
+    mut events: tokio::sync::mpsc::UnboundedReceiver<MumbleEvent>,
+    mut removals: broadcast::Receiver<proto::ServerToClientMessage>,
+    client: &proto::client::MumbleClient,
+    mut on_event: impl FnMut(MumbleEvent),
+) -> DisconnectReason {
+    let my_session = client.state().lock().unwrap().current_user().map(|user| user.session);
+    let mut sdk_reason = None;
+    // `recv` only returns `None` once the driver has exited, so the
+    // connection is over, however it ended.
+    while let Some(event) = events.recv().await {
+        if let MumbleEvent::Disconnected { reason } = &event {
+            sdk_reason = reason.clone();
+        }
+        on_event(event);
+    }
+
+    // The server sends its notice before closing the connection, so by now
+    // it's queued.
+    let mut removal = None;
+    loop {
+        match removals.try_recv() {
+            Ok(message) => {
+                if let Some(my_session) = my_session {
+                    let state = client.state();
+                    let state = state.lock().unwrap();
+                    removal = removal_of(&message, my_session, &state).or(removal);
+                }
+            }
+            // Audio shares the feed and can overflow it, but lagging only
+            // drops the oldest messages; the notice is among the newest.
+            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+            Err(_) => break,
+        }
+    }
+    disconnect_reason(removal, sdk_reason)
+}
+
+/// The removal `message` announces, if it's the server removing `my_session`.
+fn removal_of(
+    message: &proto::ServerToClientMessage,
+    my_session: u32,
+    state: &proto::state::MumbleState,
+) -> Option<DisconnectReason> {
+    let proto::ServerToClientMessage::UserRemove(remove) = message else {
+        return None;
+    };
+    if remove.session != my_session {
+        return None;
+    }
+    Some(DisconnectReason::Removed {
+        // Murmur sends an empty reason when there isn't one.
+        reason: remove.reason.clone().filter(|reason| !reason.is_empty()),
+        by: remove
+            .actor
+            .and_then(|actor| state.users.get(&actor))
+            .map(|admin| admin.name.clone()),
+        banned: remove.ban.unwrap_or(false),
+    })
+}
+
+/// Why the connection ended: the server's notice that it removed us if one
+/// came, otherwise how the SDK says the connection ended.
+fn disconnect_reason(removal: Option<DisconnectReason>, sdk_reason: Option<String>) -> DisconnectReason {
+    match (removal, sdk_reason) {
+        (Some(removal), _) => removal,
+        (None, None) => DisconnectReason::ServerClosed,
+        (None, Some(detail)) => DisconnectReason::ConnectionLost { detail },
+    }
 }
 
 struct AppState {
@@ -418,7 +524,7 @@ async fn connect_internal(
         client,
         debug,
         audio,
-        mut events,
+        events,
     } = proto::client::connect(ConnectionOptions {
         server,
         port: Some(port),
@@ -427,6 +533,9 @@ async fn connect_internal(
     })
     .await
     .map_err(|e| Error::other(format!("Failed to connect: {}", describe_connect_error(&e))))?;
+
+    // Subscribed now, so it sees everything from here on; see `follow_until_disconnected`.
+    let removals = debug.resubscribe();
 
     // Send debug events to the channel.
     tauri::async_runtime::spawn(forward_debug(debug, move |message| {
@@ -458,12 +567,14 @@ async fn connect_internal(
 
     let (volumes_tx, volumes_rx) = tokio::sync::watch::channel(HashMap::<u32, f32>::new());
 
+    let connection_id = NEXT_CONNECTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
     // Send state events to the app.
     let status_client = client.clone();
     let event_volumes = volumes_tx.clone();
     tauri::async_runtime::spawn(async move {
         let mut shown_channel: Option<String> = None;
-        while let Some(event) = events.recv().await {
+        let reason = follow_until_disconnected(events, removals, &status_client, |event| {
             if matches!(event, MumbleEvent::UsersChanged) {
                 let present = status_client.state().lock().unwrap().users();
                 forget_departed_users(&event_volumes, present.iter().map(|user| user.session));
@@ -503,12 +614,20 @@ async fn connect_internal(
                 }
                 shown_channel = Some(name);
             }
+        })
+        .await;
+        log::info!("Connection ended: {reason:?}");
+        // Only if it's still ours: if the user disconnected or connected
+        // elsewhere, it's already gone and the UI already moved on.
+        let ours = app
+            .state::<AppState>()
+            .connection
+            .lock()
+            .unwrap()
+            .take_if(|connection| connection.id == connection_id);
+        if ours.is_some() {
+            let _ = app.emit("disconnected", Disconnected { reason });
         }
-        // `recv` only returns `None` once the driver has exited, so the
-        // connection is over, however it ended.
-        // TODO: clear AppState and tell the UI. Careful: by now a newer
-        // connection may be in AppState, so only clear it if it's still ours.
-        log::info!("Connection ended");
     });
 
     let cloned_client = client.clone();
@@ -531,6 +650,7 @@ async fn connect_internal(
     });
 
     *state.connection.lock().unwrap() = Some(MumbleConnection {
+        id: connection_id,
         client,
         volume_adjustments: volumes_tx
     });
@@ -1025,6 +1145,10 @@ mod tests {
         assert!(mixer.next_frame().unwrap().is_none());
     }
 
+    /// Everyone lands in the dev server's root channel, so tests running at
+    /// once would hear (or kick) each other. Tests using it take turns.
+    static DEV_SERVER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// Needs the dev server from dev/mumble-server (`npm run mumble:up`), on
     /// localhost:64738 with password "test". Two clients join the root channel;
     /// one talks for a second and the other's mixer mixes it, with the talker's
@@ -1032,10 +1156,7 @@ mod tests {
     /// (RMS, strength of an unrelated frequency).
     async fn mix_a_talker(test: &str, volume_db: Option<f32>) -> Vec<(f32, f32)> {
         use crate::audio::SpeakerSource;
-        // Everyone lands in the root channel, so tests running at once would
-        // hear each other's talkers. Take turns.
-        static SERVER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-        let _turn = SERVER.lock().await;
+        let _turn = DEV_SERVER.lock().await;
         let connect = |role: &str| {
             proto::client::connect(ConnectionOptions {
                 server: "localhost".into(),
@@ -1124,6 +1245,44 @@ mod tests {
         );
     }
 
+    /// Needs the dev server, like `mix_a_talker`. Run with `cargo test -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn connecting_again_under_our_name_removes_us_and_says_why() {
+        let _turn = DEV_SERVER.lock().await;
+        let connect = || {
+            proto::client::connect(ConnectionOptions {
+                server: "localhost".into(),
+                port: Some(64738),
+                password: Some("test".into()),
+                username: Some(format!("mumbo-e2e-removed-{}", std::process::id())),
+            })
+        };
+        let Connection { client, debug, audio, events } = connect().await.expect("connecting the first time");
+        let removals = debug.resubscribe();
+        let followed = tokio::spawn(async move {
+            let _audio = audio; // Keep receiving audio, as the app does.
+            follow_until_disconnected(events, removals, &client, |_| {}).await
+        });
+
+        // Murmur lets only one session use a name, so it removes the first.
+        let second = connect().await.expect("connecting the second time");
+        let reason = tokio::time::timeout(std::time::Duration::from_secs(5), followed)
+            .await
+            .expect("the first connection ended")
+            .unwrap();
+        second.client.disconnect();
+
+        assert_eq!(
+            reason,
+            DisconnectReason::Removed {
+                reason: Some("You connected to the server from another device".into()),
+                by: None,
+                banned: false,
+            }
+        );
+    }
+
     /// Adds volume adjustment to the above. Run with `cargo test -- --ignored`.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
@@ -1183,6 +1342,103 @@ mod tests {
             // The original error stays, for anyone debugging.
             assert!(description.contains(&error.to_string()), "lost the cause: {description}");
         }
+    }
+
+    /// A server state with an admin in it, as session 1.
+    fn state_with_admin() -> proto::state::MumbleState {
+        let mut state = proto::state::MumbleState::default();
+        state.users.insert(
+            1,
+            proto::state::User {
+                session: 1,
+                name: "admin".into(),
+                ..Default::default()
+            },
+        );
+        state
+    }
+
+    fn user_remove(session: u32, actor: Option<u32>, reason: Option<&str>, ban: Option<bool>) -> proto::ServerToClientMessage {
+        proto::ServerToClientMessage::UserRemove(proto::raw::UserRemove {
+            session,
+            actor,
+            reason: reason.map(Into::into),
+            ban,
+        })
+    }
+
+    #[test]
+    fn notices_an_admin_kicking_us() {
+        let message = user_remove(7, Some(1), Some("go away"), None);
+        assert_eq!(
+            removal_of(&message, 7, &state_with_admin()),
+            Some(DisconnectReason::Removed {
+                reason: Some("go away".into()),
+                by: Some("admin".into()),
+                banned: false,
+            })
+        );
+    }
+
+    #[test]
+    fn notices_an_admin_banning_us() {
+        let message = user_remove(7, Some(1), Some("go away"), Some(true));
+        assert!(matches!(
+            removal_of(&message, 7, &state_with_admin()),
+            Some(DisconnectReason::Removed { banned: true, .. })
+        ));
+    }
+
+    #[test]
+    fn notices_the_server_removing_us_with_no_admin_or_reason() {
+        // Murmur sends an empty reason when there isn't one.
+        let message = user_remove(7, None, Some(""), None);
+        assert_eq!(
+            removal_of(&message, 7, &state_with_admin()),
+            Some(DisconnectReason::Removed { reason: None, by: None, banned: false })
+        );
+    }
+
+    #[test]
+    fn ignores_other_users_leaving() {
+        let message = user_remove(8, Some(1), Some("go away"), None);
+        assert_eq!(removal_of(&message, 7, &state_with_admin()), None);
+    }
+
+    #[test]
+    fn a_removal_explains_a_disconnect_best() {
+        let removed = DisconnectReason::Removed { reason: None, by: None, banned: false };
+        assert_eq!(
+            disconnect_reason(Some(removed.clone()), Some("IO error".into())),
+            removed
+        );
+    }
+
+    #[test]
+    fn without_a_removal_the_sdk_says_how_the_connection_ended() {
+        assert_eq!(disconnect_reason(None, None), DisconnectReason::ServerClosed);
+        assert_eq!(
+            disconnect_reason(None, Some("IO error: peer closed connection".into())),
+            DisconnectReason::ConnectionLost { detail: "IO error: peer closed connection".into() }
+        );
+    }
+
+    /// The shape `src/invoke/connection.ts` parses.
+    #[test]
+    fn disconnect_reasons_serialize_as_tagged_objects() {
+        let json = |reason| serde_json::to_value(Disconnected { reason }).unwrap();
+        assert_eq!(
+            json(DisconnectReason::Removed { reason: Some("go away".into()), by: None, banned: true }),
+            serde_json::json!({ "reason": { "kind": "removed", "reason": "go away", "by": null, "banned": true } })
+        );
+        assert_eq!(
+            json(DisconnectReason::ServerClosed),
+            serde_json::json!({ "reason": { "kind": "server_closed" } })
+        );
+        assert_eq!(
+            json(DisconnectReason::ConnectionLost { detail: "IO error".into() }),
+            serde_json::json!({ "reason": { "kind": "connection_lost", "detail": "IO error" } })
+        );
     }
 
     #[test]
