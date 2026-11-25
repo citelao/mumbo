@@ -38,6 +38,7 @@ Work tracker.
 - [ ] Per-speaker auto-gain before summing, so one loud mic doesn't dominate
 - [x] Other speaker local volume adjustment
 - [x] Handle custom speaker gain adjustments
+- [ ] Local mute other users
 - [x] Mute/unmute self
 - [ ] Skipping empty NetEq buffers also skips concealment when a speaker briefly runs dry mid-sentence; track talk spurts (`is_terminator`) instead
 - [ ] Move mixing (and the `cpal` stream) off the network task to an audio thread, so slow message handling can't starve playback
