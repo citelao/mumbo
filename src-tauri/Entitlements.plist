@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+    Used by Tauri for entitlements. Necessary when code-signing.
+
+    https://v2.tauri.app/distribute/macos-application-bundle/#entitlements
+    https://developer.apple.com/documentation/bundleresources/entitlements
+    https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.device.audio-input
+    -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
