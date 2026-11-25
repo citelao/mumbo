@@ -4,6 +4,7 @@ use std::io::Error;
 use mumbo_sdk as proto;
 use ringbuf::traits::Producer;
 use sonora::AudioProcessing;
+use tokio::sync::watch;
 
 use crate::PipelineError;
 
@@ -93,6 +94,9 @@ struct Speaker {
     // count is an exact sequence/timestamp. UDP will need Mumble's frame_number.
     next_sequence: u16,
     next_timestamp: u32,
+
+    /// Volume adjustment in decibels. 0db is no change. Negative is quieter.
+    volume_adjust_db: f32,
 }
 
 impl Speaker {
@@ -110,6 +114,7 @@ impl Speaker {
             neteq,
             next_sequence: 0,
             next_timestamp: 0,
+            volume_adjust_db: 0.0,
         })
     }
 
@@ -136,36 +141,68 @@ impl Speaker {
         self.next_timestamp = self.next_timestamp.wrapping_add(samples as u32);
         Ok(())
     }
+
+    fn set_volume_adjust_db(&mut self, volume_db: f32) {
+        self.volume_adjust_db = volume_db;
+    }
 }
 
 /// Decodes the packets arriving from the server and mixes everyone talking.
 pub struct Mixer {
     packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>,
+
+    /// Receiver for volume adjustments (session ID, volume in decibels)
+    volume_adjustments: watch::Receiver<HashMap<u32, f32>>,
+
     speakers: HashMap<u32, Speaker>,
 }
 
 impl Mixer {
-    pub fn new(packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>) -> Self {
+    /// Creates a new Mixer with the given packet receiver and volume adjustment receiver.
+    pub fn new(
+        packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>,
+        volume_adjustments: watch::Receiver<HashMap<u32, f32>>,
+    ) -> Self {
         Self {
             packets,
+            volume_adjustments,
             speakers: HashMap::new(),
         }
+    }
+
+    fn get_or_create_speaker(
+        map: &mut HashMap<u32, Speaker>,
+        session: u32,
+    ) -> Result<&mut Speaker, Error> {
+        Ok(match map.entry(session) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
+        })
     }
 }
 
 impl SpeakerSource for Mixer {
     fn next_frame(&mut self) -> Result<Option<[i16; MIX_FRAME_SAMPLES]>, Error> {
+        // Apply any pending volume adjustments before processing new packets.
+        if self.volume_adjustments.has_changed().unwrap_or(false) {
+            // Copy out so the guard drops at once: holding it while speakers are
+            // created below would block the UI's writes for that long.
+            let adjustments = self.volume_adjustments.borrow_and_update().clone();
+            // Speakers whose entry was removed go back to full volume.
+            for (session, speaker) in self.speakers.iter_mut() {
+                speaker.set_volume_adjust_db(adjustments.get(session).copied().unwrap_or(0.0));
+            }
+            for (session, volume_db) in adjustments {
+                Self::get_or_create_speaker(&mut self.speakers, session)?
+                    .set_volume_adjust_db(volume_db);
+            }
+        }
+
         loop {
             match self.packets.try_recv() {
                 Ok(packet) => {
-                    // TODO: volume adjustment
                     let sender = packet.sender_session;
-                    let speaker = match self.speakers.entry(sender) {
-                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            entry.insert(Speaker::new()?)
-                        }
-                    };
+                    let speaker = Self::get_or_create_speaker(&mut self.speakers, sender)?;
                     if let Err(e) = speaker.insert_packet(sender, &packet.opus_data) {
                         log::warn!("Dropping audio from session {sender}: {e}");
                     }
@@ -188,11 +225,18 @@ fn mix_frame(speakers: &mut HashMap<u32, Speaker>) -> Result<[i16; MIX_FRAME_SAM
             continue;
         }
         let audio = speaker.neteq.get_audio().map_err(Error::other)?;
+        let scale_factor = db_to_linear(speaker.volume_adjust_db);
         for (out, sample) in sum.iter_mut().zip(audio.samples) {
-            *out += sample;
+            *out += sample * scale_factor;
         }
     }
     Ok(sum.map(|sample| (soft_clip(sample) * i16::MAX as f32) as i16))
+}
+
+/// Converts a volume in decibels to a linear scale factor.
+/// https://stackoverflow.com/a/46153568/788168
+fn db_to_linear(volume_db: f32) -> f32 {
+    10f32.powf(volume_db / 20.0)
 }
 
 /// Passes normal levels through untouched and smoothly bends anything louder
@@ -313,11 +357,16 @@ mod tests {
         }
     }
 
+    /// Volumes that never change: the sender is dropped right away.
+    fn no_volume_adjustments() -> watch::Receiver<HashMap<u32, f32>> {
+        watch::channel(HashMap::new()).1
+    }
+
     #[test]
     fn mixer_plays_the_packets_it_receives() {
         use crate::speaker::SpeakerSource;
         let (sender, receiver) = tokio::sync::mpsc::channel(64);
-        let mut mixer = Mixer::new(receiver);
+        let mut mixer = Mixer::new(receiver, no_volume_adjustments());
         for packet in tone_packets(440.0, 0.5, 25) {
             sender.try_send(audio_packet(7, packet)).unwrap();
         }
@@ -330,10 +379,68 @@ mod tests {
     }
 
     #[test]
+    fn mixer_applies_a_speakers_volume_adjustment() {
+        use crate::speaker::SpeakerSource;
+        let mixed_energy = |volume_db: Option<f32>| {
+            let (sender, receiver) = tokio::sync::mpsc::channel(64);
+            let (volumes, volumes_rx) = watch::channel(HashMap::new());
+            let mut mixer = Mixer::new(receiver, volumes_rx);
+            if let Some(volume_db) = volume_db {
+                volumes.send_modify(|volumes| {
+                    volumes.insert(7, volume_db);
+                });
+            }
+            for packet in tone_packets(440.0, 0.5, 25) {
+                sender.try_send(audio_packet(7, packet)).unwrap();
+            }
+            (0..50)
+                .map(|_| energy(&mixer.next_frame().unwrap().expect("still connected")))
+                .sum::<f32>()
+        };
+
+        // -6 dB halves the amplitude, which quarters the energy.
+        let ratio = mixed_energy(Some(-6.0)) / mixed_energy(None);
+        assert!((ratio - 0.25).abs() < 0.02, "energy ratio was {ratio}");
+    }
+
+    #[test]
+    fn mixer_plays_at_full_volume_once_an_adjustment_is_removed() {
+        use crate::speaker::SpeakerSource;
+        let tone_energy = |mixer: &mut Mixer| {
+            let (sender, receiver) = tokio::sync::mpsc::channel(64);
+            mixer.packets = receiver;
+            for packet in tone_packets(440.0, 0.5, 25) {
+                sender.try_send(audio_packet(7, packet)).unwrap();
+            }
+            (0..50)
+                .map(|_| energy(&mixer.next_frame().unwrap().expect("still connected")))
+                .sum::<f32>()
+        };
+        // Both mixers play a tone before the one measured, so their jitter
+        // buffers are equally warmed up.
+        let mut unadjusted = Mixer::new(tokio::sync::mpsc::channel(1).1, no_volume_adjustments());
+        tone_energy(&mut unadjusted);
+        let (volumes, volumes_rx) = watch::channel(HashMap::new());
+        let mut mixer = Mixer::new(tokio::sync::mpsc::channel(1).1, volumes_rx);
+        volumes.send_modify(|volumes| {
+            volumes.insert(7, -6.0);
+        });
+        tone_energy(&mut mixer);
+
+        // As when session 7 leaves and the server hands the session to someone new.
+        volumes.send_modify(|volumes| {
+            volumes.remove(&7);
+        });
+
+        let ratio = tone_energy(&mut mixer) / tone_energy(&mut unadjusted);
+        assert!((ratio - 1.0).abs() < 0.05, "energy ratio was {ratio}");
+    }
+
+    #[test]
     fn mixer_ends_when_the_connection_closes() {
         use crate::speaker::SpeakerSource;
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
-        let mut mixer = Mixer::new(receiver);
+        let mut mixer = Mixer::new(receiver, no_volume_adjustments());
 
         let idle = mixer.next_frame().unwrap().expect("connected, just quiet");
         assert_eq!(idle, [0; MIX_FRAME_SAMPLES]);
@@ -343,24 +450,36 @@ mod tests {
     }
 
     /// Needs the dev server from dev/mumble-server (`npm run mumble:up`), on
-    /// localhost:64738 with password "test". Run with `cargo test -- --ignored`.
-    /// Two clients join the root channel; one talks and the other's mixer should
-    /// produce the tone, exercising the network, decoding and mixing together.
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
-    async fn audio_sent_by_one_client_is_mixed_for_another() {
+    /// localhost:64738 with password "test". Two clients join the root channel;
+    /// one talks for a second and the other's mixer mixes it, with the talker's
+    /// volume adjusted to `volume_db` if given. Returns each 100 ms of the mix as
+    /// (RMS, strength of an unrelated frequency).
+    async fn mix_a_talker(test: &str, volume_db: Option<f32>) -> Vec<(f32, f32)> {
         use crate::speaker::SpeakerSource;
+        // Everyone lands in the root channel, so tests running at once would
+        // hear each other's talkers. Take turns.
+        static SERVER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _turn = SERVER.lock().await;
         let connect = |role: &str| {
             proto::client::connect(proto::client::ConnectionOptions {
                 server: "localhost".into(),
                 port: Some(64738),
                 password: Some("test".into()),
-                // Unique names: a duplicate name kicks the earlier session.
-                username: Some(format!("mumbo-e2e-{role}-{}", std::process::id())),
+                // Unique names, even across tests running at once: a duplicate
+                // name kicks the earlier session.
+                username: Some(format!("mumbo-e2e-{test}-{role}-{}", std::process::id())),
             })
         };
         let listener = connect("listener").await.expect("connecting the listener");
         let talker = connect("talker").await.expect("connecting the talker");
+        let talker_session = talker
+            .client
+            .state()
+            .lock()
+            .unwrap()
+            .current_user()
+            .expect("the talker knows who it is")
+            .session;
 
         let talking = {
             let client = talker.client.clone();
@@ -376,7 +495,13 @@ mod tests {
             })
         };
 
-        let mut mixer = Mixer::new(listener.audio);
+        let (volumes, volumes_rx) = watch::channel(HashMap::new());
+        let mut mixer = Mixer::new(listener.audio, volumes_rx);
+        if let Some(volume_db) = volume_db {
+            volumes.send_modify(|volumes| {
+                volumes.insert(talker_session, volume_db);
+            });
+        }
         let mut mixed = Vec::new();
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(10));
         for _ in 0..250 {
@@ -393,7 +518,7 @@ mod tests {
 
         // Judge 100 ms at a time. The level is checked, not the pitch: NetEq's time
         // stretching bends a pure tone when audio arrives in real time (see TODO.md).
-        let windows: Vec<(f32, f32)> = mixed
+        mixed
             .as_chunks::<{ MIX_FRAME_SAMPLES * 10 }>()
             .0
             .iter()
@@ -401,7 +526,15 @@ mod tests {
                 let rms = (w.iter().map(|s| s * s).sum::<f32>() / w.len() as f32).sqrt();
                 (rms, tone_strength(w, 3000.0))
             })
-            .collect();
+            .collect()
+    }
+
+    /// Exercises the network, decoding and mixing together. Run with
+    /// `cargo test -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn audio_sent_by_one_client_is_mixed_for_another() {
+        let windows = mix_a_talker("plain", None).await;
         // A 0.5-amplitude sine has an RMS of about 0.35.
         let loud = windows.iter().filter(|(rms, _)| *rms > 0.25).count();
         assert!(
@@ -412,6 +545,24 @@ mod tests {
         assert!(
             windows.iter().all(|(_, other)| *other < 0.02),
             "unrelated frequency in the mix"
+        );
+    }
+
+    /// Adds volume adjustment to the above. Run with `cargo test -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn a_talkers_volume_adjustment_applies_to_their_mixed_audio() {
+        let windows = mix_a_talker("volume", Some(-12.0)).await;
+        // -12 dB is a quarter of the amplitude: an RMS of about 0.09, not 0.35.
+        let heard = windows.iter().filter(|(rms, _)| *rms > 0.06).count();
+        assert!(
+            heard >= 5,
+            "the talker was heard in only {heard} of {} windows: {windows:.3?}",
+            windows.len()
+        );
+        assert!(
+            windows.iter().all(|(rms, _)| *rms < 0.15),
+            "the talker wasn't turned down: {windows:.3?}"
         );
     }
 

@@ -23,13 +23,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mumbo_sdk::{
-    client::Connection,
-    state::{MumbleEvent, TextMessage},
-};
 use mumbo_audio::{
     mic::{MicPipeline, apm_config, audio_processing},
     speaker::{Mixer, PLAYBACK_QUEUE_SAMPLES, SPEAKER_SAMPLE_RATE, top_up_output},
+};
+use mumbo_sdk::{
+    client::Connection,
+    state::{MumbleEvent, TextMessage},
 };
 use ringbuf::{
     HeapRb,
@@ -233,7 +233,11 @@ pub async fn receiver() -> Result<(), Box<dyn Error>> {
 
     // The app's playback loop: every 5 ms, top the queue up from the mixer.
     // The "sound card" drains it at exactly 48 kHz.
-    let mut mixer = Mixer::new(packets_rx);
+    // Everyone plays at full volume: the sender is dropped, so no adjustment ever arrives.
+    let mut mixer = Mixer::new(
+        packets_rx,
+        tokio::sync::watch::channel(Default::default()).1,
+    );
     let mut apm = audio_processing(apm_config());
     apm.set_stream_delay_ms(50)?;
     let (mut queue_in, mut card) = HeapRb::<i16>::new(SPEAKER_SAMPLE_RATE as usize / 5).split();

@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
 
+use mumbo_sdk::state::MumbleEvent;
 use mumbo_sdk as proto;
 use mumbo_sdk::client::{Connection, ConnectionOptions, SelfMuteStatus};
 use tauri::ipc::Channel;
-use tauri::{Emitter, Listener, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
@@ -14,8 +16,18 @@ mod universal_mute;
 
 use universal_mute::UniversalMuter;
 
+struct MumbleConnection {
+    client: proto::client::MumbleClient,
+
+    /// Volume adjustments keyed by user session ID.
+    ///
+    /// TODO: store these one time in the Mixer?
+    /// TODO: key by an immutable user ID, for durable adjustments between connections.
+    volume_adjustments: watch::Sender<HashMap<u32, f32>>
+}
+
 struct AppState {
-    client: std::sync::Mutex<Option<proto::client::MumbleClient>>,
+    connection: std::sync::Mutex<Option<MumbleConnection>>,
     audio_module: audio::AudioModule,
 }
 
@@ -80,52 +92,68 @@ async fn connect(
 async fn disconnect(state: tauri::State<'_, AppState>) -> Result<(), String> {
     // `take` empties the slot under a single lock, so no other command can
     // observe the connection between "found it" and "removed it".
-    if let Some(client) = state.client.lock().unwrap().take() {
+    if let Some(connection) = state.connection.lock().unwrap().take() {
         log::info!("Disconnecting from server");
-        client.disconnect();
+        connection.client.disconnect();
     } else {
         log::info!("No active connection");
     }
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct UiUser {
+    #[serde(flatten)]
+    user: proto::state::User,
+
+    volume_adjustment_db: Option<f32>,
+}
+
 #[tauri::command]
-fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
+fn get_users(state: tauri::State<'_, AppState>) -> Vec<UiUser> {
     state
-        .client
+        .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|client| client.state().lock().unwrap().users())
+        .map(|conn| {
+            let binding = conn.client.state();
+            let state = binding.lock().unwrap();
+            let volume_adjustments = conn.volume_adjustments.borrow();
+            state.users().iter().map(|user| UiUser {
+                user: user.clone(),
+                volume_adjustment_db: volume_adjustments.get(&user.session).copied(),
+            }).collect::<Vec<_>>()
+        })
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn get_channels(state: tauri::State<'_, AppState>) -> Vec<proto::state::Channel> {
     state
-        .client
+        .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|client| client.state().lock().unwrap().channels())
+        .map(|conn| conn.client.state().lock().unwrap().channels())
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::TextMessage> {
     state
-        .client
+        .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|client| client.state().lock().unwrap().chat_messages().to_vec())
+        .map(|conn| conn.client.state().lock().unwrap().chat_messages().to_vec())
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
-    let client = state.client.lock().unwrap();
-    let client = client.as_ref().ok_or("No active connection")?;
+    let client = state.connection.lock().unwrap();
+    let client = &client.as_ref().ok_or("No active connection")?.client;
     let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
     let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
     client
@@ -143,8 +171,8 @@ fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> R
 #[tauri::command]
 async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) -> Result<(), String> {
     let limits = {
-        let client = state.client.lock().unwrap();
-        let client = client.as_ref().ok_or("No active connection")?;
+        let client = state.connection.lock().unwrap();
+        let client = &client.as_ref().ok_or("No active connection")?.client;
         mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap())
     };
     let message = tauri::async_runtime::spawn_blocking(move || {
@@ -152,8 +180,8 @@ async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) ->
     })
     .await
     .map_err(|e| e.to_string())??;
-    let client = state.client.lock().unwrap();
-    let client = client.as_ref().ok_or("No active connection")?;
+    let client = state.connection.lock().unwrap();
+    let client = &client.as_ref().ok_or("No active connection")?.client;
     client
         .send_channel_message(message, None)
         .map_err(|e| e.to_string())
@@ -161,8 +189,8 @@ async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) ->
 
 #[tauri::command]
 fn send_user_message(state: tauri::State<'_, AppState>, message: String, session: Vec<u32>) -> Result<(), String> {
-    let client = state.client.lock().unwrap();
-    let client = client.as_ref().ok_or("No active connection")?;
+    let client = state.connection.lock().unwrap();
+    let client = &client.as_ref().ok_or("No active connection")?.client;
     let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
     let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
     client
@@ -172,8 +200,8 @@ fn send_user_message(state: tauri::State<'_, AppState>, message: String, session
 
 #[tauri::command]
 fn set_self_mute(state: tauri::State<'_, AppState>, muted: bool) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.set_self_mute(muted).map_err(|e| e.to_string())
+    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
+        connection.client.set_self_mute(muted).map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
@@ -181,11 +209,27 @@ fn set_self_mute(state: tauri::State<'_, AppState>, muted: bool) -> Result<(), S
 
 #[tauri::command]
 fn set_channel(state: tauri::State<'_, AppState>, channel_id: u32) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.set_channel(channel_id).map_err(|e| e.to_string())
+    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
+        connection.client.set_channel(channel_id).map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
+}
+
+#[tauri::command]
+fn set_volume_adjustment(app: AppHandle, state: tauri::State<'_, AppState>, session: u32, volume_db: f32) -> Result<(), String> {
+    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
+        log::info!("Setting volume adjustment for session {} to {} dB", session, volume_db);
+        connection.volume_adjustments.send_modify(|adjustments| {
+            adjustments.insert(session, volume_db);
+        });
+
+        // Manually emit a session-changed event to notify listeners of the volume adjustment change.
+        let _ = app.emit("session-changed", MumbleEvent::UsersChanged);
+    } else {
+        return Err("No active connection".into());
+    }
+    Ok(())
 }
 
 /// Forwards debug messages until the connection closes. A consumer that falls
@@ -363,9 +407,9 @@ async fn connect_internal(
     name: String,
     channel: Channel<proto::ServerToClientMessage>,
 ) -> Result<(), Error> {
-    if let Some(previous) = state.client.lock().unwrap().take() {
+    if let Some(previous) = state.connection.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
-        previous.disconnect();
+        previous.client.disconnect();
     }
 
     let Connection {
@@ -410,11 +454,19 @@ async fn connect_internal(
         }
     };
 
+    let (volumes_tx, volumes_rx) = tokio::sync::watch::channel(HashMap::<u32, f32>::new());
+
     // Send state events to the app.
     let status_client = client.clone();
+    let event_volumes = volumes_tx.clone();
     tauri::async_runtime::spawn(async move {
         let mut shown_channel: Option<String> = None;
         while let Some(event) = events.recv().await {
+            if matches!(event, MumbleEvent::UsersChanged) {
+                let present = status_client.state().lock().unwrap().users();
+                forget_departed_users(&event_volumes, present.iter().map(|user| user.session));
+            }
+
             // TODO: a useful payload.
             let _ = app.emit("session-changed", event);
 
@@ -466,7 +518,7 @@ async fn connect_internal(
                     log::warn!("Failed to send mic audio: {e}");
                 }
             },
-            mumbo_audio::speaker::Mixer::new(audio),
+            mumbo_audio::speaker::Mixer::new(audio, volumes_rx),
         )
         .map_err(|e| Error::other(format!("Failed to start audio module: {}", e)))?;
     tauri::async_runtime::spawn(async move {
@@ -476,10 +528,28 @@ async fn connect_internal(
         }
     });
 
-    *state.client.lock().unwrap() = Some(client);
+    *state.connection.lock().unwrap() = Some(MumbleConnection {
+        client,
+        volume_adjustments: volumes_tx
+    });
 
     log::info!("Connected to server");
     Ok(())
+}
+
+/// Drops the volume adjustments of sessions no longer on the server. The
+/// server reuses session IDs, so a newcomer would otherwise inherit a
+/// departed user's volume.
+fn forget_departed_users(
+    volumes: &watch::Sender<HashMap<u32, f32>>,
+    present: impl IntoIterator<Item = u32>,
+) {
+    let present: std::collections::HashSet<u32> = present.into_iter().collect();
+    volumes.send_if_modified(|volumes| {
+        let before = volumes.len();
+        volumes.retain(|session, _| present.contains(session));
+        volumes.len() != before
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -493,7 +563,7 @@ pub fn run() {
             publish_audio_devices(app.handle(), &audio_module);
             save_audio_preferences(store, &audio_module);
             app.manage(AppState {
-                client: Default::default(),
+                connection: Default::default(),
                 audio_module,
             });
             Ok(())
@@ -521,6 +591,7 @@ pub fn run() {
             send_user_message,
             set_self_mute,
             set_channel,
+            set_volume_adjustment,
             disconnect
         ])
         .run(tauri::generate_context!())
@@ -530,6 +601,27 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn departed_users_lose_their_volume_adjustment() {
+        let (volumes, _volumes_rx) = watch::channel(HashMap::from([(3, -6.0), (5, -12.0)]));
+
+        forget_departed_users(&volumes, [3, 4]);
+
+        assert_eq!(*volumes.borrow(), HashMap::from([(3, -6.0)]));
+    }
+
+    #[test]
+    fn volume_adjustments_are_untouched_when_nobody_left() {
+        let (volumes, mut volumes_rx) = watch::channel(HashMap::from([(3, -6.0)]));
+        volumes_rx.mark_unchanged();
+
+        forget_departed_users(&volumes, [3, 4]);
+
+        // Users change constantly (e.g. whenever someone talks), so only a real
+        // departure should wake the mixer.
+        assert!(!volumes_rx.has_changed().unwrap());
+    }
+
     #[tokio::test]
     async fn change_forwarding_runs_once_per_observed_change_for_any_value_type() {
         let (numbers, number_changes) = tokio::sync::watch::channel(0);

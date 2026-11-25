@@ -8,3 +8,6 @@ services:
       MUMBLE_SUPERUSER_PASSWORD: "superuser"
       MUMBLE_CONFIG_SERVERPASSWORD: "test"
       MUMBLE_CONFIG_WELCOMETEXT: "Welcome to the server!<br />Thanks for joining!"
+      # Tests and quick reconnects open many connections from one IP, which would
+      # trip the server's global autoban (10 in 120 s by default). 0 disables it.
+      MUMBLE_CONFIG_AUTOBANATTEMPTS: "0"

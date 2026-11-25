@@ -69,3 +69,8 @@ export function setChannel(channel: MumbleChannel): Promise<void> {
 // export function setChannel(channel_id: number): Promise<void> {
 //     return invoke("set_channel", { channelId: channel_id });
 // }
+
+/** Adjust the volume for a specific user session in decibels. */
+export function setVolumeAdjustment(session: number, volume_db: number): Promise<void> {
+    return invoke("set_volume_adjustment", { session, volumeDb: volume_db });
+}
