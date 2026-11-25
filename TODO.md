@@ -4,7 +4,7 @@ Work tracker.
 
 ## General UI
 
-- [ ] Support dark mode colors in app (central colors)
+- [x] Support dark mode colors in app (central colors)
 
 ## State
 
