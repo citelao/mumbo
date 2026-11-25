@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { Editor } from "@tiptap/core";
 import App from "./App";
 import type SettingsStore from "./settings";
@@ -23,6 +24,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 const mockInvoke = vi.mocked(invoke);
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+const mockListen = vi.mocked(listen);
+
+/** Delivers a Tauri event from Rust to whatever is currently listening for it. */
+function emitFromRust(event: string, payload: unknown) {
+    const handlers = mockListen.mock.calls.filter(([name]) => name === event).map(([, handler]) => handler);
+    expect(handlers).not.toEqual([]);
+    act(() => handlers[handlers.length - 1]({ event, id: 0, payload }));
+}
 
 /** Answers the commands the app makes, like a server with nobody else on it. */
 function fakeBackend(overrides: Partial<Record<string, unknown>> = {}) {
@@ -37,6 +46,7 @@ function connectChannel(): Channel<unknown> {
 
 beforeEach(() => {
     mockInvoke.mockReset();
+    mockListen.mockClear();
     vi.spyOn(window, "alert").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -384,5 +394,45 @@ describe("App", () => {
 
         expect(await screen.findByRole("button", { name: "Connect" })).toBeTruthy();
         expect(mockInvoke).toHaveBeenCalledWith("disconnect");
+    });
+
+    it("returns to the login page and says why when the server drops us", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        emitFromRust("disconnected", { reason: { kind: "removed", reason: "spam", by: "admin", banned: false } });
+
+        expect(await screen.findByRole("button", { name: "Connect" })).toBeTruthy();
+        expect(screen.getByRole("status").textContent).toBe("You were removed from the server by admin: spam");
+        expect(window.alert).not.toHaveBeenCalled();
+    });
+
+    it("forgets why it was last disconnected once it connects again", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+        emitFromRust("disconnected", { reason: { kind: "server_closed" } });
+        await screen.findByRole("status");
+
+        await connect(user);
+        await user.click(screen.getByRole("button", { name: "Disconnect" }));
+
+        await screen.findByRole("button", { name: "Connect" });
+        expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("stays connected when a disconnect event fails the schema", async () => {
+        const user = userEvent.setup();
+        fakeBackend();
+        renderApp();
+        await connect(user);
+
+        emitFromRust("disconnected", { reason: { kind: "exploded" } });
+
+        expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+        expect(console.error).toHaveBeenCalled();
     });
 });

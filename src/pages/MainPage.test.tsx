@@ -453,7 +453,7 @@ describe("MainPage users", () => {
         fireEvent.contextMenu(label, { clientX: 5, clientY: 6 });
 
         await vi.waitFor(() => expect(menu.popup).toHaveBeenCalledOnce());
-        expect(menu.items.map((item) => item.text)).toEqual(["annoy", "Adjust volume (0dB)"]);
+        expect(menu.items.map((item) => item.text)).toEqual(["annoy", "Volume adjust"]);
         expect(menu.popup).toHaveBeenCalledWith(expect.objectContaining({ x: 5, y: 6 }));
         expect(onSendUserMessage).not.toHaveBeenCalled();
 
@@ -466,7 +466,7 @@ describe("MainPage users", () => {
     async function openVolumeMenu(name: RegExp): Promise<MenuEntry[]> {
         fireEvent.contextMenu(await screen.findByText(name));
         await vi.waitFor(() => expect(menu.popup).toHaveBeenCalledOnce());
-        const volume = menu.items.find((item) => item.text.startsWith("Adjust volume"));
+        const volume = menu.items.find((item) => item.text.startsWith("Volume adjust"));
         return volume!.items!;
     }
 
@@ -486,6 +486,7 @@ describe("MainPage users", () => {
         const items = await openVolumeMenu(/Alice/);
 
         expect(items.filter((item) => item.checked).map((item) => item.text.trim())).toEqual(["-12dB"]);
+        expect(menu.items.map((item) => item.text)).toContain("Volume adjust (-12dB)");
     });
 
     it("asks Rust to adjust a user's volume from their context menu", async () => {
