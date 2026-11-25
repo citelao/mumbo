@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { fetchChatMessages, fetchUsers } from "./mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import fixture from "../../fixtures/mumbo-sdk/users.json";
+import sdkUsers from "../../fixtures/mumbo-sdk/users.json";
+
+// Rust's get_users adds app-only settings to the SDK's users.
+const fixture = sdkUsers.map((user) => ({ ...user, volume_adjustment_db: null }));
 
 // There's no Tauri runtime under vitest.
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, JSX } from "react";
 import { getServerStats } from "../invoke";
 import type { ServerStats } from "../invoke";
 import { setAudioInputDevice, setAudioOutputDevice, setNoiseSuppression, subscribeAudioDevices } from "../invoke/audio";
@@ -6,6 +6,7 @@ import type { AudioDevice } from "../invoke/audio";
 import styles from "./LoginPage.module.scss";
 import { Server } from "../settings";
 import { throttled, useInterval, useThrottledEffect } from "../helpers/throttle";
+import type { DisconnectReason } from "../invoke/connection";
 
 export interface OnConnectParams {
     server: string;
@@ -29,8 +30,32 @@ export interface LoginPageProps {
 
     recentServers?: Server[];
 
+    // Why the last connection ended on its own, if it did.
+    disconnectReason?: DisconnectReason;
+
     onConnect: (params: OnConnectParams) => Promise<OnConnectResult>;
     onRemoveRecentServer: (params: Server) => Promise<void>;
+}
+
+/** Explains to the user why their last connection ended. */
+function DisconnectNotice({ reason }: { reason: DisconnectReason }): JSX.Element {
+    switch (reason.kind) {
+        case "removed": {
+            const by = reason.by !== null ? ` by ${reason.by}` : "";
+            const why = reason.reason !== null ? `: ${reason.reason}` : ".";
+            const what = reason.banned ? "banned" : "removed";
+            return <p role="status" className={styles.disconnected}>You were {what} from the server{by}{why}</p>;
+        }
+        case "server_closed":
+            return <p role="status" className={styles.disconnected}>The server closed the connection.</p>;
+        case "connection_lost":
+            return (
+                <p role="status" className={styles.disconnected}>
+                    Lost the connection to the server.
+                    <small className={styles["disconnect-detail"]}>{reason.detail}</small>
+                </p>
+            );
+    }
 }
 
 export default function LoginPage(props: LoginPageProps) {
@@ -112,6 +137,7 @@ export default function LoginPage(props: LoginPageProps) {
 
     return (
         <main className={[styles.container, "container"].join(" ")}>
+            {props.disconnectReason && <DisconnectNotice reason={props.disconnectReason} />}
             <div className={styles["sub-container"]}>
                 {props.recentServers && props.recentServers.length > 0 && (
                     <div className={styles["recent-servers"]}>

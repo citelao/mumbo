@@ -4,7 +4,7 @@ Work tracker.
 
 ## General UI
 
-- [ ] Support dark mode colors in app (central colors)
+- [x] Support dark mode colors in app (central colors)
 
 ## State
 
@@ -12,7 +12,7 @@ Work tracker.
 - [x] State tracking for users
 - [ ] Managing user state (comments, volume adjustments, etc)
 - [ ] Remove `Speaker`s on `UserRemove` or after inactivity; today they live for the whole connection
-- [ ] Gracefully disconnect server rather than panicking:
+- [x] Gracefully disconnect server rather than panicking:
 
     > [2026-10-20][01:52:30][DEBUG][mumble_protocol::client] Received server message: UserRemove(UserRemove { session: 24, actor: None, reason: Some("You connected to the server from another device"), ban: None })
     > [2026-10-20][01:52:30][INFO][mumble_protocol::state] Removed user: testo (session: 24) for reason: Some("You connected to the server from another device") (ban: None)
@@ -36,8 +36,9 @@ Work tracker.
 - [ ] BUG: AEC should use full system audio, since that shouldn't be included.
 - [ ] Device configuration (e.g. mono/stereo, bitrate resampling)
 - [ ] Per-speaker auto-gain before summing, so one loud mic doesn't dominate
-- [ ] Other speaker local volume adjustment
-- [ ] Handle custom speaker gain adjustments
+- [x] Other speaker local volume adjustment
+- [x] Handle custom speaker gain adjustments
+- [ ] Local mute other users
 - [x] Mute/unmute self
 - [ ] Skipping empty NetEq buffers also skips concealment when a speaker briefly runs dry mid-sentence; track talk spurts (`is_terminator`) instead
 - [ ] Move mixing (and the `cpal` stream) off the network task to an audio thread, so slow message handling can't starve playback

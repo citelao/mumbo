@@ -9,7 +9,7 @@ import { MainPage } from "./MainPage";
 import { emptyProtocolLog } from "../ProtocolViewer";
 import type { Channel } from "../invoke/mumbleState";
 // Real serde output; a Rust test asserts this file matches what Rust emits.
-import users from "../../fixtures/mumbo-sdk/users.json";
+import sdkUsers from "../../fixtures/mumbo-sdk/users.json";
 import channels from "../../fixtures/mumbo-sdk/channels.json";
 
 // There's no Tauri runtime under vitest.
@@ -17,10 +17,13 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 // Capture the context menu instead of popping a native one.
-const menu = vi.hoisted(() => ({ popup: vi.fn(), items: [] as { id: string; text: string; action: () => void }[] }));
+type MenuEntry = { id: string; text: string; action: () => void; checked?: boolean; items?: MenuEntry[] };
+const menu = vi.hoisted(() => ({ popup: vi.fn(), items: [] as MenuEntry[] }));
 vi.mock("@tauri-apps/api/menu", () => ({
     Menu: { new: vi.fn(async (options: { items: typeof menu.items }) => { menu.items = options.items; return { popup: menu.popup }; }) },
     MenuItem: { new: vi.fn(async (options: unknown) => options) },
+    CheckMenuItem: { new: vi.fn(async (options: unknown) => options) },
+    Submenu: { new: vi.fn(async (options: unknown) => options) },
 }));
 const mockInvoke = vi.mocked(invoke);
 const mockListen = vi.mocked(listen);
@@ -40,6 +43,7 @@ beforeEach(() => {
             case "get_users": return backend.users;
             case "get_channels": return backend.channels;
             case "get_chat_messages": return backend.chat;
+            case "set_volume_adjustment": return undefined;
             default: throw new Error(`unexpected command ${command}`);
         }
     });
@@ -62,6 +66,8 @@ function chat(content: string, actor: number | null = null, session: number[] = 
     return { type: "ChatTextMessage", timestamp: "2026-10-19T05:31:31Z", actor, session, content };
 }
 
+// Rust's get_users adds app-only settings to the SDK's users.
+const users = sdkUsers.map((user) => ({ ...user, volume_adjustment_db: null as number | null }));
 const alice = users[0];
 
 /** Each line of the user list. */
@@ -447,13 +453,64 @@ describe("MainPage users", () => {
         fireEvent.contextMenu(label, { clientX: 5, clientY: 6 });
 
         await vi.waitFor(() => expect(menu.popup).toHaveBeenCalledOnce());
-        expect(menu.items.map((item) => item.text)).toEqual(["annoy"]);
+        expect(menu.items.map((item) => item.text)).toEqual(["annoy", "Volume adjust"]);
         expect(menu.popup).toHaveBeenCalledWith(expect.objectContaining({ x: 5, y: 6 }));
         expect(onSendUserMessage).not.toHaveBeenCalled();
 
         menu.items[0].action();
 
         expect(onSendUserMessage).toHaveBeenCalledExactlyOnceWith("Annoying you!", [alice.session]);
+    });
+
+    /** Opens a user's context menu and returns its volume submenu's items. */
+    async function openVolumeMenu(name: RegExp): Promise<MenuEntry[]> {
+        fireEvent.contextMenu(await screen.findByText(name));
+        await vi.waitFor(() => expect(menu.popup).toHaveBeenCalledOnce());
+        const volume = menu.items.find((item) => item.text.startsWith("Volume adjust"));
+        return volume!.items!;
+    }
+
+    it("ticks 0 dB for a user whose volume was never adjusted", async () => {
+        backend.users = [alice];
+        renderMainPage();
+
+        const items = await openVolumeMenu(/Alice/);
+
+        expect(items.filter((item) => item.checked).map((item) => item.text.trim())).toEqual(["0dB"]);
+    });
+
+    it("ticks the volume a user was adjusted to", async () => {
+        backend.users = [{ ...alice, volume_adjustment_db: -12 }];
+        renderMainPage();
+
+        const items = await openVolumeMenu(/Alice/);
+
+        expect(items.filter((item) => item.checked).map((item) => item.text.trim())).toEqual(["-12dB"]);
+        expect(menu.items.map((item) => item.text)).toContain("Volume adjust (-12dB)");
+    });
+
+    it("asks Rust to adjust a user's volume from their context menu", async () => {
+        backend.users = [alice];
+        renderMainPage();
+        const items = await openVolumeMenu(/Alice/);
+
+        items.find((item) => item.text.trim() === "-12dB")!.action();
+
+        expect(mockInvoke).toHaveBeenCalledWith("set_volume_adjustment", { session: alice.session, volumeDb: -12 });
+    });
+
+    it("logs a failed volume adjustment", async () => {
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        backend.users = [alice];
+        renderMainPage();
+        const items = await openVolumeMenu(/Alice/);
+        const failure = new Error("No active connection");
+        mockInvoke.mockRejectedValueOnce(failure);
+
+        await items.find((item) => item.text.trim() === "-12dB")!.action();
+
+        expect(consoleError).toHaveBeenCalledWith("Failed to adjust volume:", failure);
+        consoleError.mockRestore();
     });
 
     it("suppresses the browser's own context menu on a user", async () => {

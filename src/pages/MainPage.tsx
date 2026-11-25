@@ -6,10 +6,11 @@ import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, typ
 import { ProtocolViewer, type ProtocolLog } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
+import { CheckMenuItem, Menu, MenuItem, Submenu } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
 import { createChatExtensions, getMessageHtml, IMAGE_MIME_TYPES, isMessageEmpty, sendImageFile } from '../chatEditor';
+import { setVolumeAdjustment } from "../invoke";
 
 export interface MainPageProps {
     protocolLog: ProtocolLog;
@@ -32,6 +33,14 @@ function openChatLink(e: React.MouseEvent) {
     e.preventDefault();
     if (/^(https?:\/\/|mailto:)/i.test(href)) {
         void openUrl(href);
+    }
+}
+
+function dbAdjustmentToString(num: number) {
+    if (num > 0) {
+        return `+${num}dB`;
+    } else {
+        return `${num}dB`;
     }
 }
 
@@ -116,11 +125,35 @@ export function MainPage(props: MainPageProps) {
         props.onSendUserMessage(message, session);
     };
 
+    const createVolumeItem = async (user: User, num: number) => {
+        const checked = (user.volume_adjustment_db ?? 0) === num;
+
+        const checkMenuItem = await CheckMenuItem.new({
+            id: `submenu-item-${num}`,
+            text: `${dbAdjustmentToString(num).padStart(6, " ")}`,
+            checked: checked,
+            action: async () => {
+                console.log(`Setting volume for user ${user.session} to ${num} dB`);
+                try {
+                    await setVolumeAdjustment(user.session, num);
+                } catch (error) {
+                    // Nothing changed, so the next refresh shows the old volume again.
+                    console.error("Failed to adjust volume:", error);
+                }
+            }
+        });
+        return checkMenuItem;
+    };
+
     const onUserContextMenu = async (
         user: User,
         event: React.MouseEvent
     ) => {
         event.preventDefault();
+
+        const volumeAdjustTitle = (user.volume_adjustment_db ?? 0) === 0
+            ? "Volume adjust"
+            : `Volume adjust (${dbAdjustmentToString(user.volume_adjustment_db ?? 0)})`
 
         // TODO: real actions.
         const menu = await Menu.new({
@@ -132,6 +165,19 @@ export function MainPage(props: MainPageProps) {
                         console.log(`Annoying user ${user.name}`);
                         onSendUserMessage(`Annoying you!`, [user.session]);
                     }
+                }),
+                await Submenu.new({
+                    id: "volume",
+                    text: volumeAdjustTitle,
+                    items: [
+                        await createVolumeItem(user, -12),
+                        await createVolumeItem(user, -2),
+                        await createVolumeItem(user, -1),
+                        await createVolumeItem(user, 0),
+                        await createVolumeItem(user, 1),
+                        await createVolumeItem(user, 2),
+                        await createVolumeItem(user, 6),
+                    ]
                 })
             ]
         });

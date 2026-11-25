@@ -5,7 +5,7 @@ import DOMPurify from "dompurify";
 // Mirrors `mumbo_sdk::state::User` as serialized by serde. Strict, so
 // fields added or renamed on the Rust side fail parsing instead of passing
 // through unnoticed.
-export const User = z.strictObject({
+export const SdkUser = z.strictObject({
   session: z.number().int().nonnegative(),
   name: z.string(),
   channel_id: z.number().int().nonnegative(),
@@ -19,6 +19,12 @@ export const User = z.strictObject({
 
   is_me: z.boolean(),
   is_speaking: z.boolean(),
+});
+
+// A user as the app's `get_users` sends it: the SDK's user plus local
+// settings that only this app knows about.
+export const User = SdkUser.extend({
+  volume_adjustment_db: z.number().nullable(),
 });
 
 export type User = z.infer<typeof User>;

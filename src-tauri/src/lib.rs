@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
 
+use mumbo_sdk::state::MumbleEvent;
 use mumbo_sdk as proto;
 use mumbo_sdk::client::{Connection, ConnectionOptions, SelfMuteStatus};
 use tauri::ipc::Channel;
-use tauri::{Emitter, Listener, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
@@ -17,8 +18,124 @@ mod universal_mute;
 
 use universal_mute::UniversalMuter;
 
+struct MumbleConnection {
+    /// Tells this connection apart from later ones, which may replace it in
+    /// `AppState` before it finishes ending.
+    id: u64,
+
+    client: proto::client::MumbleClient,
+
+    /// Volume adjustments keyed by user session ID.
+    ///
+    /// TODO: store these one time in the Mixer?
+    /// TODO: key by an immutable user ID, for durable adjustments between connections.
+    volume_adjustments: watch::Sender<HashMap<u32, f32>>
+}
+
+/// Global, the next connection ID to assign to a new `MumbleConnection`, to tell them apart.
+static NEXT_CONNECTION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Tells the UI the connection it was showing has ended.
+#[derive(Clone, serde::Serialize)]
+struct Disconnected {
+    reason: DisconnectReason,
+}
+
+/// Why a connection ended, for the UI to explain however it likes.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum DisconnectReason {
+    /// The server removed us: an admin kicked or banned us, or we connected
+    /// again from elsewhere with the same name.
+    Removed {
+        reason: Option<String>,
+        /// The admin who did it, if anyone.
+        by: Option<String>,
+        banned: bool,
+    },
+    /// The server ended the connection cleanly without saying why.
+    ServerClosed,
+    /// The connection broke, e.g. because the server went away.
+    ConnectionLost { detail: String },
+}
+
+/// Passes each of a connection's events to `on_event` until the connection
+/// ends, then says why it ended. `removals` is a subscription to the
+/// connection's debug feed: the only place the server's notice that it
+/// removed us, with its reason, shows up.
+async fn follow_until_disconnected(
+    mut events: tokio::sync::mpsc::UnboundedReceiver<MumbleEvent>,
+    mut removals: broadcast::Receiver<proto::ServerToClientMessage>,
+    client: &proto::client::MumbleClient,
+    mut on_event: impl FnMut(MumbleEvent),
+) -> DisconnectReason {
+    let my_session = client.state().lock().unwrap().current_user().map(|user| user.session);
+    let mut sdk_reason = None;
+    // `recv` only returns `None` once the driver has exited, so the
+    // connection is over, however it ended.
+    while let Some(event) = events.recv().await {
+        if let MumbleEvent::Disconnected { reason } = &event {
+            sdk_reason = reason.clone();
+        }
+        on_event(event);
+    }
+
+    // The server sends its notice before closing the connection, so by now
+    // it's queued.
+    let mut removal = None;
+    loop {
+        match removals.try_recv() {
+            Ok(message) => {
+                if let Some(my_session) = my_session {
+                    let state = client.state();
+                    let state = state.lock().unwrap();
+                    removal = removal_of(&message, my_session, &state).or(removal);
+                }
+            }
+            // Audio shares the feed and can overflow it, but lagging only
+            // drops the oldest messages; the notice is among the newest.
+            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+            Err(_) => break,
+        }
+    }
+    disconnect_reason(removal, sdk_reason)
+}
+
+/// The removal `message` announces, if it's the server removing `my_session`.
+fn removal_of(
+    message: &proto::ServerToClientMessage,
+    my_session: u32,
+    state: &proto::state::MumbleState,
+) -> Option<DisconnectReason> {
+    let proto::ServerToClientMessage::UserRemove(remove) = message else {
+        return None;
+    };
+    if remove.session != my_session {
+        return None;
+    }
+    Some(DisconnectReason::Removed {
+        // Murmur sends an empty reason when there isn't one.
+        reason: remove.reason.clone().filter(|reason| !reason.is_empty()),
+        by: remove
+            .actor
+            .and_then(|actor| state.users.get(&actor))
+            .map(|admin| admin.name.clone()),
+        banned: remove.ban.unwrap_or(false),
+    })
+}
+
+/// Why the connection ended: the server's notice that it removed us if one
+/// came, otherwise how the SDK says the connection ended.
+fn disconnect_reason(removal: Option<DisconnectReason>, sdk_reason: Option<String>) -> DisconnectReason {
+    match (removal, sdk_reason) {
+        (Some(removal), _) => removal,
+        (None, None) => DisconnectReason::ServerClosed,
+        (None, Some(detail)) => DisconnectReason::ConnectionLost { detail },
+    }
+}
+
 struct AppState {
-    client: std::sync::Mutex<Option<proto::client::MumbleClient>>,
+    connection: std::sync::Mutex<Option<MumbleConnection>>,
     audio_module: audio::AudioModule,
 }
 
@@ -83,52 +200,68 @@ async fn connect(
 async fn disconnect(state: tauri::State<'_, AppState>) -> Result<(), String> {
     // `take` empties the slot under a single lock, so no other command can
     // observe the connection between "found it" and "removed it".
-    if let Some(client) = state.client.lock().unwrap().take() {
+    if let Some(connection) = state.connection.lock().unwrap().take() {
         log::info!("Disconnecting from server");
-        client.disconnect();
+        connection.client.disconnect();
     } else {
         log::info!("No active connection");
     }
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct UiUser {
+    #[serde(flatten)]
+    user: proto::state::User,
+
+    volume_adjustment_db: Option<f32>,
+}
+
 #[tauri::command]
-fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
+fn get_users(state: tauri::State<'_, AppState>) -> Vec<UiUser> {
     state
-        .client
+        .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|client| client.state().lock().unwrap().users())
+        .map(|conn| {
+            let binding = conn.client.state();
+            let state = binding.lock().unwrap();
+            let volume_adjustments = conn.volume_adjustments.borrow();
+            state.users().iter().map(|user| UiUser {
+                user: user.clone(),
+                volume_adjustment_db: volume_adjustments.get(&user.session).copied(),
+            }).collect::<Vec<_>>()
+        })
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn get_channels(state: tauri::State<'_, AppState>) -> Vec<proto::state::Channel> {
     state
-        .client
+        .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|client| client.state().lock().unwrap().channels())
+        .map(|conn| conn.client.state().lock().unwrap().channels())
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn get_chat_messages(state: tauri::State<'_, AppState>) -> Vec<proto::state::TextMessage> {
     state
-        .client
+        .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|client| client.state().lock().unwrap().chat_messages().to_vec())
+        .map(|conn| conn.client.state().lock().unwrap().chat_messages().to_vec())
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> Result<(), String> {
-    let client = state.client.lock().unwrap();
-    let client = client.as_ref().ok_or("No active connection")?;
+    let client = state.connection.lock().unwrap();
+    let client = &client.as_ref().ok_or("No active connection")?.client;
     let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
     let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
     client
@@ -146,8 +279,8 @@ fn send_channel_message(state: tauri::State<'_, AppState>, message: String) -> R
 #[tauri::command]
 async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) -> Result<(), String> {
     let limits = {
-        let client = state.client.lock().unwrap();
-        let client = client.as_ref().ok_or("No active connection")?;
+        let client = state.connection.lock().unwrap();
+        let client = &client.as_ref().ok_or("No active connection")?.client;
         mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap())
     };
     let message = tauri::async_runtime::spawn_blocking(move || {
@@ -155,8 +288,8 @@ async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) ->
     })
     .await
     .map_err(|e| e.to_string())??;
-    let client = state.client.lock().unwrap();
-    let client = client.as_ref().ok_or("No active connection")?;
+    let client = state.connection.lock().unwrap();
+    let client = &client.as_ref().ok_or("No active connection")?.client;
     client
         .send_channel_message(message, None)
         .map_err(|e| e.to_string())
@@ -164,8 +297,8 @@ async fn send_channel_image(state: tauri::State<'_, AppState>, image: String) ->
 
 #[tauri::command]
 fn send_user_message(state: tauri::State<'_, AppState>, message: String, session: Vec<u32>) -> Result<(), String> {
-    let client = state.client.lock().unwrap();
-    let client = client.as_ref().ok_or("No active connection")?;
+    let client = state.connection.lock().unwrap();
+    let client = &client.as_ref().ok_or("No active connection")?.client;
     let limits = mumble_messages::MessageLimits::from_state(&client.state().lock().unwrap());
     let message = mumble_messages::prepare_text_message(&limits, &message).map_err(|e| e.to_string())?;
     client
@@ -175,8 +308,8 @@ fn send_user_message(state: tauri::State<'_, AppState>, message: String, session
 
 #[tauri::command]
 fn set_self_mute(state: tauri::State<'_, AppState>, muted: bool) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.set_self_mute(muted).map_err(|e| e.to_string())
+    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
+        connection.client.set_self_mute(muted).map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
@@ -184,11 +317,27 @@ fn set_self_mute(state: tauri::State<'_, AppState>, muted: bool) -> Result<(), S
 
 #[tauri::command]
 fn set_channel(state: tauri::State<'_, AppState>, channel_id: u32) -> Result<(), String> {
-    if let Some(client) = state.client.lock().unwrap().as_ref() {
-        client.set_channel(channel_id).map_err(|e| e.to_string())
+    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
+        connection.client.set_channel(channel_id).map_err(|e| e.to_string())
     } else {
         Err("No active connection".into())
     }
+}
+
+#[tauri::command]
+fn set_volume_adjustment(app: AppHandle, state: tauri::State<'_, AppState>, session: u32, volume_db: f32) -> Result<(), String> {
+    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
+        log::info!("Setting volume adjustment for session {} to {} dB", session, volume_db);
+        connection.volume_adjustments.send_modify(|adjustments| {
+            adjustments.insert(session, volume_db);
+        });
+
+        // Manually emit a session-changed event to notify listeners of the volume adjustment change.
+        let _ = app.emit("session-changed", MumbleEvent::UsersChanged);
+    } else {
+        return Err("No active connection".into());
+    }
+    Ok(())
 }
 
 /// Forwards debug messages until the connection closes. A consumer that falls
@@ -366,16 +515,16 @@ async fn connect_internal(
     name: String,
     channel: Channel<proto::ServerToClientMessage>,
 ) -> Result<(), Error> {
-    if let Some(previous) = state.client.lock().unwrap().take() {
+    if let Some(previous) = state.connection.lock().unwrap().take() {
         log::info!("Disconnecting from existing connection");
-        previous.disconnect();
+        previous.client.disconnect();
     }
 
     let Connection {
         client,
         debug,
         audio,
-        mut events,
+        events,
     } = proto::client::connect(ConnectionOptions {
         server,
         port: Some(port),
@@ -383,7 +532,10 @@ async fn connect_internal(
         username: Some(name),
     })
     .await
-    .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
+    .map_err(|e| Error::other(format!("Failed to connect: {}", describe_connect_error(&e))))?;
+
+    // Subscribed now, so it sees everything from here on; see `follow_until_disconnected`.
+    let removals = debug.resubscribe();
 
     // Send debug events to the channel.
     tauri::async_runtime::spawn(forward_debug(debug, move |message| {
@@ -413,11 +565,21 @@ async fn connect_internal(
         }
     };
 
+    let (volumes_tx, volumes_rx) = tokio::sync::watch::channel(HashMap::<u32, f32>::new());
+
+    let connection_id = NEXT_CONNECTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
     // Send state events to the app.
     let status_client = client.clone();
+    let event_volumes = volumes_tx.clone();
     tauri::async_runtime::spawn(async move {
         let mut shown_channel: Option<String> = None;
-        while let Some(event) = events.recv().await {
+        let reason = follow_until_disconnected(events, removals, &status_client, |event| {
+            if matches!(event, MumbleEvent::UsersChanged) {
+                let present = status_client.state().lock().unwrap().users();
+                forget_departed_users(&event_volumes, present.iter().map(|user| user.session));
+            }
+
             // TODO: a useful payload.
             let _ = app.emit("session-changed", event);
 
@@ -452,12 +614,20 @@ async fn connect_internal(
                 }
                 shown_channel = Some(name);
             }
+        })
+        .await;
+        log::info!("Connection ended: {reason:?}");
+        // Only if it's still ours: if the user disconnected or connected
+        // elsewhere, it's already gone and the UI already moved on.
+        let ours = app
+            .state::<AppState>()
+            .connection
+            .lock()
+            .unwrap()
+            .take_if(|connection| connection.id == connection_id);
+        if ours.is_some() {
+            let _ = app.emit("disconnected", Disconnected { reason });
         }
-        // `recv` only returns `None` once the driver has exited, so the
-        // connection is over, however it ended.
-        // TODO: clear AppState and tell the UI. Careful: by now a newer
-        // connection may be in AppState, so only clear it if it's still ours.
-        log::info!("Connection ended");
     });
 
     let cloned_client = client.clone();
@@ -469,7 +639,7 @@ async fn connect_internal(
                     log::warn!("Failed to send mic audio: {e}");
                 }
             },
-            Mixer::new(audio),
+            Mixer::new(audio, volumes_rx),
         )
         .map_err(|e| Error::other(format!("Failed to start audio module: {}", e)))?;
     tauri::async_runtime::spawn(async move {
@@ -479,7 +649,11 @@ async fn connect_internal(
         }
     });
 
-    *state.client.lock().unwrap() = Some(client);
+    *state.connection.lock().unwrap() = Some(MumbleConnection {
+        id: connection_id,
+        client,
+        volume_adjustments: volumes_tx
+    });
 
     log::info!("Connected to server");
     Ok(())
@@ -524,6 +698,9 @@ struct Speaker {
     // count is an exact sequence/timestamp. UDP will need Mumble's frame_number.
     next_sequence: u16,
     next_timestamp: u32,
+
+    /// Volume adjustment in decibels. 0db is no change. Negative is quieter.
+    volume_adjust_db: f32,
 }
 
 impl Speaker {
@@ -541,6 +718,7 @@ impl Speaker {
             neteq,
             next_sequence: 0,
             next_timestamp: 0,
+            volume_adjust_db: 0.0,
         })
     }
 
@@ -567,36 +745,63 @@ impl Speaker {
         self.next_timestamp = self.next_timestamp.wrapping_add(samples as u32);
         Ok(())
     }
+
+    fn set_volume_adjust_db(&mut self, volume_db: f32) {
+        self.volume_adjust_db = volume_db;
+    }
 }
 
 /// Decodes the packets arriving from the server and mixes everyone talking.
 struct Mixer {
     packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>,
+
+    /// Receiver for volume adjustments (session ID, volume in decibels)
+    volume_adjustments: watch::Receiver<HashMap<u32, f32>>,
+
     speakers: HashMap<u32, Speaker>,
 }
 
 impl Mixer {
-    fn new(packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>) -> Self {
+    /// Creates a new Mixer with the given packet receiver and volume adjustment receiver.
+    fn new(packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>,
+           volume_adjustments: watch::Receiver<HashMap<u32, f32>>) -> Self {
         Self {
             packets,
+            volume_adjustments,
             speakers: HashMap::new(),
         }
+    }
+
+    fn get_or_create_speaker(map: &mut HashMap<u32, Speaker>, session: u32) -> Result<&mut Speaker, Error> {
+        Ok(match map.entry(session) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(Speaker::new()?),
+        })
     }
 }
 
 impl audio::SpeakerSource for Mixer {
     fn next_frame(&mut self) -> Result<Option<[i16; MIX_FRAME_SAMPLES]>, Error> {
+        // Apply any pending volume adjustments before processing new packets.
+        if self.volume_adjustments.has_changed().unwrap_or(false) {
+            // Copy out so the guard drops at once: holding it while speakers are
+            // created below would block the UI's writes for that long.
+            let adjustments = self.volume_adjustments.borrow_and_update().clone();
+            // Speakers whose entry was removed go back to full volume.
+            for (session, speaker) in self.speakers.iter_mut() {
+                speaker.set_volume_adjust_db(adjustments.get(session).copied().unwrap_or(0.0));
+            }
+            for (session, volume_db) in adjustments {
+                Self::get_or_create_speaker(&mut self.speakers, session)?
+                    .set_volume_adjust_db(volume_db);
+            }
+        }
+
         loop {
             match self.packets.try_recv() {
                 Ok(packet) => {
-                    // TODO: volume adjustment
                     let sender = packet.sender_session;
-                    let speaker = match self.speakers.entry(sender) {
-                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            entry.insert(Speaker::new()?)
-                        }
-                    };
+                    let speaker = Self::get_or_create_speaker(&mut self.speakers, sender)?;
                     if let Err(e) = speaker.insert_packet(sender, &packet.opus_data) {
                         log::warn!("Dropping audio from session {sender}: {e}");
                     }
@@ -619,11 +824,54 @@ fn mix_frame(speakers: &mut HashMap<u32, Speaker>) -> Result<[i16; MIX_FRAME_SAM
             continue;
         }
         let audio = speaker.neteq.get_audio().map_err(Error::other)?;
+        let scale_factor = db_to_linear(speaker.volume_adjust_db);
         for (out, sample) in sum.iter_mut().zip(audio.samples) {
-            *out += sample;
+            *out += sample * scale_factor;
         }
     }
     Ok(sum.map(|sample| (soft_clip(sample) * i16::MAX as f32) as i16))
+}
+
+/// Drops the volume adjustments of sessions no longer on the server. The
+/// server reuses session IDs, so a newcomer would otherwise inherit a
+/// departed user's volume.
+fn forget_departed_users(
+    volumes: &watch::Sender<HashMap<u32, f32>>,
+    present: impl IntoIterator<Item = u32>,
+) {
+    let present: std::collections::HashSet<u32> = present.into_iter().collect();
+    volumes.send_if_modified(|volumes| {
+        let before = volumes.len();
+        volumes.retain(|session, _| present.contains(session));
+        volumes.len() != before
+    });
+}
+
+/// Explains a failed connect in terms the user can act on, keeping the
+/// underlying error for debugging.
+fn describe_connect_error(error: &proto::client::MumbleConnectionError) -> String {
+    use proto::client::MumbleConnectionError;
+    use std::io::ErrorKind;
+    match error {
+        // Murmur hangs up on an address it has autobanned, before even
+        // finishing TLS; a server that's shutting down looks the same.
+        MumbleConnectionError::IoError(e)
+            if matches!(e.kind(), ErrorKind::UnexpectedEof | ErrorKind::ConnectionReset) =>
+        {
+            format!(
+                "The server hung up before the connection was set up. It may be restarting, \
+                 or blocking this address for a few minutes after too many connection \
+                 attempts. ({error})"
+            )
+        }
+        _ => error.to_string(),
+    }
+}
+
+/// Converts a volume in decibels to a linear scale factor.
+/// https://stackoverflow.com/a/46153568/788168
+fn db_to_linear(volume_db: f32) -> f32 {
+    10f32.powf(volume_db / 20.0)
 }
 
 /// Passes normal levels through untouched and smoothly bends anything louder
@@ -652,7 +900,7 @@ pub fn run() {
             publish_audio_devices(app.handle(), &audio_module);
             save_audio_preferences(store, &audio_module);
             app.manage(AppState {
-                client: Default::default(),
+                connection: Default::default(),
                 audio_module,
             });
             Ok(())
@@ -680,6 +928,7 @@ pub fn run() {
             send_user_message,
             set_self_mute,
             set_channel,
+            set_volume_adjustment,
             disconnect
         ])
         .run(tauri::generate_context!())
@@ -783,11 +1032,16 @@ mod tests {
         }
     }
 
+    /// Volumes that never change: the sender is dropped right away.
+    fn no_volume_adjustments() -> watch::Receiver<HashMap<u32, f32>> {
+        watch::channel(HashMap::new()).1
+    }
+
     #[test]
     fn mixer_plays_the_packets_it_receives() {
         use crate::audio::SpeakerSource;
         let (sender, receiver) = tokio::sync::mpsc::channel(64);
-        let mut mixer = Mixer::new(receiver);
+        let mut mixer = Mixer::new(receiver, no_volume_adjustments());
         for packet in tone_packets(440.0, 0.5, 25) {
             sender.try_send(audio_packet(7, packet)).unwrap();
         }
@@ -800,10 +1054,89 @@ mod tests {
     }
 
     #[test]
+    fn mixer_applies_a_speakers_volume_adjustment() {
+        use crate::audio::SpeakerSource;
+        let mixed_energy = |volume_db: Option<f32>| {
+            let (sender, receiver) = tokio::sync::mpsc::channel(64);
+            let (volumes, volumes_rx) = watch::channel(HashMap::new());
+            let mut mixer = Mixer::new(receiver, volumes_rx);
+            if let Some(volume_db) = volume_db {
+                volumes.send_modify(|volumes| {
+                    volumes.insert(7, volume_db);
+                });
+            }
+            for packet in tone_packets(440.0, 0.5, 25) {
+                sender.try_send(audio_packet(7, packet)).unwrap();
+            }
+            (0..50)
+                .map(|_| energy(&mixer.next_frame().unwrap().expect("still connected")))
+                .sum::<f32>()
+        };
+
+        // -6 dB halves the amplitude, which quarters the energy.
+        let ratio = mixed_energy(Some(-6.0)) / mixed_energy(None);
+        assert!((ratio - 0.25).abs() < 0.02, "energy ratio was {ratio}");
+    }
+
+    #[test]
+    fn mixer_plays_at_full_volume_once_an_adjustment_is_removed() {
+        use crate::audio::SpeakerSource;
+        let tone_energy = |mixer: &mut Mixer| {
+            let (sender, receiver) = tokio::sync::mpsc::channel(64);
+            mixer.packets = receiver;
+            for packet in tone_packets(440.0, 0.5, 25) {
+                sender.try_send(audio_packet(7, packet)).unwrap();
+            }
+            (0..50)
+                .map(|_| energy(&mixer.next_frame().unwrap().expect("still connected")))
+                .sum::<f32>()
+        };
+        // Both mixers play a tone before the one measured, so their jitter
+        // buffers are equally warmed up.
+        let mut unadjusted = Mixer::new(tokio::sync::mpsc::channel(1).1, no_volume_adjustments());
+        tone_energy(&mut unadjusted);
+        let (volumes, volumes_rx) = watch::channel(HashMap::new());
+        let mut mixer = Mixer::new(tokio::sync::mpsc::channel(1).1, volumes_rx);
+        volumes.send_modify(|volumes| {
+            volumes.insert(7, -6.0);
+        });
+        tone_energy(&mut mixer);
+
+        // As when session 7 leaves and the server hands the session to someone new.
+        volumes.send_modify(|volumes| {
+            volumes.remove(&7);
+        });
+
+        let ratio = tone_energy(&mut mixer) / tone_energy(&mut unadjusted);
+        assert!((ratio - 1.0).abs() < 0.05, "energy ratio was {ratio}");
+    }
+
+    #[test]
+    fn departed_users_lose_their_volume_adjustment() {
+        let (volumes, _volumes_rx) = watch::channel(HashMap::from([(3, -6.0), (5, -12.0)]));
+
+        forget_departed_users(&volumes, [3, 4]);
+
+        assert_eq!(*volumes.borrow(), HashMap::from([(3, -6.0)]));
+    }
+
+    #[test]
+    fn volume_adjustments_are_untouched_when_nobody_left() {
+        let (volumes, mut volumes_rx) = watch::channel(HashMap::from([(3, -6.0)]));
+        volumes_rx.mark_unchanged();
+
+        forget_departed_users(&volumes, [3, 4]);
+
+        // Users change constantly (e.g. whenever someone talks), so only a real
+        // departure should wake the mixer.
+        assert!(!volumes_rx.has_changed().unwrap());
+    }
+
+    #[test]
     fn mixer_ends_when_the_connection_closes() {
         use crate::audio::SpeakerSource;
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
-        let mut mixer = Mixer::new(receiver);
+        let mut mixer = Mixer::new(receiver, no_volume_adjustments());
 
         let idle = mixer.next_frame().unwrap().expect("connected, just quiet");
         assert_eq!(idle, [0; MIX_FRAME_SAMPLES]);
@@ -812,25 +1145,38 @@ mod tests {
         assert!(mixer.next_frame().unwrap().is_none());
     }
 
+    /// Everyone lands in the dev server's root channel, so tests running at
+    /// once would hear (or kick) each other. Tests using it take turns.
+    static DEV_SERVER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// Needs the dev server from dev/mumble-server (`npm run mumble:up`), on
-    /// localhost:64738 with password "test". Run with `cargo test -- --ignored`.
-    /// Two clients join the root channel; one talks and the other's mixer should
-    /// produce the tone, exercising the network, decoding and mixing together.
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
-    async fn audio_sent_by_one_client_is_mixed_for_another() {
+    /// localhost:64738 with password "test". Two clients join the root channel;
+    /// one talks for a second and the other's mixer mixes it, with the talker's
+    /// volume adjusted to `volume_db` if given. Returns each 100 ms of the mix as
+    /// (RMS, strength of an unrelated frequency).
+    async fn mix_a_talker(test: &str, volume_db: Option<f32>) -> Vec<(f32, f32)> {
         use crate::audio::SpeakerSource;
+        let _turn = DEV_SERVER.lock().await;
         let connect = |role: &str| {
             proto::client::connect(ConnectionOptions {
                 server: "localhost".into(),
                 port: Some(64738),
                 password: Some("test".into()),
-                // Unique names: a duplicate name kicks the earlier session.
-                username: Some(format!("mumbo-e2e-{role}-{}", std::process::id())),
+                // Unique names, even across tests running at once: a duplicate
+                // name kicks the earlier session.
+                username: Some(format!("mumbo-e2e-{test}-{role}-{}", std::process::id())),
             })
         };
         let listener = connect("listener").await.expect("connecting the listener");
         let talker = connect("talker").await.expect("connecting the talker");
+        let talker_session = talker
+            .client
+            .state()
+            .lock()
+            .unwrap()
+            .current_user()
+            .expect("the talker knows who it is")
+            .session;
 
         let talking = {
             let client = talker.client.clone();
@@ -846,7 +1192,13 @@ mod tests {
             })
         };
 
-        let mut mixer = Mixer::new(listener.audio);
+        let (volumes, volumes_rx) = watch::channel(HashMap::new());
+        let mut mixer = Mixer::new(listener.audio, volumes_rx);
+        if let Some(volume_db) = volume_db {
+            volumes.send_modify(|volumes| {
+                volumes.insert(talker_session, volume_db);
+            });
+        }
         let mut mixed = Vec::new();
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(10));
         for _ in 0..250 {
@@ -863,7 +1215,7 @@ mod tests {
 
         // Judge 100 ms at a time. The level is checked, not the pitch: NetEq's time
         // stretching bends a pure tone when audio arrives in real time (see TODO.md).
-        let windows: Vec<(f32, f32)> = mixed
+        mixed
             .as_chunks::<{ MIX_FRAME_SAMPLES * 10 }>()
             .0
             .iter()
@@ -871,7 +1223,15 @@ mod tests {
                 let rms = (w.iter().map(|s| s * s).sum::<f32>() / w.len() as f32).sqrt();
                 (rms, tone_strength(w, 3000.0))
             })
-            .collect();
+            .collect()
+    }
+
+    /// Exercises the network, decoding and mixing together. Run with
+    /// `cargo test -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn audio_sent_by_one_client_is_mixed_for_another() {
+        let windows = mix_a_talker("plain", None).await;
         // A 0.5-amplitude sine has an RMS of about 0.35.
         let loud = windows.iter().filter(|(rms, _)| *rms > 0.25).count();
         assert!(
@@ -882,6 +1242,202 @@ mod tests {
         assert!(
             windows.iter().all(|(_, other)| *other < 0.02),
             "unrelated frequency in the mix"
+        );
+    }
+
+    /// Needs the dev server, like `mix_a_talker`. Run with `cargo test -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn connecting_again_under_our_name_removes_us_and_says_why() {
+        let _turn = DEV_SERVER.lock().await;
+        let connect = || {
+            proto::client::connect(ConnectionOptions {
+                server: "localhost".into(),
+                port: Some(64738),
+                password: Some("test".into()),
+                username: Some(format!("mumbo-e2e-removed-{}", std::process::id())),
+            })
+        };
+        let Connection { client, debug, audio, events } = connect().await.expect("connecting the first time");
+        let removals = debug.resubscribe();
+        let followed = tokio::spawn(async move {
+            let _audio = audio; // Keep receiving audio, as the app does.
+            follow_until_disconnected(events, removals, &client, |_| {}).await
+        });
+
+        // Murmur lets only one session use a name, so it removes the first.
+        let second = connect().await.expect("connecting the second time");
+        let reason = tokio::time::timeout(std::time::Duration::from_secs(5), followed)
+            .await
+            .expect("the first connection ended")
+            .unwrap();
+        second.client.disconnect();
+
+        assert_eq!(
+            reason,
+            DisconnectReason::Removed {
+                reason: Some("You connected to the server from another device".into()),
+                by: None,
+                banned: false,
+            }
+        );
+    }
+
+    /// Adds volume adjustment to the above. Run with `cargo test -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs the dev Mumble server (dev/mumble-server) on localhost:64738"]
+    async fn a_talkers_volume_adjustment_applies_to_their_mixed_audio() {
+        let windows = mix_a_talker("volume", Some(-12.0)).await;
+        // -12 dB is a quarter of the amplitude: an RMS of about 0.09, not 0.35.
+        let heard = windows.iter().filter(|(rms, _)| *rms > 0.06).count();
+        assert!(
+            heard >= 5,
+            "the talker was heard in only {heard} of {} windows: {windows:.3?}",
+            windows.len()
+        );
+        assert!(
+            windows.iter().all(|(rms, _)| *rms < 0.15),
+            "the talker wasn't turned down: {windows:.3?}"
+        );
+    }
+
+    /// Connects to a server that accepts each connection and hangs up at once,
+    /// as Murmur does to an address it has autobanned. If `read_hello`, it
+    /// reads the client's TLS hello first, so it closes cleanly instead of
+    /// resetting the connection.
+    async fn connect_to_a_server_that_hangs_up(
+        read_hello: bool,
+    ) -> proto::client::MumbleConnectionError {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                if read_hello {
+                    let _ = socket.read(&mut [0; 4096]).await;
+                }
+                drop(socket);
+            }
+        });
+
+        proto::client::connect(ConnectionOptions {
+            server: "localhost".into(),
+            port: Some(port),
+            password: None,
+            username: Some("mumbo-test".into()),
+        })
+        .await
+        .err()
+        .expect("the server hung up")
+    }
+
+    #[tokio::test]
+    async fn explains_a_server_that_hangs_up_while_connecting() {
+        for read_hello in [true, false] {
+            let error = connect_to_a_server_that_hangs_up(read_hello).await;
+
+            let description = describe_connect_error(&error);
+            assert!(description.contains("hung up"), "unclear: {description}");
+            // The original error stays, for anyone debugging.
+            assert!(description.contains(&error.to_string()), "lost the cause: {description}");
+        }
+    }
+
+    /// A server state with an admin in it, as session 1.
+    fn state_with_admin() -> proto::state::MumbleState {
+        let mut state = proto::state::MumbleState::default();
+        state.users.insert(
+            1,
+            proto::state::User {
+                session: 1,
+                name: "admin".into(),
+                ..Default::default()
+            },
+        );
+        state
+    }
+
+    fn user_remove(session: u32, actor: Option<u32>, reason: Option<&str>, ban: Option<bool>) -> proto::ServerToClientMessage {
+        proto::ServerToClientMessage::UserRemove(proto::raw::UserRemove {
+            session,
+            actor,
+            reason: reason.map(Into::into),
+            ban,
+        })
+    }
+
+    #[test]
+    fn notices_an_admin_kicking_us() {
+        let message = user_remove(7, Some(1), Some("go away"), None);
+        assert_eq!(
+            removal_of(&message, 7, &state_with_admin()),
+            Some(DisconnectReason::Removed {
+                reason: Some("go away".into()),
+                by: Some("admin".into()),
+                banned: false,
+            })
+        );
+    }
+
+    #[test]
+    fn notices_an_admin_banning_us() {
+        let message = user_remove(7, Some(1), Some("go away"), Some(true));
+        assert!(matches!(
+            removal_of(&message, 7, &state_with_admin()),
+            Some(DisconnectReason::Removed { banned: true, .. })
+        ));
+    }
+
+    #[test]
+    fn notices_the_server_removing_us_with_no_admin_or_reason() {
+        // Murmur sends an empty reason when there isn't one.
+        let message = user_remove(7, None, Some(""), None);
+        assert_eq!(
+            removal_of(&message, 7, &state_with_admin()),
+            Some(DisconnectReason::Removed { reason: None, by: None, banned: false })
+        );
+    }
+
+    #[test]
+    fn ignores_other_users_leaving() {
+        let message = user_remove(8, Some(1), Some("go away"), None);
+        assert_eq!(removal_of(&message, 7, &state_with_admin()), None);
+    }
+
+    #[test]
+    fn a_removal_explains_a_disconnect_best() {
+        let removed = DisconnectReason::Removed { reason: None, by: None, banned: false };
+        assert_eq!(
+            disconnect_reason(Some(removed.clone()), Some("IO error".into())),
+            removed
+        );
+    }
+
+    #[test]
+    fn without_a_removal_the_sdk_says_how_the_connection_ended() {
+        assert_eq!(disconnect_reason(None, None), DisconnectReason::ServerClosed);
+        assert_eq!(
+            disconnect_reason(None, Some("IO error: peer closed connection".into())),
+            DisconnectReason::ConnectionLost { detail: "IO error: peer closed connection".into() }
+        );
+    }
+
+    /// The shape `src/invoke/connection.ts` parses.
+    #[test]
+    fn disconnect_reasons_serialize_as_tagged_objects() {
+        let json = |reason| serde_json::to_value(Disconnected { reason }).unwrap();
+        assert_eq!(
+            json(DisconnectReason::Removed { reason: Some("go away".into()), by: None, banned: true }),
+            serde_json::json!({ "reason": { "kind": "removed", "reason": "go away", "by": null, "banned": true } })
+        );
+        assert_eq!(
+            json(DisconnectReason::ServerClosed),
+            serde_json::json!({ "reason": { "kind": "server_closed" } })
+        );
+        assert_eq!(
+            json(DisconnectReason::ConnectionLost { detail: "IO error".into() }),
+            serde_json::json!({ "reason": { "kind": "connection_lost", "detail": "IO error" } })
         );
     }
 

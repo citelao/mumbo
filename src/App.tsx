@@ -9,6 +9,7 @@ import { MainPage } from "./pages/MainPage";
 import SettingsStore, { Server, Settings } from "./settings";
 import { connect, disconnect, sendChannelMessage, sendChannelImage, setChannel, setSelfMute, sendUserMessage } from "./invoke";
 import type { Channel as MumbleChannel } from "./invoke/mumbleState";
+import { onDisconnected, type DisconnectReason } from "./invoke/connection";
 
 // Keeps each log feed (and React re-renders) bounded during long sessions.
 const MAX_LOG_ENTRIES = 500;
@@ -36,6 +37,23 @@ function App(props: AppProps) {
     const [protocolLog, setProtocolLog] = useState<ProtocolLog>(emptyProtocolLog);
 
     const [isConnected, setIsConnected] = useState(false);
+    // If the last connection ended on its own, this is set.
+    const [disconnectReason, setDisconnectReason] = useState<DisconnectReason | null>(null);
+
+    // Rust says when the connection ends on its own (e.g. the server went
+    // away); disconnecting ourselves goes through `onDisconnect` instead.
+    useEffect(() => {
+        if (!isConnected) {
+            return;
+        }
+        const unlisten = onDisconnected((reason) => {
+            setIsConnected(false);
+            setDisconnectReason(reason);
+        });
+        return () => {
+            unlisten.then((stop) => stop());
+        };
+    }, [isConnected]);
 
     // With Tauri's own drag and drop off (so the chat editor gets HTML drop
     // events), the webview opens any file dropped outside a drop target in
@@ -105,6 +123,7 @@ function App(props: AppProps) {
         }
 
         setIsConnected(true);
+        setDisconnectReason(null);
 
         // If connected successfully, update the recent servers in the settings.
         await props.settings.addRecentServer({ name: params.name, server: params.server, port: params.port, password: params.password });
@@ -140,6 +159,7 @@ function App(props: AppProps) {
             server={mostRecentServer?.server}
             port={mostRecentServer?.port}
             password={mostRecentServer?.password}
+            disconnectReason={disconnectReason ?? undefined}
             onConnect={onConnect}
             onRemoveRecentServer={onRemoveRecentServer} />;
     } else {

@@ -19,6 +19,45 @@ function input(label: string): HTMLInputElement {
 }
 
 describe("LoginPage", () => {
+    it.each([
+        [
+            "an admin banning us",
+            { kind: "removed", reason: "spam", by: "admin", banned: true } as const,
+            "You were banned from the server by admin: spam",
+        ],
+        [
+            "the server removing us",
+            { kind: "removed", reason: "You connected to the server from another device", by: null, banned: false } as const,
+            "You were removed from the server: You connected to the server from another device",
+        ],
+        [
+            "a removal with no reason",
+            { kind: "removed", reason: null, by: null, banned: false } as const,
+            "You were removed from the server.",
+        ],
+        ["a clean close", { kind: "server_closed" } as const, "The server closed the connection."],
+    ])("explains %s", (_, disconnectReason, message) => {
+        render(<LoginPage onConnect={vi.fn()} onRemoveRecentServer={vi.fn()} disconnectReason={disconnectReason} />);
+        expect(screen.getByRole("status").textContent).toBe(message);
+    });
+
+    it("explains a lost connection, with what went wrong", () => {
+        render(
+            <LoginPage
+                onConnect={vi.fn()}
+                onRemoveRecentServer={vi.fn()}
+                disconnectReason={{ kind: "connection_lost", detail: "IO error: peer closed connection" }} />,
+        );
+        const status = screen.getByRole("status");
+        expect(status.textContent).toContain("Lost the connection to the server.");
+        expect(status.textContent).toContain("IO error: peer closed connection");
+    });
+
+    it("says nothing about disconnecting when we weren't disconnected", () => {
+        render(<LoginPage onConnect={vi.fn()} onRemoveRecentServer={vi.fn()} />);
+        expect(screen.queryByRole("status")).toBeNull();
+    });
+
     it("renders the default connection settings", () => {
         render(<LoginPage onConnect={vi.fn()} onRemoveRecentServer={vi.fn()} />);
         expect(input("Server").value).toBe("localhost");
