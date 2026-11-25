@@ -143,6 +143,10 @@ export function MainPage(props: MainPageProps) {
     ) => {
         event.preventDefault();
 
+        const volumeAdjustTitle = (user.volume_adjustment_db ?? 0) === 0
+            ? "Adjust volume"
+            : `Adjust volume (${user.volume_adjustment_db ?? 0}dB)`
+
         // TODO: real actions.
         const menu = await Menu.new({
             items: [
@@ -156,7 +160,7 @@ export function MainPage(props: MainPageProps) {
                 }),
                 await Submenu.new({
                     id: "volume",
-                    text: `Adjust volume (${user.volume_adjustment_db ?? 0}dB)`,
+                    text: volumeAdjustTitle,
                     items: [
                         await createVolumeItem(user, -12),
                         await createVolumeItem(user, -2),
@@ -164,7 +168,7 @@ export function MainPage(props: MainPageProps) {
                         await createVolumeItem(user, 0),
                         await createVolumeItem(user, 1),
                         await createVolumeItem(user, 2),
-                        await createVolumeItem(user, 12),
+                        await createVolumeItem(user, 6),
                     ]
                 })
             ]
