@@ -222,7 +222,7 @@ fn set_channel(state: tauri::State<'_, AppState>, channel_id: u32) -> Result<(),
 fn set_volume_adjustment(app: AppHandle, state: tauri::State<'_, AppState>, session: u32, volume_db: f32) -> Result<(), String> {
     if let Some(connection) = state.connection.lock().unwrap().as_ref() {
         log::info!("Setting volume adjustment for session {} to {} dB", session, volume_db);
-        _ = connection.volume_adjustments.send_modify(|adjustments| {
+        connection.volume_adjustments.send_modify(|adjustments| {
             adjustments.insert(session, volume_db);
         });
 
@@ -635,7 +635,7 @@ struct Mixer {
 }
 
 impl Mixer {
-    /// Creates a new Mixer with the given packet receiver and optional volume adjustment receiver.
+    /// Creates a new Mixer with the given packet receiver and volume adjustment receiver.
     fn new(packets: tokio::sync::mpsc::Receiver<proto::raw_udp::Audio>,
            volume_adjustments: watch::Receiver<HashMap<u32, f32>>) -> Self {
         Self {
@@ -657,11 +657,12 @@ impl audio::SpeakerSource for Mixer {
     fn next_frame(&mut self) -> Result<Option<[i16; MIX_FRAME_SAMPLES]>, Error> {
         // Apply any pending volume adjustments before processing new packets.
         if self.volume_adjustments.has_changed().unwrap_or(false) {
-            let adjustments = self.volume_adjustments.borrow_and_update();
-            for (&session, &volume_db) in adjustments.iter() {
-                if let Ok(speaker) = Self::get_or_create_speaker(&mut self.speakers, session) {
-                    speaker.set_volume_adjust_db(volume_db);
-                }
+            // Copy out so the guard drops at once: holding it while speakers are
+            // created below would block the UI's writes for that long.
+            let adjustments = self.volume_adjustments.borrow_and_update().clone();
+            for (session, volume_db) in adjustments {
+                Self::get_or_create_speaker(&mut self.speakers, session)?
+                    .set_volume_adjust_db(volume_db);
             }
         }
 
@@ -864,11 +865,16 @@ mod tests {
         }
     }
 
+    /// Volumes that never change: the sender is dropped right away.
+    fn no_volume_adjustments() -> watch::Receiver<HashMap<u32, f32>> {
+        watch::channel(HashMap::new()).1
+    }
+
     #[test]
     fn mixer_plays_the_packets_it_receives() {
         use crate::audio::SpeakerSource;
         let (sender, receiver) = tokio::sync::mpsc::channel(64);
-        let mut mixer = Mixer::new(receiver);
+        let mut mixer = Mixer::new(receiver, no_volume_adjustments());
         for packet in tone_packets(440.0, 0.5, 25) {
             sender.try_send(audio_packet(7, packet)).unwrap();
         }
@@ -881,10 +887,35 @@ mod tests {
     }
 
     #[test]
+    fn mixer_applies_a_speakers_volume_adjustment() {
+        use crate::audio::SpeakerSource;
+        let mixed_energy = |volume_db: Option<f32>| {
+            let (sender, receiver) = tokio::sync::mpsc::channel(64);
+            let (volumes, volumes_rx) = watch::channel(HashMap::new());
+            let mut mixer = Mixer::new(receiver, volumes_rx);
+            if let Some(volume_db) = volume_db {
+                volumes.send_modify(|volumes| {
+                    volumes.insert(7, volume_db);
+                });
+            }
+            for packet in tone_packets(440.0, 0.5, 25) {
+                sender.try_send(audio_packet(7, packet)).unwrap();
+            }
+            (0..50)
+                .map(|_| energy(&mixer.next_frame().unwrap().expect("still connected")))
+                .sum::<f32>()
+        };
+
+        // -6 dB halves the amplitude, which quarters the energy.
+        let ratio = mixed_energy(Some(-6.0)) / mixed_energy(None);
+        assert!((ratio - 0.25).abs() < 0.02, "energy ratio was {ratio}");
+    }
+
+    #[test]
     fn mixer_ends_when_the_connection_closes() {
         use crate::audio::SpeakerSource;
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
-        let mut mixer = Mixer::new(receiver);
+        let mut mixer = Mixer::new(receiver, no_volume_adjustments());
 
         let idle = mixer.next_frame().unwrap().expect("connected, just quiet");
         assert_eq!(idle, [0; MIX_FRAME_SAMPLES]);
@@ -927,7 +958,7 @@ mod tests {
             })
         };
 
-        let mut mixer = Mixer::new(listener.audio);
+        let mut mixer = Mixer::new(listener.audio, no_volume_adjustments());
         let mut mixed = Vec::new();
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(10));
         for _ in 0..250 {

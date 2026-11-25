@@ -6,9 +6,12 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Editor } from "@tiptap/core";
 import App from "./App";
 import type SettingsStore from "./settings";
-import users from "../fixtures/mumbo-sdk/users.json";
+import sdkUsers from "../fixtures/mumbo-sdk/users.json";
 import channels from "../fixtures/mumbo-sdk/channels.json";
 import messages from "../fixtures/mumbo-sdk/server_to_client_messages.json";
+
+// Rust's get_users adds app-only settings to the SDK's users.
+const users = sdkUsers.map((user) => ({ ...user, volume_adjustment_db: null }));
 
 // There's no Tauri runtime under vitest. The fake Channel only needs to hold
 // the `onmessage` handler so tests can push messages through it.

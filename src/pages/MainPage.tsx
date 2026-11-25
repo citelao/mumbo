@@ -118,7 +118,7 @@ export function MainPage(props: MainPageProps) {
     };
 
     const createVolumeItem = async (user: User, num: number) => {
-        const checked = user.volume_adjustment_db === num;
+        const checked = (user.volume_adjustment_db ?? 0) === num;
 
         const checkMenuItem = await CheckMenuItem.new({
             id: `submenu-item-${num}`,
@@ -126,7 +126,12 @@ export function MainPage(props: MainPageProps) {
             checked: checked,
             action: async () => {
                 console.log(`Setting volume for user ${user.session} to ${num} dB`);
-                setVolumeAdjustment(user.session, num);
+                try {
+                    await setVolumeAdjustment(user.session, num);
+                } catch (error) {
+                    // Nothing changed, so the next refresh shows the old volume again.
+                    console.error("Failed to adjust volume:", error);
+                }
             }
         });
         return checkMenuItem;
