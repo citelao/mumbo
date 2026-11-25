@@ -1,0 +1,12 @@
+# Just the Mumble server. The test clients run natively (see run.sh), so
+# nothing is compiled in the container.
+#
+# Uses the same port as dev/mumble-server; stop that one first.
+services:
+  mumble-server:
+    image: docker.io/mumblevoip/mumble-server:latest
+    ports:
+      - "64738:64738/tcp"
+    environment:
+      MUMBLE_SUPERUSER_PASSWORD: "superuser"
+      MUMBLE_CONFIG_SERVERPASSWORD: "test"
