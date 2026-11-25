@@ -426,7 +426,7 @@ async fn connect_internal(
         username: Some(name),
     })
     .await
-    .map_err(|e| Error::other(format!("Failed to connect: {}", e)))?;
+    .map_err(|e| Error::other(format!("Failed to connect: {}", describe_connect_error(&e))))?;
 
     // Send debug events to the channel.
     tauri::async_runtime::spawn(forward_debug(debug, move |message| {
@@ -725,6 +725,27 @@ fn forget_departed_users(
         volumes.retain(|session, _| present.contains(session));
         volumes.len() != before
     });
+}
+
+/// Explains a failed connect in terms the user can act on, keeping the
+/// underlying error for debugging.
+fn describe_connect_error(error: &proto::client::MumbleConnectionError) -> String {
+    use proto::client::MumbleConnectionError;
+    use std::io::ErrorKind;
+    match error {
+        // Murmur hangs up on an address it has autobanned, before even
+        // finishing TLS; a server that's shutting down looks the same.
+        MumbleConnectionError::IoError(e)
+            if matches!(e.kind(), ErrorKind::UnexpectedEof | ErrorKind::ConnectionReset) =>
+        {
+            format!(
+                "The server hung up before the connection was set up. It may be restarting, \
+                 or blocking this address for a few minutes after too many connection \
+                 attempts. ({error})"
+            )
+        }
+        _ => error.to_string(),
+    }
 }
 
 /// Converts a volume in decibels to a linear scale factor.
@@ -1119,6 +1140,49 @@ mod tests {
             windows.iter().all(|(rms, _)| *rms < 0.15),
             "the talker wasn't turned down: {windows:.3?}"
         );
+    }
+
+    /// Connects to a server that accepts each connection and hangs up at once,
+    /// as Murmur does to an address it has autobanned. If `read_hello`, it
+    /// reads the client's TLS hello first, so it closes cleanly instead of
+    /// resetting the connection.
+    async fn connect_to_a_server_that_hangs_up(
+        read_hello: bool,
+    ) -> proto::client::MumbleConnectionError {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                if read_hello {
+                    let _ = socket.read(&mut [0; 4096]).await;
+                }
+                drop(socket);
+            }
+        });
+
+        proto::client::connect(ConnectionOptions {
+            server: "localhost".into(),
+            port: Some(port),
+            password: None,
+            username: Some("mumbo-test".into()),
+        })
+        .await
+        .err()
+        .expect("the server hung up")
+    }
+
+    #[tokio::test]
+    async fn explains_a_server_that_hangs_up_while_connecting() {
+        for read_hello in [true, false] {
+            let error = connect_to_a_server_that_hangs_up(read_hello).await;
+
+            let description = describe_connect_error(&error);
+            assert!(description.contains("hung up"), "unclear: {description}");
+            // The original error stays, for anyone debugging.
+            assert!(description.contains(&error.to_string()), "lost the cause: {description}");
+        }
     }
 
     #[test]
