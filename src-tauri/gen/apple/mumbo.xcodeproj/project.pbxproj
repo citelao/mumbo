@@ -16,6 +16,8 @@
 		6B7F3CA22F2636E816368688 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 6CB09726BCDD11DBE8A1BA13 /* libapp.a */; };
 		8BE3B42C309A471185364A8C /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 615E1400F6339C929191D6DB /* Metal.framework */; };
 		B8A8D65E680CB06E1E36D9C0 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 7C72CE625F172E809CA9161D /* main.mm */; };
+		C377E864F9277EBFED6A2B77 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ADB10383D8CF45F73872181 /* AudioToolbox.framework */; };
+		D3AB756A68221828138E6DF8 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 71C544EE34C5DE3A2CF8756B /* AVFoundation.framework */; };
 		D99DF88A612E98F030104ABD /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 56F0B2B8D01FBAB50D4D5C26 /* LaunchScreen.storyboard */; };
 		DD2BE9A4B1ED85D6601CF96C /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66DBF74BE7DB15E66FA4007D /* Security.framework */; };
 		E4A047B3B798EDBDCAAB268E /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2010826FA16D98B79859B2D5 /* WebKit.framework */; };
@@ -23,6 +25,8 @@
 
 /* Begin PBXFileReference section */
 		02CC35DF37EADC1D11D54439 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		0A6CCE5F129A52977D0FD8F6 /* universal_mute.rs */ = {isa = PBXFileReference; path = universal_mute.rs; sourceTree = "<group>"; };
+		0ADB10383D8CF45F73872181 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		2010826FA16D98B79859B2D5 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		2E4E6C98379D16442070E5E4 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		47253852066BA505C1FBD667 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
@@ -32,11 +36,14 @@
 		615E1400F6339C929191D6DB /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		66DBF74BE7DB15E66FA4007D /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		6CB09726BCDD11DBE8A1BA13 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		71C544EE34C5DE3A2CF8756B /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		7C72CE625F172E809CA9161D /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		7DA151D81C2C4FE3135FD68B /* test_util.rs */ = {isa = PBXFileReference; path = test_util.rs; sourceTree = "<group>"; };
 		89EA032F0BD5AD3544A65F46 /* mumbo_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = mumbo_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B0E9819A486A0FB6BE41ECA9 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		B4C2A7861051ECF2C581FCDB /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		E54A3CA8A6EB397D14BEC937 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		F04D7B18963DB011EA8AD37D /* audio.rs */ = {isa = PBXFileReference; path = audio.rs; sourceTree = "<group>"; };
 		F2009DFFB3C09A6A5CAB01E0 /* mumbo_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = mumbo_iOS.entitlements; sourceTree = "<group>"; };
 		FAC02873F26CD70C56D1B9F7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FC66FE1BF9616498C28D24D3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -55,6 +62,8 @@
 				DD2BE9A4B1ED85D6601CF96C /* Security.framework in Frameworks */,
 				5EAFDC408489DAED7DB8FE9E /* UIKit.framework in Frameworks */,
 				E4A047B3B798EDBDCAAB268E /* WebKit.framework in Frameworks */,
+				C377E864F9277EBFED6A2B77 /* AudioToolbox.framework in Frameworks */,
+				D3AB756A68221828138E6DF8 /* AVFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +81,8 @@
 		38AD0346E30D709631146945 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				0ADB10383D8CF45F73872181 /* AudioToolbox.framework */,
+				71C544EE34C5DE3A2CF8756B /* AVFoundation.framework */,
 				2E4E6C98379D16442070E5E4 /* CoreGraphics.framework */,
 				6CB09726BCDD11DBE8A1BA13 /* libapp.a */,
 				615E1400F6339C929191D6DB /* Metal.framework */,
@@ -104,8 +115,11 @@
 		8709891FFC0DB072056C1F52 /* src */ = {
 			isa = PBXGroup;
 			children = (
+				F04D7B18963DB011EA8AD37D /* audio.rs */,
 				02CC35DF37EADC1D11D54439 /* lib.rs */,
 				58790D40A22995A608041B46 /* main.rs */,
+				7DA151D81C2C4FE3135FD68B /* test_util.rs */,
+				0A6CCE5F129A52977D0FD8F6 /* universal_mute.rs */,
 			);
 			name = src;
 			path = ../../src;

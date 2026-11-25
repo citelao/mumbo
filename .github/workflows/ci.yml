@@ -122,6 +122,26 @@ jobs:
       - if: runner.os == 'macOS'
         run: codesign --verify --strict --verbose=2 target/release/bundle/macos/mumbo.app
 
+  # Builds the iOS app for the simulator, which needs no signing identity.
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+
+      - run: npx tauri ios build --target aarch64-sim --debug --ci
+
   # Builds the flatpak from source in the GNOME SDK, as the release does.
   flatpak:
     runs-on: ubuntu-latest

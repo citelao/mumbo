@@ -154,6 +154,44 @@ pub enum AudioError {
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Audio session error: {0}")]
+    AudioSessionError(String),
+}
+
+/// Puts the iOS audio session in play-and-record mode. cpal never sets a
+/// category, and the default one is playback-only, so building a mic stream
+/// fails with "Invalid property value".
+///
+/// Uses the default mode rather than `VoiceChat`: we already do echo
+/// cancellation and noise suppression ourselves.
+#[cfg(target_os = "ios")]
+fn configure_audio_session() -> Result<(), AudioError> {
+    use objc2_avf_audio::{
+        AVAudioSession, AVAudioSessionCategoryOptions, AVAudioSessionCategoryPlayAndRecord,
+        AVAudioSessionModeDefault,
+    };
+
+    let to_error = |e: objc2::rc::Retained<objc2_foundation::NSError>| {
+        AudioError::AudioSessionError(e.localizedDescription().to_string())
+    };
+    // SAFETY: the category/mode statics are always non-null on iOS; the
+    // session calls are thread-safe and their arguments are valid.
+    unsafe {
+        let session = AVAudioSession::sharedInstance();
+        session
+            .setCategory_mode_options_error(
+                AVAudioSessionCategoryPlayAndRecord.expect("missing PlayAndRecord category"),
+                AVAudioSessionModeDefault.expect("missing default mode"),
+                // Play through the loudspeaker rather than the earpiece, and
+                // allow Bluetooth headsets as a mic.
+                AVAudioSessionCategoryOptions::DefaultToSpeaker
+                    | AVAudioSessionCategoryOptions::AllowBluetoothHFP,
+            )
+            .map_err(to_error)?;
+        session.setActive_error(true).map_err(to_error)?;
+    }
+    Ok(())
 }
 
 pub const DESIRED_INPUT_SAMPLE_RATE: u32 = 48_000;
@@ -447,6 +485,10 @@ impl AudioModule {
         mut on_mic_frame: impl MicFrameSink + 'static,
         mut speakers: impl SpeakerSource + 'static,
     ) -> Result<impl Future<Output = Result<(), AudioError>> + 'static, AudioError> {
+        // Before querying configs: the session's sample rate can change with its category.
+        #[cfg(target_os = "ios")]
+        configure_audio_session()?;
+
         let host = default_host();
         let input_device = resolve_device(
             &host,

@@ -5,14 +5,32 @@
     // instead of centering it and clipping both ends.
     justify-content: safe center;
     align-items: center;
-    height: 100vh;
-    // The window itself doesn't scroll (see App.scss), so the page must.
+    // Fill #root (which may be inset by safe areas) rather than the viewport.
+    min-height: 0;
+    // The window itself doesn't scroll (see App.scss), so the page must, e.g.
+    // on a phone with the keyboard up.
     overflow-y: auto;
 }
 
 .sub-container {
     display: flex;
     gap: 1rem;
+}
+
+// Phones: stack recent servers above the form, and let the form shrink.
+@media (max-width: 600px) {
+    .container {
+        justify-content: flex-start;
+    }
+
+    .sub-container {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .connection-form {
+        min-width: 0;
+    }
 }
 
 .user-count.error {

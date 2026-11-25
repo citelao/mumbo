@@ -58,6 +58,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: "0.1.0"
+        NSMicrophoneUsageDescription: mumbo needs your microphone so others on the Mumble server can hear you.
     entitlements:
       path: mumbo_iOS/mumbo_iOS.entitlements
     scheme:
@@ -84,6 +85,9 @@ targets:
       - sdk: Security.framework
       - sdk: UIKit.framework
       - sdk: WebKit.framework
+      # cpal's CoreAudio backend (AudioUnit + AVAudioSession).
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
     preBuildScripts:
       - script: |
           npm run -- tauri ios xcode-script -v --platform "${PLATFORM_DISPLAY_NAME:?}" --sdk-root "${SDKROOT:?}" --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration "${CONFIGURATION:?}" ${FORCE_COLOR} ${ARCHS:?}
