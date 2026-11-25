@@ -6,10 +6,11 @@ import { Channel, fetchChannels, fetchChatMessages, fetchUsers, TextMessage, typ
 import { ProtocolViewer, type ProtocolLog } from "../ProtocolViewer";
 import styles from "./MainPage.module.scss";
 import type { Channel as MumbleChannel } from "../invoke/mumbleState";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
+import { CheckMenuItem, Menu, MenuItem, Submenu } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { useEditor, EditorContent } from '@tiptap/react';
 import { createChatExtensions, getMessageHtml, IMAGE_MIME_TYPES, isMessageEmpty, sendImageFile } from '../chatEditor';
+import { setVolumeAdjustment } from "../invoke";
 
 export interface MainPageProps {
     protocolLog: ProtocolLog;
@@ -116,6 +117,21 @@ export function MainPage(props: MainPageProps) {
         props.onSendUserMessage(message, session);
     };
 
+    const createVolumeItem = async (user: User, num: number) => {
+        const checked = num === 0;
+
+        const checkMenuItem = await CheckMenuItem.new({
+            id: `submenu-item-${num}`,
+            text: `${num.toString().padStart(3, " ")}dB`,
+            checked: checked,
+            action: () => {
+                console.log(`Setting volume for user ${user.session} to ${num} dB`);
+                setVolumeAdjustment(user.session, num);
+            }
+        });
+        return checkMenuItem;
+    };
+
     const onUserContextMenu = async (
         user: User,
         event: React.MouseEvent
@@ -132,6 +148,19 @@ export function MainPage(props: MainPageProps) {
                         console.log(`Annoying user ${user.name}`);
                         onSendUserMessage(`Annoying you!`, [user.session]);
                     }
+                }),
+                await Submenu.new({
+                    id: "volume",
+                    text: "Local volume",
+                    items: [
+                        await createVolumeItem(user, -12),
+                        await createVolumeItem(user, -2),
+                        await createVolumeItem(user, -1),
+                        await createVolumeItem(user, 0),
+                        await createVolumeItem(user, 1),
+                        await createVolumeItem(user, 2),
+                        await createVolumeItem(user, 12),
+                    ]
                 })
             ]
         });
