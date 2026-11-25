@@ -128,9 +128,15 @@ jobs:
     container:
       # Keep in sync with `runtime-version` in the manifest.
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
-      options: --privileged
+      # Some runner images (e.g. ubuntu26/20261111.82, 20261116.88) fail SDK
+      # updates with "Invalid cross-device link" when /var/lib/flatpak sits on
+      # the image's overlay filesystem. An anonymous volume starts as a copy of
+      # the image's preinstalled runtimes but lives on a plain filesystem.
+      options: --privileged --volume /var/lib/flatpak
     steps:
       - uses: actions/checkout@v4
+      # Record what backs the flatpak install, to compare across runner images.
+      - run: uname -r; df -T /var/lib/flatpak
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: mumbo.flatpak
