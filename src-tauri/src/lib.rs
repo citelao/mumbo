@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::io::Error;
 use std::sync::Arc;
 
+use mumbo_sdk::state::MumbleEvent;
 use mumbo_sdk as proto;
 use mumbo_sdk::client::{Connection, ConnectionOptions, SelfMuteStatus};
 use tauri::ipc::Channel;
-use tauri::{Emitter, Listener, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use tauri_plugin_store::StoreExt;
 use tokio::sync::{broadcast, watch};
@@ -102,14 +103,30 @@ async fn disconnect(state: tauri::State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct UiUser {
+    #[serde(flatten)]
+    user: proto::state::User,
+
+    volume_adjustment_db: Option<f32>,
+}
+
 #[tauri::command]
-fn get_users(state: tauri::State<'_, AppState>) -> Vec<proto::state::User> {
+fn get_users(state: tauri::State<'_, AppState>) -> Vec<UiUser> {
     state
         .connection
         .lock()
         .unwrap()
         .as_ref()
-        .map(|conn| conn.client.state().lock().unwrap().users())
+        .map(|conn| {
+            let binding = conn.client.state();
+            let state = binding.lock().unwrap();
+            let volume_adjustments = conn.volume_adjustments.borrow();
+            state.users().iter().map(|user| UiUser {
+                user: user.clone(),
+                volume_adjustment_db: volume_adjustments.get(&user.session).copied(),
+            }).collect::<Vec<_>>()
+        })
         .unwrap_or_default()
 }
 
@@ -202,30 +219,19 @@ fn set_channel(state: tauri::State<'_, AppState>, channel_id: u32) -> Result<(),
 }
 
 #[tauri::command]
-fn set_volume_adjustment(state: tauri::State<'_, AppState>, session: u32, volume_db: f32) -> Result<(), String> {
+fn set_volume_adjustment(app: AppHandle, state: tauri::State<'_, AppState>, session: u32, volume_db: f32) -> Result<(), String> {
     if let Some(connection) = state.connection.lock().unwrap().as_ref() {
         log::info!("Setting volume adjustment for session {} to {} dB", session, volume_db);
         _ = connection.volume_adjustments.send_modify(|adjustments| {
             adjustments.insert(session, volume_db);
         });
+
+        // Manually emit a session-changed event to notify listeners of the volume adjustment change.
+        let _ = app.emit("session-changed", MumbleEvent::UsersChanged);
     } else {
         return Err("No active connection".into());
     }
     Ok(())
-}
-
-#[tauri::command]
-fn get_volume_adjustments(state: tauri::State<'_, AppState>) -> Result<Vec<(u32, f32)>, String> {
-    if let Some(connection) = state.connection.lock().unwrap().as_ref() {
-        let adjustments = connection.volume_adjustments.clone();
-        let vec = adjustments.borrow()
-            .iter()
-            .map(|(session, volume)| (*session, *volume))
-            .collect::<Vec<_>>();
-        Ok(vec)
-    } else {
-        Err("No active connection".into())
-    }
 }
 
 /// Forwards debug messages until the connection closes. A consumer that falls

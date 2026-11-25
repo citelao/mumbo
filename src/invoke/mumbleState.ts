@@ -19,6 +19,8 @@ export const User = z.strictObject({
 
   is_me: z.boolean(),
   is_speaking: z.boolean(),
+
+  volume_adjustment_db: z.number().nullable(),
 });
 
 export type User = z.infer<typeof User>;

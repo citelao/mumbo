@@ -118,13 +118,13 @@ export function MainPage(props: MainPageProps) {
     };
 
     const createVolumeItem = async (user: User, num: number) => {
-        const checked = num === 0;
+        const checked = user.volume_adjustment_db === num;
 
         const checkMenuItem = await CheckMenuItem.new({
             id: `submenu-item-${num}`,
             text: `${num.toString().padStart(3, " ")}dB`,
             checked: checked,
-            action: () => {
+            action: async () => {
                 console.log(`Setting volume for user ${user.session} to ${num} dB`);
                 setVolumeAdjustment(user.session, num);
             }
@@ -151,7 +151,7 @@ export function MainPage(props: MainPageProps) {
                 }),
                 await Submenu.new({
                     id: "volume",
-                    text: "Local volume",
+                    text: `Adjust volume (${user.volume_adjustment_db ?? 0}dB)`,
                     items: [
                         await createVolumeItem(user, -12),
                         await createVolumeItem(user, -2),
