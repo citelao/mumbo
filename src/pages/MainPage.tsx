@@ -36,6 +36,14 @@ function openChatLink(e: React.MouseEvent) {
     }
 }
 
+function dbAdjustmentToString(num: number) {
+    if (num > 0) {
+        return `+${num}dB`;
+    } else {
+        return `${num}dB`;
+    }
+}
+
 export function MainPage(props: MainPageProps) {
     const [users, setUsers] = useState<User[]>([]);
     const [channels, setChannels] = useState<Channel[]>([]);
@@ -122,7 +130,7 @@ export function MainPage(props: MainPageProps) {
 
         const checkMenuItem = await CheckMenuItem.new({
             id: `submenu-item-${num}`,
-            text: `${num.toString().padStart(3, " ")}dB`,
+            text: `${dbAdjustmentToString(num).padStart(6, " ")}`,
             checked: checked,
             action: async () => {
                 console.log(`Setting volume for user ${user.session} to ${num} dB`);
@@ -144,8 +152,8 @@ export function MainPage(props: MainPageProps) {
         event.preventDefault();
 
         const volumeAdjustTitle = (user.volume_adjustment_db ?? 0) === 0
-            ? "Adjust volume"
-            : `Adjust volume (${user.volume_adjustment_db ?? 0}dB)`
+            ? "Volume adjust"
+            : `Volume adjust (${dbAdjustmentToString(user.volume_adjustment_db ?? 0)})`
 
         // TODO: real actions.
         const menu = await Menu.new({
